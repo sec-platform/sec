@@ -1,0 +1,28 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_path_unix",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "os_str_as_bytes": {
+      "sourcePath": "native-support/path.rs",
+      "nativeExport": "os_str_as_bytes",
+      "role": "callable"
+    },
+    "os_str_from_bytes": {
+      "sourcePath": "native-support/path.rs",
+      "nativeExport": "os_str_from_bytes",
+      "role": "callable"
+    },
+    "os_string_from_bytes": {
+      "sourcePath": "native-support/path.rs",
+      "nativeExport": "os_string_from_bytes",
+      "role": "callable"
+    },
+    "os_string_into_bytes": {
+      "sourcePath": "native-support/path.rs",
+      "nativeExport": "os_string_into_bytes",
+      "role": "callable"
+    }
+  }
+}

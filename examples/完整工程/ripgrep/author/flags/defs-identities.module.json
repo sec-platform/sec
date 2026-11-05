@@ -1,0 +1,1465 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:core:flags:defs:identities",
+  "imports": {},
+  "definitions": {
+    "AfterContext": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "AutoHybridRegex": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "BeforeContext": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Binary": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "BlockBuffered": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "ByteOffset": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "CaseSensitive": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Color": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Colors": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Column": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Context": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "ContextSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Count": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "CountMatches": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Crlf": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Debug": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "DfaSizeLimit": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Encoding": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Engine": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "FieldContextSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "FieldMatchSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "File": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Files": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "FilesWithMatches": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "FilesWithoutMatch": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "FixedStrings": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Follow": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Generate": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Glob": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "GlobCaseInsensitive": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Heading": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Help": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Hidden": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "HostnameBin": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "HyperlinkFormat": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "IGlob": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "IgnoreCase": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "IgnoreFile": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "IgnoreFileCaseInsensitive": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "IncludeZero": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "InvertMatch": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "JSON": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "LineBuffered": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "LineNumber": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "LineNumberNo": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "LineRegexp": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "MaxColumns": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "MaxColumnsPreview": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "MaxCount": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "MaxDepth": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "MaxFilesize": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Mmap": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Multiline": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "MultilineDotall": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoConfig": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnore": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreDot": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreExclude": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreFiles": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreGlobal": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreMessages": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreParent": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoIgnoreVcs": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoMessages": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoPcre2Unicode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoRequireGit": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NoUnicode": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Null": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "NullData": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "OneFileSystem": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "OnlyMatching": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "PathSeparator": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Passthru": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "PCRE2": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "PCRE2Version": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Pre": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "PreGlob": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Pretty": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Quiet": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "RegexSizeLimit": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Regexp": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Replace": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "SearchZip": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "SmartCase": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "SortFiles": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Sort": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Sortr": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Stats": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "StopOnNonmatch": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Text": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Threads": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Trace": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Trim": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Type": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "TypeAdd": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "TypeClear": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "TypeNot": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "TypeList": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Unrestricted": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Version": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "Vimgrep": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "WithFilename": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "WithFilenameNo": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    },
+    "WordRegexp": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {}
+        },
+        "opaque": true
+      }
+    }
+  },
+  "exports": {
+    "AfterContext": {
+      "definitionId": "AfterContext"
+    },
+    "AutoHybridRegex": {
+      "definitionId": "AutoHybridRegex"
+    },
+    "BeforeContext": {
+      "definitionId": "BeforeContext"
+    },
+    "Binary": {
+      "definitionId": "Binary"
+    },
+    "BlockBuffered": {
+      "definitionId": "BlockBuffered"
+    },
+    "ByteOffset": {
+      "definitionId": "ByteOffset"
+    },
+    "CaseSensitive": {
+      "definitionId": "CaseSensitive"
+    },
+    "Color": {
+      "definitionId": "Color"
+    },
+    "Colors": {
+      "definitionId": "Colors"
+    },
+    "Column": {
+      "definitionId": "Column"
+    },
+    "Context": {
+      "definitionId": "Context"
+    },
+    "ContextSeparator": {
+      "definitionId": "ContextSeparator"
+    },
+    "Count": {
+      "definitionId": "Count"
+    },
+    "CountMatches": {
+      "definitionId": "CountMatches"
+    },
+    "Crlf": {
+      "definitionId": "Crlf"
+    },
+    "Debug": {
+      "definitionId": "Debug"
+    },
+    "DfaSizeLimit": {
+      "definitionId": "DfaSizeLimit"
+    },
+    "Encoding": {
+      "definitionId": "Encoding"
+    },
+    "Engine": {
+      "definitionId": "Engine"
+    },
+    "FieldContextSeparator": {
+      "definitionId": "FieldContextSeparator"
+    },
+    "FieldMatchSeparator": {
+      "definitionId": "FieldMatchSeparator"
+    },
+    "File": {
+      "definitionId": "File"
+    },
+    "Files": {
+      "definitionId": "Files"
+    },
+    "FilesWithMatches": {
+      "definitionId": "FilesWithMatches"
+    },
+    "FilesWithoutMatch": {
+      "definitionId": "FilesWithoutMatch"
+    },
+    "FixedStrings": {
+      "definitionId": "FixedStrings"
+    },
+    "Follow": {
+      "definitionId": "Follow"
+    },
+    "Generate": {
+      "definitionId": "Generate"
+    },
+    "Glob": {
+      "definitionId": "Glob"
+    },
+    "GlobCaseInsensitive": {
+      "definitionId": "GlobCaseInsensitive"
+    },
+    "Heading": {
+      "definitionId": "Heading"
+    },
+    "Help": {
+      "definitionId": "Help"
+    },
+    "Hidden": {
+      "definitionId": "Hidden"
+    },
+    "HostnameBin": {
+      "definitionId": "HostnameBin"
+    },
+    "HyperlinkFormat": {
+      "definitionId": "HyperlinkFormat"
+    },
+    "IGlob": {
+      "definitionId": "IGlob"
+    },
+    "IgnoreCase": {
+      "definitionId": "IgnoreCase"
+    },
+    "IgnoreFile": {
+      "definitionId": "IgnoreFile"
+    },
+    "IgnoreFileCaseInsensitive": {
+      "definitionId": "IgnoreFileCaseInsensitive"
+    },
+    "IncludeZero": {
+      "definitionId": "IncludeZero"
+    },
+    "InvertMatch": {
+      "definitionId": "InvertMatch"
+    },
+    "JSON": {
+      "definitionId": "JSON"
+    },
+    "LineBuffered": {
+      "definitionId": "LineBuffered"
+    },
+    "LineNumber": {
+      "definitionId": "LineNumber"
+    },
+    "LineNumberNo": {
+      "definitionId": "LineNumberNo"
+    },
+    "LineRegexp": {
+      "definitionId": "LineRegexp"
+    },
+    "MaxColumns": {
+      "definitionId": "MaxColumns"
+    },
+    "MaxColumnsPreview": {
+      "definitionId": "MaxColumnsPreview"
+    },
+    "MaxCount": {
+      "definitionId": "MaxCount"
+    },
+    "MaxDepth": {
+      "definitionId": "MaxDepth"
+    },
+    "MaxFilesize": {
+      "definitionId": "MaxFilesize"
+    },
+    "Mmap": {
+      "definitionId": "Mmap"
+    },
+    "Multiline": {
+      "definitionId": "Multiline"
+    },
+    "MultilineDotall": {
+      "definitionId": "MultilineDotall"
+    },
+    "NoConfig": {
+      "definitionId": "NoConfig"
+    },
+    "NoIgnore": {
+      "definitionId": "NoIgnore"
+    },
+    "NoIgnoreDot": {
+      "definitionId": "NoIgnoreDot"
+    },
+    "NoIgnoreExclude": {
+      "definitionId": "NoIgnoreExclude"
+    },
+    "NoIgnoreFiles": {
+      "definitionId": "NoIgnoreFiles"
+    },
+    "NoIgnoreGlobal": {
+      "definitionId": "NoIgnoreGlobal"
+    },
+    "NoIgnoreMessages": {
+      "definitionId": "NoIgnoreMessages"
+    },
+    "NoIgnoreParent": {
+      "definitionId": "NoIgnoreParent"
+    },
+    "NoIgnoreVcs": {
+      "definitionId": "NoIgnoreVcs"
+    },
+    "NoMessages": {
+      "definitionId": "NoMessages"
+    },
+    "NoPcre2Unicode": {
+      "definitionId": "NoPcre2Unicode"
+    },
+    "NoRequireGit": {
+      "definitionId": "NoRequireGit"
+    },
+    "NoUnicode": {
+      "definitionId": "NoUnicode"
+    },
+    "Null": {
+      "definitionId": "Null"
+    },
+    "NullData": {
+      "definitionId": "NullData"
+    },
+    "OneFileSystem": {
+      "definitionId": "OneFileSystem"
+    },
+    "OnlyMatching": {
+      "definitionId": "OnlyMatching"
+    },
+    "PathSeparator": {
+      "definitionId": "PathSeparator"
+    },
+    "Passthru": {
+      "definitionId": "Passthru"
+    },
+    "PCRE2": {
+      "definitionId": "PCRE2"
+    },
+    "PCRE2Version": {
+      "definitionId": "PCRE2Version"
+    },
+    "Pre": {
+      "definitionId": "Pre"
+    },
+    "PreGlob": {
+      "definitionId": "PreGlob"
+    },
+    "Pretty": {
+      "definitionId": "Pretty"
+    },
+    "Quiet": {
+      "definitionId": "Quiet"
+    },
+    "RegexSizeLimit": {
+      "definitionId": "RegexSizeLimit"
+    },
+    "Regexp": {
+      "definitionId": "Regexp"
+    },
+    "Replace": {
+      "definitionId": "Replace"
+    },
+    "SearchZip": {
+      "definitionId": "SearchZip"
+    },
+    "SmartCase": {
+      "definitionId": "SmartCase"
+    },
+    "SortFiles": {
+      "definitionId": "SortFiles"
+    },
+    "Sort": {
+      "definitionId": "Sort"
+    },
+    "Sortr": {
+      "definitionId": "Sortr"
+    },
+    "Stats": {
+      "definitionId": "Stats"
+    },
+    "StopOnNonmatch": {
+      "definitionId": "StopOnNonmatch"
+    },
+    "Text": {
+      "definitionId": "Text"
+    },
+    "Threads": {
+      "definitionId": "Threads"
+    },
+    "Trace": {
+      "definitionId": "Trace"
+    },
+    "Trim": {
+      "definitionId": "Trim"
+    },
+    "Type": {
+      "definitionId": "Type"
+    },
+    "TypeAdd": {
+      "definitionId": "TypeAdd"
+    },
+    "TypeClear": {
+      "definitionId": "TypeClear"
+    },
+    "TypeNot": {
+      "definitionId": "TypeNot"
+    },
+    "TypeList": {
+      "definitionId": "TypeList"
+    },
+    "Unrestricted": {
+      "definitionId": "Unrestricted"
+    },
+    "Version": {
+      "definitionId": "Version"
+    },
+    "Vimgrep": {
+      "definitionId": "Vimgrep"
+    },
+    "WithFilename": {
+      "definitionId": "WithFilename"
+    },
+    "WithFilenameNo": {
+      "definitionId": "WithFilenameNo"
+    },
+    "WordRegexp": {
+      "definitionId": "WordRegexp"
+    }
+  }
+}

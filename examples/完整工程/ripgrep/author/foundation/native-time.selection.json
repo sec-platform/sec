@@ -1,0 +1,38 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_time",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "Duration": {
+      "sourcePath": "native-support/time.rs",
+      "nativeExport": "Duration",
+      "role": "type"
+    },
+    "DURATION_ZERO": {
+      "sourcePath": "native-support/time.rs",
+      "nativeExport": "DURATION_ZERO",
+      "role": "constant"
+    },
+    "duration_add": {
+      "sourcePath": "native-support/time.rs",
+      "nativeExport": "duration_add",
+      "role": "callable"
+    },
+    "duration_equal": {
+      "sourcePath": "native-support/time.rs",
+      "nativeExport": "duration_equal",
+      "role": "callable"
+    },
+    "duration_as_secs": {
+      "sourcePath": "native-support/time.rs",
+      "nativeExport": "duration_as_secs",
+      "role": "callable"
+    },
+    "duration_subsec_nanos": {
+      "sourcePath": "native-support/time.rs",
+      "nativeExport": "duration_subsec_nanos",
+      "role": "callable"
+    }
+  }
+}

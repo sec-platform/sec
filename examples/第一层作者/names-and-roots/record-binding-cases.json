@@ -1,0 +1,426 @@
+{
+  "scope": "Candidate record-let shape and unchanged legacy acceptance only; no type, ownership, cleanup or runtime proof.",
+  "cases": [
+    {
+      "name": "record-complete-candidate",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": "h"
+          },
+          {
+            "field": "tail",
+            "binding": "t"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "record-old-v2-rejects",
+      "schema": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr",
+      "expected": false,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": "h"
+          },
+          {
+            "field": "tail",
+            "binding": "t"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "single-name-candidate-preserved",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "name": "h",
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "single-name-old-preserved",
+      "schema": "urn:gift:design-schema:universal-author-module-2#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "name": "h",
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "record-name-collision-rejected",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": false,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": "h"
+          },
+          {
+            "field": "tail",
+            "binding": "t"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        },
+        "name": "extra"
+      }
+    },
+    {
+      "name": "record-empty-shape",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "fields": [],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "literal",
+          "type": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "value": null
+        }
+      }
+    },
+    {
+      "name": "record-bad-binding-shape",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": false,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "name": "h"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "record-empty-field-name",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "",
+            "binding": "h"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "record-statement-not-added",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/ExecStatement",
+      "expected": false,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": "h"
+          },
+          {
+            "field": "tail",
+            "binding": "t"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "record-shared-candidate",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "tag": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": {
+              "key": "kh",
+              "name": "h"
+            }
+          },
+          {
+            "field": "tail",
+            "binding": {
+              "key": "kt",
+              "name": "t"
+            }
+          }
+        ],
+        "initializer": {
+          "tag": "reference",
+          "ref": {
+            "binding": "kp"
+          }
+        },
+        "continuation": {
+          "tag": "reference",
+          "ref": {
+            "binding": "kh"
+          }
+        }
+      }
+    },
+    {
+      "name": "record-nested-initializer",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": "h"
+          },
+          {
+            "field": "tail",
+            "binding": "t"
+          }
+        ],
+        "value": {
+          "op": "let",
+          "fields": [
+            {
+              "field": "head",
+              "binding": "h"
+            },
+            {
+              "field": "tail",
+              "binding": "t"
+            }
+          ],
+          "value": {
+            "op": "var",
+            "name": "pair"
+          },
+          "body": {
+            "op": "var",
+            "name": "h"
+          }
+        },
+        "body": {
+          "op": "var",
+          "name": "h"
+        }
+      }
+    },
+    {
+      "name": "record-nested-continuation",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "op": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": "h"
+          },
+          {
+            "field": "tail",
+            "binding": "t"
+          }
+        ],
+        "value": {
+          "op": "var",
+          "name": "pair"
+        },
+        "body": {
+          "op": "let",
+          "fields": [
+            {
+              "field": "head",
+              "binding": "h"
+            },
+            {
+              "field": "tail",
+              "binding": "t"
+            }
+          ],
+          "value": {
+            "op": "var",
+            "name": "pair"
+          },
+          "body": {
+            "op": "var",
+            "name": "h"
+          }
+        }
+      }
+    },
+    {
+      "name": "record-shared-old-rejects",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1#/$defs/Expr",
+      "expected": false,
+      "value": {
+        "tag": "let",
+        "fields": [
+          {
+            "field": "head",
+            "binding": {
+              "key": "kh",
+              "name": "h"
+            }
+          },
+          {
+            "field": "tail",
+            "binding": {
+              "key": "kt",
+              "name": "t"
+            }
+          }
+        ],
+        "initializer": {
+          "tag": "reference",
+          "ref": {
+            "binding": "kp"
+          }
+        },
+        "continuation": {
+          "tag": "reference",
+          "ref": {
+            "binding": "kh"
+          }
+        }
+      }
+    },
+    {
+      "name": "record-shared-empty-field",
+      "schema": "urn:gift:design-schema:shared-semantic-structure-1-converged-base#/$defs/Expr",
+      "expected": true,
+      "value": {
+        "tag": "let",
+        "fields": [
+          {
+            "field": "",
+            "binding": {
+              "key": "kh",
+              "name": "h"
+            }
+          }
+        ],
+        "initializer": {
+          "tag": "reference",
+          "ref": {
+            "binding": "kp"
+          }
+        },
+        "continuation": {
+          "tag": "reference",
+          "ref": {
+            "binding": "kh"
+          }
+        }
+      }
+    }
+  ],
+  "semanticObligations": [
+    {
+      "case": "two non-Copy fields",
+      "expected": "transfer each once; no Clone/Copy premise; no drop of the other field"
+    },
+    {
+      "case": "duplicate field or binder",
+      "expected": "reject even if JSON structure is valid"
+    },
+    {
+      "case": "missing or extra field",
+      "expected": "reject; exact complete coverage required"
+    },
+    {
+      "case": "optional, mutable, open or invisible field",
+      "expected": "reject this binding form; preserve original specialized operations"
+    },
+    {
+      "case": "whole-record Drop, active borrow or fixed-address constraint",
+      "expected": "reject unless original ownership owner establishes legal complete move"
+    },
+    {
+      "case": "initializer shadowing",
+      "expected": "resolve initializer in old scope; publish new bindings only to continuation"
+    },
+    {
+      "case": "abnormal exit after ownership transfer",
+      "expected": "each remaining obligation is settled once by its actual owner; implicit effects retained"
+    }
+  ]
+}

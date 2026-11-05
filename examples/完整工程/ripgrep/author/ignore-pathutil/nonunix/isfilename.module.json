@@ -1,0 +1,103 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:isfilename",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    }
+  },
+  "definitions": {
+    "IsFileNamePath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:Parent"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "none",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "parent",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "path:IsEmpty"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "parent"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "IsFileNamePath": {
+      "definitionId": "IsFileNamePath"
+    }
+  }
+}

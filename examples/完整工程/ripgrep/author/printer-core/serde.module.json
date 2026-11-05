@@ -1,0 +1,2425 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:printer:serde",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "time": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:time"
+    },
+    "serde": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:serde"
+    },
+    "stats": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:stats"
+    },
+    "duration": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:nice-duration"
+    }
+  },
+  "definitions": {
+    "StatsSerialize": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "stats:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "serializer",
+            "type": {
+              "tag": "param",
+              "name": "S"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Ok"
+          },
+          "error": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "S",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "serde:Serializer",
+                "selfType": {
+                  "tag": "param",
+                  "name": "S"
+                }
+              },
+              {
+                "traitRef": "serde:SerializeStruct",
+                "selfType": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "SerializeStruct"
+                },
+                "associatedTypes": {
+                  "Ok": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Ok"
+                  },
+                  "Error": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Error"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "trait-method",
+              "traitRef": "serde:Serializer",
+              "selfType": {
+                "tag": "param",
+                "name": "S"
+              },
+              "method": "serialize_struct"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "serializer"
+              },
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "Stats"
+              },
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeFromByte"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    "value": "7"
+                  }
+                ]
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "state",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:StatsSerializeState"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "state"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "StatsSerializeState": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "stats:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "state",
+            "type": {
+              "tag": "associated",
+              "traitRef": "serde:Serializer",
+              "selfType": {
+                "tag": "param",
+                "name": "S"
+              },
+              "member": "SerializeStruct"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Ok"
+          },
+          "error": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "S",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "serde:Serializer",
+                "selfType": {
+                  "tag": "param",
+                  "name": "S"
+                }
+              },
+              {
+                "traitRef": "serde:SerializeStruct",
+                "selfType": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "SerializeStruct"
+                },
+                "associatedTypes": {
+                  "Ok": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Ok"
+                  },
+                  "Error": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Error"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "active",
+              "value": {
+                "op": "var",
+                "name": "state"
+              }
+            },
+            {
+              "op": "let",
+              "name": "fields",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:BorrowFields"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:WithBorrowMut"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "active"
+                },
+                {
+                  "op": "lambda",
+                  "typeParams": [
+                    {
+                      "name": "stateRegion",
+                      "kind": "Region"
+                    }
+                  ],
+                  "params": [
+                    {
+                      "name": "statePlace",
+                      "type": {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:BorrowMut"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "associated",
+                            "traitRef": "serde:Serializer",
+                            "selfType": {
+                              "tag": "param",
+                              "name": "S"
+                            },
+                            "member": "SerializeStruct"
+                          },
+                          {
+                            "region": {
+                              "parameter": "stateRegion"
+                            }
+                          }
+                        ]
+                      },
+                      "mode": "inout"
+                    }
+                  ],
+                  "parameterContracts": [
+                    {
+                      "position": 0,
+                      "retention": "noescape"
+                    }
+                  ],
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "trait-method",
+                      "traitRef": "serde:SerializeStruct",
+                      "selfType": {
+                        "tag": "associated",
+                        "traitRef": "serde:Serializer",
+                        "selfType": {
+                          "tag": "param",
+                          "name": "S"
+                        },
+                        "member": "SerializeStruct"
+                      },
+                      "method": "serialize_field"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "statePlace"
+                      },
+                      {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "elapsed"
+                      },
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "fields"
+                        },
+                        "name": "elapsed"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "var",
+                    "name": "error"
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "fieldWritten0",
+                "body": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:WithBorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "active"
+                      },
+                      {
+                        "op": "lambda",
+                        "typeParams": [
+                          {
+                            "name": "stateRegion",
+                            "kind": "Region"
+                          }
+                        ],
+                        "params": [
+                          {
+                            "name": "statePlace",
+                            "type": {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "machine:BorrowMut"
+                              },
+                              "arguments": [
+                                {
+                                  "tag": "associated",
+                                  "traitRef": "serde:Serializer",
+                                  "selfType": {
+                                    "tag": "param",
+                                    "name": "S"
+                                  },
+                                  "member": "SerializeStruct"
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "stateRegion"
+                                  }
+                                }
+                              ]
+                            },
+                            "mode": "inout"
+                          }
+                        ],
+                        "parameterContracts": [
+                          {
+                            "position": 0,
+                            "retention": "noescape"
+                          }
+                        ],
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "trait-method",
+                            "traitRef": "serde:SerializeStruct",
+                            "selfType": {
+                              "tag": "associated",
+                              "traitRef": "serde:Serializer",
+                              "selfType": {
+                                "tag": "param",
+                                "name": "S"
+                              },
+                              "member": "SerializeStruct"
+                            },
+                            "method": "serialize_field"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "statePlace"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "searches"
+                            },
+                            {
+                              "op": "field",
+                              "record": {
+                                "op": "var",
+                                "name": "fields"
+                              },
+                              "name": "searches"
+                            }
+                          ],
+                          "semanticArguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:U64"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "Err",
+                      "binding": "error",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Err",
+                        "payload": {
+                          "op": "var",
+                          "name": "error"
+                        }
+                      }
+                    },
+                    {
+                      "constructor": "Ok",
+                      "binding": "fieldWritten1",
+                      "body": {
+                        "op": "match",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:WithBorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "active"
+                            },
+                            {
+                              "op": "lambda",
+                              "typeParams": [
+                                {
+                                  "name": "stateRegion",
+                                  "kind": "Region"
+                                }
+                              ],
+                              "params": [
+                                {
+                                  "name": "statePlace",
+                                  "type": {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:BorrowMut"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "associated",
+                                        "traitRef": "serde:Serializer",
+                                        "selfType": {
+                                          "tag": "param",
+                                          "name": "S"
+                                        },
+                                        "member": "SerializeStruct"
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "stateRegion"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "mode": "inout"
+                                }
+                              ],
+                              "parameterContracts": [
+                                {
+                                  "position": 0,
+                                  "retention": "noescape"
+                                }
+                              ],
+                              "body": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "trait-method",
+                                  "traitRef": "serde:SerializeStruct",
+                                  "selfType": {
+                                    "tag": "associated",
+                                    "traitRef": "serde:Serializer",
+                                    "selfType": {
+                                      "tag": "param",
+                                      "name": "S"
+                                    },
+                                    "member": "SerializeStruct"
+                                  },
+                                  "method": "serialize_field"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "statePlace"
+                                  },
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "text"
+                                    },
+                                    "value": "searches_with_match"
+                                  },
+                                  {
+                                    "op": "field",
+                                    "record": {
+                                      "op": "var",
+                                      "name": "fields"
+                                    },
+                                    "name": "searchesWithMatch"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "machine:U64"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        "cases": [
+                          {
+                            "constructor": "Err",
+                            "binding": "error",
+                            "body": {
+                              "op": "variant",
+                              "constructor": "Err",
+                              "payload": {
+                                "op": "var",
+                                "name": "error"
+                              }
+                            }
+                          },
+                          {
+                            "constructor": "Ok",
+                            "binding": "fieldWritten2",
+                            "body": {
+                              "op": "match",
+                              "value": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:WithBorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "active"
+                                  },
+                                  {
+                                    "op": "lambda",
+                                    "typeParams": [
+                                      {
+                                        "name": "stateRegion",
+                                        "kind": "Region"
+                                      }
+                                    ],
+                                    "params": [
+                                      {
+                                        "name": "statePlace",
+                                        "type": {
+                                          "tag": "apply",
+                                          "constructor": {
+                                            "decl": "machine:BorrowMut"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "tag": "associated",
+                                              "traitRef": "serde:Serializer",
+                                              "selfType": {
+                                                "tag": "param",
+                                                "name": "S"
+                                              },
+                                              "member": "SerializeStruct"
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "stateRegion"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "mode": "inout"
+                                      }
+                                    ],
+                                    "parameterContracts": [
+                                      {
+                                        "position": 0,
+                                        "retention": "noescape"
+                                      }
+                                    ],
+                                    "body": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "trait-method",
+                                        "traitRef": "serde:SerializeStruct",
+                                        "selfType": {
+                                          "tag": "associated",
+                                          "traitRef": "serde:Serializer",
+                                          "selfType": {
+                                            "tag": "param",
+                                            "name": "S"
+                                          },
+                                          "member": "SerializeStruct"
+                                        },
+                                        "method": "serialize_field"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "statePlace"
+                                        },
+                                        {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "text"
+                                          },
+                                          "value": "bytes_searched"
+                                        },
+                                        {
+                                          "op": "field",
+                                          "record": {
+                                            "op": "var",
+                                            "name": "fields"
+                                          },
+                                          "name": "bytesSearched"
+                                        }
+                                      ],
+                                      "semanticArguments": [
+                                        {
+                                          "tag": "nominal",
+                                          "ref": "machine:U64"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              },
+                              "cases": [
+                                {
+                                  "constructor": "Err",
+                                  "binding": "error",
+                                  "body": {
+                                    "op": "variant",
+                                    "constructor": "Err",
+                                    "payload": {
+                                      "op": "var",
+                                      "name": "error"
+                                    }
+                                  }
+                                },
+                                {
+                                  "constructor": "Ok",
+                                  "binding": "fieldWritten3",
+                                  "body": {
+                                    "op": "match",
+                                    "value": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:WithBorrowMut"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "active"
+                                        },
+                                        {
+                                          "op": "lambda",
+                                          "typeParams": [
+                                            {
+                                              "name": "stateRegion",
+                                              "kind": "Region"
+                                            }
+                                          ],
+                                          "params": [
+                                            {
+                                              "name": "statePlace",
+                                              "type": {
+                                                "tag": "apply",
+                                                "constructor": {
+                                                  "decl": "machine:BorrowMut"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "tag": "associated",
+                                                    "traitRef": "serde:Serializer",
+                                                    "selfType": {
+                                                      "tag": "param",
+                                                      "name": "S"
+                                                    },
+                                                    "member": "SerializeStruct"
+                                                  },
+                                                  {
+                                                    "region": {
+                                                      "parameter": "stateRegion"
+                                                    }
+                                                  }
+                                                ]
+                                              },
+                                              "mode": "inout"
+                                            }
+                                          ],
+                                          "parameterContracts": [
+                                            {
+                                              "position": 0,
+                                              "retention": "noescape"
+                                            }
+                                          ],
+                                          "body": {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "trait-method",
+                                              "traitRef": "serde:SerializeStruct",
+                                              "selfType": {
+                                                "tag": "associated",
+                                                "traitRef": "serde:Serializer",
+                                                "selfType": {
+                                                  "tag": "param",
+                                                  "name": "S"
+                                                },
+                                                "member": "SerializeStruct"
+                                              },
+                                              "method": "serialize_field"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "statePlace"
+                                              },
+                                              {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "text"
+                                                },
+                                                "value": "bytes_printed"
+                                              },
+                                              {
+                                                "op": "field",
+                                                "record": {
+                                                  "op": "var",
+                                                  "name": "fields"
+                                                },
+                                                "name": "bytesPrinted"
+                                              }
+                                            ],
+                                            "semanticArguments": [
+                                              {
+                                                "tag": "nominal",
+                                                "ref": "machine:U64"
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    "cases": [
+                                      {
+                                        "constructor": "Err",
+                                        "binding": "error",
+                                        "body": {
+                                          "op": "variant",
+                                          "constructor": "Err",
+                                          "payload": {
+                                            "op": "var",
+                                            "name": "error"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "constructor": "Ok",
+                                        "binding": "fieldWritten4",
+                                        "body": {
+                                          "op": "match",
+                                          "value": {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:WithBorrowMut"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "active"
+                                              },
+                                              {
+                                                "op": "lambda",
+                                                "typeParams": [
+                                                  {
+                                                    "name": "stateRegion",
+                                                    "kind": "Region"
+                                                  }
+                                                ],
+                                                "params": [
+                                                  {
+                                                    "name": "statePlace",
+                                                    "type": {
+                                                      "tag": "apply",
+                                                      "constructor": {
+                                                        "decl": "machine:BorrowMut"
+                                                      },
+                                                      "arguments": [
+                                                        {
+                                                          "tag": "associated",
+                                                          "traitRef": "serde:Serializer",
+                                                          "selfType": {
+                                                            "tag": "param",
+                                                            "name": "S"
+                                                          },
+                                                          "member": "SerializeStruct"
+                                                        },
+                                                        {
+                                                          "region": {
+                                                            "parameter": "stateRegion"
+                                                          }
+                                                        }
+                                                      ]
+                                                    },
+                                                    "mode": "inout"
+                                                  }
+                                                ],
+                                                "parameterContracts": [
+                                                  {
+                                                    "position": 0,
+                                                    "retention": "noescape"
+                                                  }
+                                                ],
+                                                "body": {
+                                                  "op": "call",
+                                                  "callee": {
+                                                    "op": "trait-method",
+                                                    "traitRef": "serde:SerializeStruct",
+                                                    "selfType": {
+                                                      "tag": "associated",
+                                                      "traitRef": "serde:Serializer",
+                                                      "selfType": {
+                                                        "tag": "param",
+                                                        "name": "S"
+                                                      },
+                                                      "member": "SerializeStruct"
+                                                    },
+                                                    "method": "serialize_field"
+                                                  },
+                                                  "arguments": [
+                                                    {
+                                                      "op": "var",
+                                                      "name": "statePlace"
+                                                    },
+                                                    {
+                                                      "op": "literal",
+                                                      "type": {
+                                                        "tag": "scalar",
+                                                        "name": "text"
+                                                      },
+                                                      "value": "matched_lines"
+                                                    },
+                                                    {
+                                                      "op": "field",
+                                                      "record": {
+                                                        "op": "var",
+                                                        "name": "fields"
+                                                      },
+                                                      "name": "matchedLines"
+                                                    }
+                                                  ],
+                                                  "semanticArguments": [
+                                                    {
+                                                      "tag": "nominal",
+                                                      "ref": "machine:U64"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          "cases": [
+                                            {
+                                              "constructor": "Err",
+                                              "binding": "error",
+                                              "body": {
+                                                "op": "variant",
+                                                "constructor": "Err",
+                                                "payload": {
+                                                  "op": "var",
+                                                  "name": "error"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "constructor": "Ok",
+                                              "binding": "fieldWritten5",
+                                              "body": {
+                                                "op": "match",
+                                                "value": {
+                                                  "op": "call",
+                                                  "callee": {
+                                                    "op": "symbol",
+                                                    "ref": "machine:WithBorrowMut"
+                                                  },
+                                                  "arguments": [
+                                                    {
+                                                      "op": "var",
+                                                      "name": "active"
+                                                    },
+                                                    {
+                                                      "op": "lambda",
+                                                      "typeParams": [
+                                                        {
+                                                          "name": "stateRegion",
+                                                          "kind": "Region"
+                                                        }
+                                                      ],
+                                                      "params": [
+                                                        {
+                                                          "name": "statePlace",
+                                                          "type": {
+                                                            "tag": "apply",
+                                                            "constructor": {
+                                                              "decl": "machine:BorrowMut"
+                                                            },
+                                                            "arguments": [
+                                                              {
+                                                                "tag": "associated",
+                                                                "traitRef": "serde:Serializer",
+                                                                "selfType": {
+                                                                  "tag": "param",
+                                                                  "name": "S"
+                                                                },
+                                                                "member": "SerializeStruct"
+                                                              },
+                                                              {
+                                                                "region": {
+                                                                  "parameter": "stateRegion"
+                                                                }
+                                                              }
+                                                            ]
+                                                          },
+                                                          "mode": "inout"
+                                                        }
+                                                      ],
+                                                      "parameterContracts": [
+                                                        {
+                                                          "position": 0,
+                                                          "retention": "noescape"
+                                                        }
+                                                      ],
+                                                      "body": {
+                                                        "op": "call",
+                                                        "callee": {
+                                                          "op": "trait-method",
+                                                          "traitRef": "serde:SerializeStruct",
+                                                          "selfType": {
+                                                            "tag": "associated",
+                                                            "traitRef": "serde:Serializer",
+                                                            "selfType": {
+                                                              "tag": "param",
+                                                              "name": "S"
+                                                            },
+                                                            "member": "SerializeStruct"
+                                                          },
+                                                          "method": "serialize_field"
+                                                        },
+                                                        "arguments": [
+                                                          {
+                                                            "op": "var",
+                                                            "name": "statePlace"
+                                                          },
+                                                          {
+                                                            "op": "literal",
+                                                            "type": {
+                                                              "tag": "scalar",
+                                                              "name": "text"
+                                                            },
+                                                            "value": "matches"
+                                                          },
+                                                          {
+                                                            "op": "field",
+                                                            "record": {
+                                                              "op": "var",
+                                                              "name": "fields"
+                                                            },
+                                                            "name": "matches"
+                                                          }
+                                                        ],
+                                                        "semanticArguments": [
+                                                          {
+                                                            "tag": "nominal",
+                                                            "ref": "machine:U64"
+                                                          }
+                                                        ]
+                                                      }
+                                                    }
+                                                  ]
+                                                },
+                                                "cases": [
+                                                  {
+                                                    "constructor": "Err",
+                                                    "binding": "error",
+                                                    "body": {
+                                                      "op": "variant",
+                                                      "constructor": "Err",
+                                                      "payload": {
+                                                        "op": "var",
+                                                        "name": "error"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "constructor": "Ok",
+                                                    "binding": "fieldWritten6",
+                                                    "body": {
+                                                      "op": "call",
+                                                      "callee": {
+                                                        "op": "trait-method",
+                                                        "traitRef": "serde:SerializeStruct",
+                                                        "selfType": {
+                                                          "tag": "associated",
+                                                          "traitRef": "serde:Serializer",
+                                                          "selfType": {
+                                                            "tag": "param",
+                                                            "name": "S"
+                                                          },
+                                                          "member": "SerializeStruct"
+                                                        },
+                                                        "method": "end"
+                                                      },
+                                                      "arguments": [
+                                                        {
+                                                          "op": "var",
+                                                          "name": "active"
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "DurationSerialize": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "duration:NiceDuration"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "serializer",
+            "type": {
+              "tag": "param",
+              "name": "S"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Ok"
+          },
+          "error": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "S",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "serde:Serializer",
+                "selfType": {
+                  "tag": "param",
+                  "name": "S"
+                }
+              },
+              {
+                "traitRef": "serde:SerializeStruct",
+                "selfType": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "SerializeStruct"
+                },
+                "associatedTypes": {
+                  "Ok": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Ok"
+                  },
+                  "Error": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Error"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "trait-method",
+              "traitRef": "serde:Serializer",
+              "selfType": {
+                "tag": "param",
+                "name": "S"
+              },
+              "method": "serialize_struct"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "serializer"
+              },
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "Duration"
+              },
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeFromByte"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    "value": "3"
+                  }
+                ]
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "state",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:DurationSerializeState"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "state"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "DurationSerializeState": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "duration:NiceDuration"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "state",
+            "type": {
+              "tag": "associated",
+              "traitRef": "serde:Serializer",
+              "selfType": {
+                "tag": "param",
+                "name": "S"
+              },
+              "member": "SerializeStruct"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Ok"
+          },
+          "error": {
+            "tag": "associated",
+            "traitRef": "serde:Serializer",
+            "selfType": {
+              "tag": "param",
+              "name": "S"
+            },
+            "member": "Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "S",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "serde:Serializer",
+                "selfType": {
+                  "tag": "param",
+                  "name": "S"
+                }
+              },
+              {
+                "traitRef": "serde:SerializeStruct",
+                "selfType": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "SerializeStruct"
+                },
+                "associatedTypes": {
+                  "Ok": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Ok"
+                  },
+                  "Error": {
+                    "tag": "associated",
+                    "traitRef": "serde:Serializer",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "S"
+                    },
+                    "member": "Error"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "active",
+              "value": {
+                "op": "var",
+                "name": "state"
+              }
+            }
+          ],
+          "result": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:WithBorrowMut"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "active"
+                },
+                {
+                  "op": "lambda",
+                  "typeParams": [
+                    {
+                      "name": "stateRegion",
+                      "kind": "Region"
+                    }
+                  ],
+                  "params": [
+                    {
+                      "name": "statePlace",
+                      "type": {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:BorrowMut"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "associated",
+                            "traitRef": "serde:Serializer",
+                            "selfType": {
+                              "tag": "param",
+                              "name": "S"
+                            },
+                            "member": "SerializeStruct"
+                          },
+                          {
+                            "region": {
+                              "parameter": "stateRegion"
+                            }
+                          }
+                        ]
+                      },
+                      "mode": "inout"
+                    }
+                  ],
+                  "parameterContracts": [
+                    {
+                      "position": 0,
+                      "retention": "noescape"
+                    }
+                  ],
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:WithBorrow"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "time:DurationAsSecs"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "duration:Get"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "self"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "op": "lambda",
+                        "typeParams": [
+                          {
+                            "name": "valueRegion",
+                            "kind": "Region"
+                          }
+                        ],
+                        "params": [
+                          {
+                            "name": "fieldValue",
+                            "type": {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "machine:Borrow"
+                              },
+                              "arguments": [
+                                {
+                                  "tag": "nominal",
+                                  "ref": "machine:U64"
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "valueRegion"
+                                  }
+                                }
+                              ]
+                            },
+                            "mode": "borrow"
+                          }
+                        ],
+                        "parameterContracts": [
+                          {
+                            "position": 0,
+                            "retention": "noescape"
+                          }
+                        ],
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "trait-method",
+                            "traitRef": "serde:SerializeStruct",
+                            "selfType": {
+                              "tag": "associated",
+                              "traitRef": "serde:Serializer",
+                              "selfType": {
+                                "tag": "param",
+                                "name": "S"
+                              },
+                              "member": "SerializeStruct"
+                            },
+                            "method": "serialize_field"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "statePlace"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "secs"
+                            },
+                            {
+                              "op": "var",
+                              "name": "fieldValue"
+                            }
+                          ],
+                          "semanticArguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:U64"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "var",
+                    "name": "error"
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "fieldWritten0",
+                "body": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:WithBorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "active"
+                      },
+                      {
+                        "op": "lambda",
+                        "typeParams": [
+                          {
+                            "name": "stateRegion",
+                            "kind": "Region"
+                          }
+                        ],
+                        "params": [
+                          {
+                            "name": "statePlace",
+                            "type": {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "machine:BorrowMut"
+                              },
+                              "arguments": [
+                                {
+                                  "tag": "associated",
+                                  "traitRef": "serde:Serializer",
+                                  "selfType": {
+                                    "tag": "param",
+                                    "name": "S"
+                                  },
+                                  "member": "SerializeStruct"
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "stateRegion"
+                                  }
+                                }
+                              ]
+                            },
+                            "mode": "inout"
+                          }
+                        ],
+                        "parameterContracts": [
+                          {
+                            "position": 0,
+                            "retention": "noescape"
+                          }
+                        ],
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:WithBorrow"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "time:DurationSubsecNanos"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "duration:Get"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "self"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "lambda",
+                              "typeParams": [
+                                {
+                                  "name": "valueRegion",
+                                  "kind": "Region"
+                                }
+                              ],
+                              "params": [
+                                {
+                                  "name": "fieldValue",
+                                  "type": {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:Borrow"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "nominal",
+                                        "ref": "machine:U32"
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "valueRegion"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "mode": "borrow"
+                                }
+                              ],
+                              "parameterContracts": [
+                                {
+                                  "position": 0,
+                                  "retention": "noescape"
+                                }
+                              ],
+                              "body": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "trait-method",
+                                  "traitRef": "serde:SerializeStruct",
+                                  "selfType": {
+                                    "tag": "associated",
+                                    "traitRef": "serde:Serializer",
+                                    "selfType": {
+                                      "tag": "param",
+                                      "name": "S"
+                                    },
+                                    "member": "SerializeStruct"
+                                  },
+                                  "method": "serialize_field"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "statePlace"
+                                  },
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "text"
+                                    },
+                                    "value": "nanos"
+                                  },
+                                  {
+                                    "op": "var",
+                                    "name": "fieldValue"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "machine:U32"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "Err",
+                      "binding": "error",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Err",
+                        "payload": {
+                          "op": "var",
+                          "name": "error"
+                        }
+                      }
+                    },
+                    {
+                      "constructor": "Ok",
+                      "binding": "fieldWritten1",
+                      "body": {
+                        "op": "match",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:WithBorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "active"
+                            },
+                            {
+                              "op": "lambda",
+                              "typeParams": [
+                                {
+                                  "name": "stateRegion",
+                                  "kind": "Region"
+                                }
+                              ],
+                              "params": [
+                                {
+                                  "name": "statePlace",
+                                  "type": {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:BorrowMut"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "associated",
+                                        "traitRef": "serde:Serializer",
+                                        "selfType": {
+                                          "tag": "param",
+                                          "name": "S"
+                                        },
+                                        "member": "SerializeStruct"
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "stateRegion"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "mode": "inout"
+                                }
+                              ],
+                              "parameterContracts": [
+                                {
+                                  "position": 0,
+                                  "retention": "noescape"
+                                }
+                              ],
+                              "body": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:WithBorrow"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "duration:ToText"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "self"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "lambda",
+                                    "typeParams": [
+                                      {
+                                        "name": "valueRegion",
+                                        "kind": "Region"
+                                      }
+                                    ],
+                                    "params": [
+                                      {
+                                        "name": "fieldValue",
+                                        "type": {
+                                          "tag": "apply",
+                                          "constructor": {
+                                            "decl": "machine:Borrow"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "tag": "scalar",
+                                              "name": "text"
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "valueRegion"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "mode": "borrow"
+                                      }
+                                    ],
+                                    "parameterContracts": [
+                                      {
+                                        "position": 0,
+                                        "retention": "noescape"
+                                      }
+                                    ],
+                                    "body": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "trait-method",
+                                        "traitRef": "serde:SerializeStruct",
+                                        "selfType": {
+                                          "tag": "associated",
+                                          "traitRef": "serde:Serializer",
+                                          "selfType": {
+                                            "tag": "param",
+                                            "name": "S"
+                                          },
+                                          "member": "SerializeStruct"
+                                        },
+                                        "method": "serialize_field"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "statePlace"
+                                        },
+                                        {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "text"
+                                          },
+                                          "value": "human"
+                                        },
+                                        {
+                                          "op": "var",
+                                          "name": "fieldValue"
+                                        }
+                                      ],
+                                      "semanticArguments": [
+                                        {
+                                          "tag": "scalar",
+                                          "name": "text"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        "cases": [
+                          {
+                            "constructor": "Err",
+                            "binding": "error",
+                            "body": {
+                              "op": "variant",
+                              "constructor": "Err",
+                              "payload": {
+                                "op": "var",
+                                "name": "error"
+                              }
+                            }
+                          },
+                          {
+                            "constructor": "Ok",
+                            "binding": "fieldWritten2",
+                            "body": {
+                              "op": "call",
+                              "callee": {
+                                "op": "trait-method",
+                                "traitRef": "serde:SerializeStruct",
+                                "selfType": {
+                                  "tag": "associated",
+                                  "traitRef": "serde:Serializer",
+                                  "selfType": {
+                                    "tag": "param",
+                                    "name": "S"
+                                  },
+                                  "member": "SerializeStruct"
+                                },
+                                "method": "end"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "active"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "SerializeForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "serde:Serialize",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "serialize": {
+              "typeParams": [
+                {
+                  "name": "S",
+                  "kind": "Type",
+                  "traitBounds": [
+                    {
+                      "traitRef": "serde:Serializer",
+                      "selfType": {
+                        "tag": "param",
+                        "name": "S"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "serializer",
+                  "type": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "mode": "move"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "Ok"
+                },
+                "error": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:StatsSerialize"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "serializer"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "SerializeForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "serde:Serialize",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "serialize": {
+              "typeParams": [
+                {
+                  "name": "S",
+                  "kind": "Type",
+                  "traitBounds": [
+                    {
+                      "traitRef": "serde:Serializer",
+                      "selfType": {
+                        "tag": "param",
+                        "name": "S"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "serializer",
+                  "type": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "mode": "move"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "Ok"
+                },
+                "error": {
+                  "tag": "associated",
+                  "traitRef": "serde:Serializer",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "S"
+                  },
+                  "member": "Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:DurationSerialize"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "serializer"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": {
+    "StatsSerialize": {
+      "definitionId": "StatsSerialize"
+    },
+    "DurationSerialize": {
+      "definitionId": "DurationSerialize"
+    },
+    "SerializeForStats": {
+      "definitionId": "SerializeForStats"
+    },
+    "SerializeForNiceDuration": {
+      "definitionId": "SerializeForNiceDuration"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourceRegions": [
+      "crates/printer/src/stats.rs:serde Serialize",
+      "crates/printer/src/util.rs:391-405"
+    ],
+    "selection": "The two Serialize implementation witnesses are in this feature-scoped module; the project SourceProfile must select it exactly for the printer serde feature.",
+    "qualification": "Real Serialize implementation declarations delegate to the sequential bodies. The locked external serde trait identity, feature selection, coherence and target linkage still require their actual owners.",
+    "borrows": "StatsSerialize passes the original seven field references through stats:BorrowFields. Each serializer state call borrows its live state exclusively for one call; DurationSerialize borrows each original secs/nanos/human temporary only through that call, then releases it before the next field."
+  },
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  }
+}

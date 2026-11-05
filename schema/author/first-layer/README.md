@@ -9,6 +9,7 @@
 | Requirement完整声明 | [requirement-declarations.schema.json](../../requirements/requirement-declarations.schema.json) | 四类Body及候选外壳的唯一机器结构；convergence校准也引用该模板，经同一参数图取得候选名称域，不再另留缩水Body。 |
 | exists / rational / wire-variant完整Type | [complete-types.schema.json](complete-types.schema.json) | [既有存在类型](../../../docs/作者/组合/参数包与类型级值.md)和已声明短型的完整终点；Region/Scope见证、精确有理数、原帧含义及真实Target资格分别沿原owner。 |
 | trait body / associated / trait-method | [trait-body.schema.json](trait-body.schema.json) | [开放 trait 语义](../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile)的专业声明/实现 payload，以及进入同一候选 Type/Expr/TypeParam 的投影、方法选择和约束；普通端口和旧 `/2` 解释不变，结构通过不证明 coherence 或生产分派。 |
+| 完整记录 let | [record-let.schema.json](record-let.schema.json) | [完整拥有记录绑定](../../../docs/领域/计算基础/通用计算与任务语义.md#owned-record-binding)的候选 Expr 与共同结构形；一次消费并完整转交 required immutable 封闭记录，不增 Copy/Clone 界。仅候选图加入，旧 Schema 不变；[结构对照](../../../examples/第一层作者/names-and-roots/record-binding-cases.json)不证明类型/权限/清理或生产执行。 |
 | urn:gift:design-schema:semantic-convergence | [semantic-convergence.schema.json](semantic-convergence.schema.json) | 专业模型/显式类型/操作语义样本的结构，不代签模型或类型资格 |
 | urn:gift:design-schema:surface-convergence | [surface-convergence.schema.json](surface-convergence.schema.json) | 四个精确局部短例，输入类型和规则由[surface-inputs.json](surface-inputs.json)与语义正文完整定义 |
 | urn:gift:design-schema:convergence-examples | [convergence-examples.schema.json](convergence-examples.schema.json) | 本次convergence与model-contracts模块的闭合校准外壳；**不是全部作者语言的新Schema**，不覆盖所有旧Body |

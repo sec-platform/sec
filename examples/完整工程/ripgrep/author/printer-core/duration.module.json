@@ -1,0 +1,369 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:printer:nice-duration",
+  "imports": {
+    "machine": {"mode":"workspace","moduleId":"ripgrep:foundation:machine"},
+    "time": {"mode":"workspace","moduleId":"ripgrep:foundation:time"},
+    "format": {"mode":"workspace","moduleId":"ripgrep:foundation:format"}
+  },
+  "definitions": {
+    "NiceDuration": {"kind":"core:type","body":{"type":{"tag":"record","fields":{"duration":{"type":{"tag":"nominal","ref":"time:Duration"}}},"open":false},"opaque":true}},
+    "New": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"duration","type":{"tag":"nominal","ref":"time:Duration"},"mode":"in"}],
+        "returns": {"tag":"nominal","ref":"local:NiceDuration"},
+        "body": {"op":"record","fields":[{"name":"duration","value":{"op":"var","name":"duration"}}]}
+      }
+    },
+    "Default": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {"tag":"nominal","ref":"local:NiceDuration"},
+        "body": {"op":"call","callee":{"op":"symbol","ref":"local:New"},"arguments":[{"op":"symbol","ref":"time:DurationZero"}]}
+      }
+    },
+    "Get": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          }
+        ],
+        "returns": {"tag":"nominal","ref":"time:Duration"},
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "body": {
+          "op": "call",
+          "callee": {"op":"symbol","ref":"machine:ReadCopy"},
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"machine:BorrowField"},
+              "arguments": [{"op":"var","name":"self"}],
+              "semanticArguments": [
+                {"tag":"nominal","ref":"local:NiceDuration"},
+                {"value":{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"duration"}},
+                {"region":{"parameter":"r"}}
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"}]
+      }
+    },
+    "Clone": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          }
+        ],
+        "returns": {"tag":"nominal","ref":"local:NiceDuration"},
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "body": {"op":"call","callee":{"op":"symbol","ref":"machine:ReadCopy"},"arguments":[{"op":"var","name":"self"}]},
+        "parameterContracts": [{"position":0,"retention":"noescape"}]
+      }
+    },
+    "Equal": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"l"}}]},
+            "mode": "borrow"
+          },
+          {
+            "name": "right",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          }
+        ],
+        "returns": {"tag":"scalar","name":"bool"},
+        "typeParams": [{"name":"l","kind":"Region"},{"name":"r","kind":"Region"}],
+        "body": {
+          "op": "call",
+          "callee": {"op":"symbol","ref":"time:DurationEqual"},
+          "arguments": [
+            {"op":"call","callee":{"op":"symbol","ref":"local:Get"},"arguments":[{"op":"var","name":"left"}]},
+            {"op":"call","callee":{"op":"symbol","ref":"local:Get"},"arguments":[{"op":"var","name":"right"}]}
+          ]
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"},{"position":1,"retention":"noescape"}]
+      }
+    },
+    "FractionalSeconds": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          }
+        ],
+        "returns": {"tag":"nominal","ref":"machine:F64"},
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "body": {
+          "op": "let",
+          "name": "duration",
+          "value": {"op":"call","callee":{"op":"symbol","ref":"local:Get"},"arguments":[{"op":"var","name":"self"}]},
+          "body": {
+            "op": "let",
+            "name": "fractional",
+            "value": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"machine:F64Divide"},
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"machine:F64FromU32"},
+                  "arguments": [{"op":"call","callee":{"op":"symbol","ref":"time:DurationSubsecNanos"},"arguments":[{"op":"var","name":"duration"}]}]
+                },
+                {"op":"symbol","ref":"machine:F64OneBillion"}
+              ]
+            },
+            "body": {
+              "op": "call",
+              "callee": {"op":"symbol","ref":"machine:F64Add"},
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {"op":"symbol","ref":"machine:F64FromU64"},
+                  "arguments": [{"op":"call","callee":{"op":"symbol","ref":"time:DurationAsSecs"},"arguments":[{"op":"var","name":"duration"}]}]
+                },
+                {"op":"var","name":"fractional"}
+              ]
+            }
+          }
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"}]
+      }
+    },
+    "Display": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:BorrowMut"},
+              "arguments": [{"tag":"apply","constructor":{"decl":"machine:Formatter"},"arguments":[{"region":{"parameter":"data"}}]},{"region":{"parameter":"f"}}]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {"tag":"nominal","ref":"machine:FormatResult"},
+        "typeParams": [{"name":"r","kind":"Region"},{"name":"data","kind":"Region"},{"name":"f","kind":"Region"}],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"format:WriteF64Fixed"},
+            "arguments": [
+              {"op":"var","name":"formatter"},
+              {"op":"call","callee":{"op":"symbol","ref":"local:FractionalSeconds"},"arguments":[{"op":"var","name":"self"}]},
+              {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:UsizeFromByte"},
+                "arguments": [{"op":"literal","type":{"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},"value":"6"}]
+              }
+            ]
+          },
+          "cases": [
+            {"constructor":"Err","binding":"error","body":{"op":"variant","constructor":"Err","payload":{"op":"var","name":"error"}}},
+            {
+              "constructor": "Ok",
+              "binding": "numberWritten",
+              "body": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"format:WriteText"},
+                "arguments": [{"op":"var","name":"formatter"},{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"s"}]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"},{"position":1,"retention":"noescape"}]
+      }
+    },
+    "ToText": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          }
+        ],
+        "returns": {"tag":"scalar","name":"text"},
+        "typeParams": [{"name":"r","kind":"Region"}],
+        "body": {
+          "op": "call",
+          "callee": {"op":"symbol","ref":"format:DisplayToText"},
+          "arguments": [{"op":"var","name":"self"}]
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"}]
+      }
+    },
+    "Add": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {"name":"left","type":{"tag":"nominal","ref":"local:NiceDuration"},"mode":"in"},
+          {"name":"right","type":{"tag":"nominal","ref":"local:NiceDuration"},"mode":"in"}
+        ],
+        "returns": {"tag":"nominal","ref":"local:NiceDuration"},
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "duration",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"time:DurationAdd"},
+                "arguments": [
+                  {"op":"field","record":{"op":"var","name":"left"},"name":"duration"},
+                  {"op":"field","record":{"op":"var","name":"right"},"name":"duration"}
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IntoDuration": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [{"name":"self","type":{"tag":"nominal","ref":"local:NiceDuration"},"mode":"move"}],
+        "returns": {"tag":"nominal","ref":"time:Duration"},
+        "body": {"op":"field","record":{"op":"var","name":"self"},"name":"duration"}
+      }
+    },
+    "Debug": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"local:NiceDuration"},{"region":{"parameter":"r"}}]},
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {"decl":"machine:BorrowMut"},
+              "arguments": [{"tag":"apply","constructor":{"decl":"machine:Formatter"},"arguments":[{"region":{"parameter":"data"}}]},{"region":{"parameter":"f"}}]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {"tag":"nominal","ref":"machine:FormatResult"},
+        "typeParams": [{"name":"r","kind":"Region"},{"name":"data","kind":"Region"},{"name":"f","kind":"Region"}],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "type": {"tag":"apply","constructor":{"decl":"format:DebugTupleBuilder"},"arguments":[{"region":{"parameter":"f"}},{"region":{"parameter":"data"}}]},
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"format:DebugTuple"},
+                "arguments": [{"op":"var","name":"formatter"},{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"NiceDuration"}]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {"op":"symbol","ref":"machine:WithBorrowMut"},
+                "arguments": [
+                  {"op":"var","name":"builder"},
+                  {
+                    "op": "lambda",
+                    "typeParams": [{"name":"builderRegion","kind":"Region"}],
+                    "params": [{"name":"builderPlace","type":{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"apply","constructor":{"decl":"format:DebugTupleBuilder"},"arguments":[{"region":{"parameter":"f"}},{"region":{"parameter":"data"}}]},{"region":{"parameter":"builderRegion"}}]},"mode":"inout"}],
+                    "parameterContracts": [{"position":0,"retention":"noescape"}],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [{
+                        "op": "eval",
+                        "value": {
+                          "op": "call",
+                          "callee": {"op":"symbol","ref":"format:DebugTupleField"},
+                          "arguments": [
+                            {"op":"var","name":"builderPlace"},
+                            {
+                              "op": "call",
+                              "callee": {"op":"symbol","ref":"machine:BorrowField"},
+                              "arguments": [{"op":"var","name":"self"}],
+                              "semanticArguments": [
+                                {"tag":"nominal","ref":"local:NiceDuration"},
+                                {"value":{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"duration"}},
+                                {"region":{"parameter":"r"}}
+                              ]
+                            }
+                          ]
+                        }
+                      }]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {"op":"symbol","ref":"machine:WithBorrowMut"},
+            "arguments": [
+              {"op":"var","name":"builder"},
+              {
+                "op": "lambda",
+                "typeParams": [{"name":"builderRegion","kind":"Region"}],
+                "params": [{"name":"builderPlace","type":{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"apply","constructor":{"decl":"format:DebugTupleBuilder"},"arguments":[{"region":{"parameter":"f"}},{"region":{"parameter":"data"}}]},{"region":{"parameter":"builderRegion"}}]},"mode":"inout"}],
+                "parameterContracts": [{"position":0,"retention":"noescape"}],
+                "body": {"op":"call","callee":{"op":"symbol","ref":"format:DebugTupleFinish"},"arguments":[{"op":"var","name":"builderPlace"}]}
+              }
+            ]
+          }
+        },
+        "parameterContracts": [{"position":0,"retention":"noescape"},{"position":1,"retention":"noescape"}]
+      }
+    }
+  },
+  "exports": {
+    "NiceDuration": {"definitionId":"NiceDuration"},
+    "New": {"definitionId":"New"},
+    "Default": {"definitionId":"Default"},
+    "Get": {"definitionId":"Get"},
+    "Clone": {"definitionId":"Clone"},
+    "Equal": {"definitionId":"Equal"},
+    "FractionalSeconds": {"definitionId":"FractionalSeconds"},
+    "Display": {"definitionId":"Display"},
+    "ToText": {"definitionId":"ToText"},
+    "Add": {"definitionId":"Add"},
+    "IntoDuration": {"definitionId":"IntoDuration"},
+    "Debug": {"definitionId":"Debug"}
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourceRegions": ["crates/printer/src/util.rs:372-405"],
+    "qualification": "Actual Gift algorithm bodies. Imported primitive/trait declarations and exact Target bindings remain engineering obligations; no production or full-crate equivalence claim.",
+    "effects": "Omitted function effects request derivation from real bound callees; omission is not an empty effect or operation grant."
+  }
+}

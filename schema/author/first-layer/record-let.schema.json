@@ -1,0 +1,42 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:gift:design-schema:first-layer-record-let",
+  "title":"Complete owned-record binding in the candidate expression profile",
+  "$comment":"Ownership, coverage and cleanup: docs/领域/计算基础/通用计算与任务语义.md#owned-record-binding. Candidate-only mutually exclusive let branches; legacy schemas unchanged.",
+  "$defs":{
+    "FieldBinding":{
+      "type":"object","additionalProperties":false,"required":["field","binding"],
+      "properties":{
+        "field":{"$ref":"urn:gift:design-schema:universal-author-module-2#/$defs/MemberName"},
+        "binding":{"$ref":"urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"}
+      }
+    },
+    "RecordLet":{
+      "type":"object","additionalProperties":false,"required":["op","fields","value","body"],
+      "properties":{
+        "op":{"const":"let"},
+        "fields":{"type":"array","items":{"$ref":"#/$defs/FieldBinding"},"minItems":0},
+        "value":{"$ref":"urn:gift:design-schema:universal-author-module-2#/$defs/Expr"},
+        "body":{"$ref":"urn:gift:design-schema:universal-author-module-2#/$defs/Expr"}
+      },
+      "description":"Fields and binders must each be unique. Consume one fully owned visible closed record, transfer every required immutable field once, expose bindings only in body. Empty fields accepts only an empty record. Shape does not prove coverage, permission, scope, type or effect."
+    },
+    "SharedFieldBinding":{
+      "type":"object","additionalProperties":false,"required":["field","binding"],
+      "properties":{
+        "field":{"$ref":"urn:gift:design-schema:first-layer-names#/$defs/Name"},
+        "binding":{"type":"object","additionalProperties":false,"required":["key","name"],"properties":{"key":{"type":"string","minLength":1},"name":{"type":"string","minLength":1}}}
+      }
+    },
+    "SharedRecordLet":{
+      "type":"object","additionalProperties":false,"required":["tag","fields","initializer","continuation"],
+      "properties":{
+        "tag":{"const":"let"},"key":{"type":"string","minLength":1},
+        "fields":{"type":"array","items":{"$ref":"#/$defs/SharedFieldBinding"},"minItems":0},
+        "initializer":{"$ref":"urn:gift:design-schema:shared-semantic-structure-1#/$defs/Expr"},
+        "continuation":{"$ref":"urn:gift:design-schema:shared-semantic-structure-1#/$defs/Expr"}
+      }
+    }
+  },
+  "$ref":"#/$defs/RecordLet"
+}

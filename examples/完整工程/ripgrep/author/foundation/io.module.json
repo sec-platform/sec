@@ -1,0 +1,124 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:io",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_io"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "File": {
+      "import": "native",
+      "export": "File"
+    },
+    "BufRead": {
+      "import": "native",
+      "export": "BufRead"
+    },
+    "BufReader": {
+      "import": "native",
+      "export": "BufReader"
+    },
+    "Error": {
+      "import": "native",
+      "export": "Error"
+    },
+    "ErrorKind": {
+      "import": "native",
+      "export": "ErrorKind"
+    },
+    "Lines": {
+      "import": "native",
+      "export": "Lines"
+    },
+    "Read": {
+      "import": "native",
+      "export": "Read"
+    },
+    "Write": {
+      "import": "native",
+      "export": "Write"
+    },
+    "StaticError": {
+      "import": "native",
+      "export": "StaticError"
+    },
+    "StdinHandle": {
+      "import": "native",
+      "export": "Stdin"
+    },
+    "StdinLockHandle": {
+      "import": "native",
+      "export": "StdinLock"
+    },
+    "BufReaderNew": {
+      "import": "native",
+      "export": "buf_reader_new"
+    },
+    "BufReadLines": {
+      "import": "native",
+      "export": "buf_read_lines"
+    },
+    "LinesNext": {
+      "import": "native",
+      "export": "lines_next"
+    },
+    "FileOpen": {
+      "import": "native",
+      "export": "file_open"
+    },
+    "WriteBytes": {
+      "import": "native",
+      "export": "write_bytes"
+    },
+    "Flush": {
+      "import": "native",
+      "export": "flush"
+    },
+    "ReadToEnd": {
+      "import": "native",
+      "export": "read_to_end"
+    },
+    "Stdin": {
+      "import": "native",
+      "export": "stdin"
+    },
+    "StdinLock": {
+      "import": "native",
+      "export": "stdin_lock"
+    },
+    "OtherError": {
+      "import": "native",
+      "export": "other_error"
+    },
+    "OtherMessage": {
+      "import": "native",
+      "export": "other_message"
+    },
+    "NewMessage": {
+      "import": "native",
+      "export": "new_message"
+    },
+    "ErrorDisplay": {
+      "import": "native",
+      "export": "error_display"
+    },
+    "ErrorDescription": {
+      "import": "native",
+      "export": "error_description"
+    },
+    "RawOsError": {
+      "import": "native",
+      "export": "raw_os_error"
+    },
+    "FromRawOsError": {
+      "import": "native",
+      "export": "from_raw_os_error"
+    },
+    "Kind": {
+      "import": "native",
+      "export": "kind"
+    }
+  }
+}

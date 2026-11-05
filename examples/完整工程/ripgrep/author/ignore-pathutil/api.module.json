@@ -1,0 +1,35 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil",
+  "imports": {
+    "common": {
+      "workspace": "ripgrep:ignore:pathutil:common"
+    },
+    "hidden": {
+      "workspace": "ripgrep:ignore:pathutil:hidden"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "FileName": {
+      "import": "common",
+      "export": "FileName"
+    },
+    "StripPrefix": {
+      "import": "common",
+      "export": "StripPrefix"
+    },
+    "IsFileName": {
+      "import": "common",
+      "export": "IsFileName"
+    },
+    "IsHiddenPath": {
+      "import": "hidden",
+      "export": "IsHiddenPath"
+    },
+    "IsHiddenEntry": {
+      "import": "hidden",
+      "export": "IsHiddenEntry"
+    }
+  }
+}

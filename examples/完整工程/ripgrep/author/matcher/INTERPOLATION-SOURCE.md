@@ -38,9 +38,9 @@ P 的测试宏、测试闭包和派生 trait 装配不是另一个生产算法�
 
 ## 顺序、借用和有限循环
 
-`Interpolate` 保留原来的两个业务参数 `append`、`nameToIndex`，没有增加 Supplier 记录或全工程回调表。它们都是按值移交、同步调用的 exclusive 函数值；helper 使用 inout 同一个函数值，不克隆闭包。`append` 的精确形状为 `for<writeRegion>(Usize, BorrowMut<ByteVector,writeRegion>)->Unit`；`nameToIndex` 为 `for<nameRegion>(Borrow<Str,nameRegion>)->Option<Usize>`。每次调用的局部 Region 不能被回调保留，函数值本身的 `appendEnvironment`/`nameEnvironment` 捕获上界必须容纳真实外部借用。
+`Interpolate` 保留原来的两个业务参数 `append`、`nameToIndex`，没有增加 Supplier 记录或全工程回调表。它们以真实具体类型 A、N 按值移交：A 满足 `for<writeRegion> FnMut((Usize, BorrowMut<ByteVector,writeRegion>)) -> Unit`，N 满足 `for<nameRegion> FnMut((Borrow<Str,nameRegion>,)) -> Option<Usize>`；FnOnce 的 Output 等式约束同一类型与参数元组。函数体将两值依次移入外层可变位置，helper 以 inout 使用同一值，不克隆闭包。实际外部捕获由 A/N 的真实类型及借用检查确定，不额外声明空捕获或共同环境区域。
 
-这些 Region 不创建运行资源。`replacementRegion` 关联输入、名字、helper 返回的剩余切片；`destinationRegion` 关联同一个原 Vec。函数类型的参数 noescape、函数声明的 noescape 和 Param.mode 各有独立作用，不能互相代替。输入与 dst 必须满足真实 Rust 共享/独占别名规则；helper 不允许在 append 活动时保留另一个独占 reborrow。既有 Captures 默认方法的 append lambda 捕获 self/haystack；这些借用的共同有效域、回调能力的弱化以及 Fx 上界还需要真实类型/效果推导，不能由这里的表格签发。
+这些 Region 不创建运行资源。`replacementRegion` 关联输入、名字、helper 返回的剩余切片；`destinationRegion` 关联同一个原 Vec。高秩调用保证借用按真实区域使用，不自动保证回调不泄漏引用、派生地址或其他值；公共 callback 和插值入口不额外声明 noescape。输入与 dst 必须满足真实 Rust 共享/独占别名规则；helper 不允许在 append 活动时另用独占资格。既有 Captures 默认方法的 append lambda 捕获 self/haystack；这些借用的共同有效域、真实 FnMut witness 和效果上界还需要类型/效果推导，不能由这里的表格签发。
 
 每次找到 `$` 都先执行 `dst.extend(prefix)`，包括空前缀；随后才处理转义或引用。在成功引用分支中，`next` 后缀视图先于 nameToIndex/append 计算。每次 append 调用接收同一个 dst 对象及此前已写入的内容，可按原 `&mut Vec<u8>` 权限修改甚至清空它；nameToIndex 只接收该名字并返回索引，不能额外捕获这个已被独占借入的 dst。不能先在另一个缓冲区计算结果再一次提交。最终的 `dst.extend(remaining)` 总会发生，包括空 remaining。回调 panic、扩容/OOM 或其他非正常出口立即停止后续动作，不回滚此前修改。目标仍须保持原 panic/unwind/abort、清理、闭包 Drop 及源位置责任；本片未验证目标降低。
 
@@ -65,7 +65,7 @@ P 的测试宏、测试闭包和派生 trait 装配不是另一个生产算法�
 
 外部普通模块 **`ripgrep:external:memchr`** 仅需 `Memchr<r>(Byte,Borrow<ByteSlice,r>)->Option<Usize>`，对应原依赖 `memchr::memchr`，返回第一个相同字节的相对下标，不保留输入。P 的 Cargo.lock 锁定 memchr **2.8.3**，registry checksum `cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98`；此 ModuleId 是工程待绑定的普通导入身份，不冒充存在的 std module 或已安装 NativeProfile。其实现/target cfg/CPU 派发与效果证据由真实外部依赖和目标负责。它不负责 `$`、名字、括号或追加政策。
 
-本片 std 引用只有已定义的 `BoolNot`、`TextConcat`。所有函数主体的 effects 留给完整绑定后的推导；回调 `Fx` 是上界参数，不能把 `members:[]` 加开放 tail 误读成没有效果。容器写入、分配、panic 及真实回调效应应组成实际结果；未知导入保持 NeedsEffectBound，不按函数名猜纯度。
+本片 std 引用只有已定义的 `BoolNot`、`TextConcat`。所有函数主体的 effects 留给完整绑定后的推导；A/N 的实际回调效果来自真实 witness 或合格保守上界，不向原 Rust API 增加可观察的 Fx 泛型。容器写入、分配、panic 及真实回调效应应组成实际结果；未知导入保持 NeedsEffectBound，不按函数名猜纯度。
 
 ## 逐项等价检查与证据边界
 
@@ -86,6 +86,6 @@ P 的测试宏、测试闭包和派生 trait 装配不是另一个生产算法�
 | nameToIndex(None)、nameToIndex(Some)、append 自改 dst | 分别零次 append、恰一次 append、后续动作观察真实同一 dst；prefix 在回调前已写入 |
 | nameToIndex/append panic、分配失败、空 replacement | 不执行后续追加；保留已发生写入；空 replacement 仍执行末尾空 extend |
 
-P 的 13 个 find 测试及其后插值测试仍是独立来源；未把表格当已迁入 Gift 的测试执行器，也没有新造一个解释器来签发算法正确。当前只执行局部 JSON 严格读取、canonical Expansion、局部引用与词法作用域哨兵；成熟 Schema、实际导入类型/效果/生命周期、Method/Target 绑定、公开 trait 装配、Gift 编译和运行均由对应 consumer 验证，未执行时保持 OPEN。
+P 的 13 个 find 测试及其后插值测试仍是独立来源；未把表格当已迁入 Gift 的测试执行器，也没有新造一个解释器来签发算法正确。旧版本曾执行局部结构和 canonical Expansion 哨兵，不能自动迁移到本次 A/N 修订。本次回调形状与局部所有者做了有界核验；成熟 Schema、实际导入类型/效果/生命周期、Method/Target 绑定、公开 trait 装配、Gift 编译和运行均由对应 consumer 验证，未执行时保持 OPEN。
 
-本片已交付原来待写的普通 `Interpolate` 作者体；[SOURCE.md](SOURCE.md) 的接合说明由集成 owner 同步，文件存在与绑定/目标资格已完成仍是不同事实。本片写者只新增本说明和插值模块，未修改 values/captures 或原 SOURCE。其余 matcher trait/默认搜索替换/派生协议以及完整 CLI 与九库的迁移范围没有被这次算法片代签完成。
+本片已有普通 `Interpolate` 作者体并同步 A/N 泛型修订；[SOURCE.md](SOURCE.md) 和 [MATCHER-SOURCE.md](MATCHER-SOURCE.md) 分别记录实际接合与剩余义务。文件存在与绑定/目标资格已完成仍是不同事实；完整 CLI 与九库的迁移范围没有被这次算法片代签完成。

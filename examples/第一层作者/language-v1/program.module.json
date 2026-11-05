@@ -1,0 +1,126 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:language-v1",
+  "imports": {
+    "intervals": {
+      "workspace": "module:interval-spec"
+    },
+    "ledger": {
+      "workspace": "module:language-v1-ledger"
+    }
+  },
+  "definitions": {
+    "Normalize": {
+      "intent:goal": {
+        "roles": {
+          "input": "intervals:IntervalSequence",
+          "outcome": "intervals:Outcome"
+        },
+        "clauses": {
+          "canonical_result": {
+            "achieve": {
+              "intervals:CanonicalTouch": {
+                "input": "input",
+                "outcome": "outcome"
+              }
+            }
+          }
+        }
+      }
+    },
+    "NormalizeApi": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "normalize",
+            "input": {
+              "tag": "nominal",
+              "ref": "intervals:IntervalSequence"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "intervals:Outcome"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "never"
+            },
+            "effects": []
+          }
+        ]
+      }
+    },
+    "Normalizer": {
+      "product:component": {
+        "provides": [
+          "local:NormalizeApi"
+        ],
+        "requires": [],
+        "requirements": [
+          {
+            "ref": "local:Normalize",
+            "strength": "hard",
+            "callBinding": {
+              "portRef": "local:NormalizeApi",
+              "operation": "normalize",
+              "exit": "normal",
+              "roleBindings": {
+                "input": {
+                  "kind": "input",
+                  "index": 0
+                },
+                "outcome": {
+                  "kind": "return"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "Product": {
+      "product:system": {
+        "components": [
+          {
+            "instance": "normalizer",
+            "componentRef": "local:Normalizer"
+          },
+          {
+            "instance": "ledger",
+            "componentRef": "ledger:Ledger"
+          }
+        ],
+        "requirements": [],
+        "publicEndpoints": [
+          {
+            "name": "intervals",
+            "source": {
+              "instance": "normalizer",
+              "portRef": "local:NormalizeApi"
+            },
+            "interfaceRef": "local:NormalizeApi"
+          },
+          {
+            "name": "reservations",
+            "source": {
+              "instance": "ledger",
+              "portRef": "ledger:ApplyApi"
+            },
+            "interfaceRef": "ledger:ApplyApi"
+          },
+          {
+            "name": "reservationRetry",
+            "source": {
+              "instance": "ledger",
+              "portRef": "ledger:ApplyApi"
+            },
+            "interfaceRef": "ledger:ApplyApi"
+          }
+        ]
+      }
+    }
+  },
+  "exports": [
+    "Product"
+  ]
+}

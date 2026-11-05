@@ -1,0 +1,406 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:hidden",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    },
+    "walk": {
+      "workspace": "ripgrep:ignore:walk"
+    },
+    "common": {
+      "workspace": "ripgrep:ignore:pathutil:common"
+    },
+    "fs": {
+      "workspace": "ripgrep:foundation:fs"
+    },
+    "windows": {
+      "workspace": "ripgrep:foundation:windows"
+    },
+    "winapi": {
+      "workspace": "ripgrep:external:winapi_util"
+    }
+  },
+  "definitions": {
+    "IsHiddenPath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "let",
+          "name": "attributeHidden",
+          "value": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "fs:PathMetadata"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  },
+                  "value": false
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "metadata",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithBorrow"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "metadata"
+                    },
+                    {
+                      "op": "lambda",
+                      "typeParams": [
+                        {
+                          "name": "mdRegion",
+                          "kind": "Region"
+                        }
+                      ],
+                      "params": [
+                        {
+                          "name": "md",
+                          "type": {
+                            "tag": "apply",
+                            "constructor": {
+                              "decl": "machine:Borrow"
+                            },
+                            "arguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "fs:Metadata"
+                              },
+                              {
+                                "region": {
+                                  "parameter": "mdRegion"
+                                }
+                              }
+                            ]
+                          },
+                          "mode": "borrow"
+                        }
+                      ],
+                      "callMode": "consume",
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "winapi:IsHidden"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:U32AsU64"
+                            },
+                            "arguments": [
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "windows:MetadataFileAttributes"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "md"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "var",
+              "name": "attributeHidden"
+            },
+            "then": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": true
+            },
+            "otherwise": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "common:IsHiddenPathOnly"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            }
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "IsHiddenEntry": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "entry",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "walk:DirEntry"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "let",
+          "name": "attributeHidden",
+          "value": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "walk:DirEntryMetadata"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "entry"
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  },
+                  "value": false
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "metadata",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithBorrow"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "metadata"
+                    },
+                    {
+                      "op": "lambda",
+                      "typeParams": [
+                        {
+                          "name": "mdRegion",
+                          "kind": "Region"
+                        }
+                      ],
+                      "params": [
+                        {
+                          "name": "md",
+                          "type": {
+                            "tag": "apply",
+                            "constructor": {
+                              "decl": "machine:Borrow"
+                            },
+                            "arguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "fs:Metadata"
+                              },
+                              {
+                                "region": {
+                                  "parameter": "mdRegion"
+                                }
+                              }
+                            ]
+                          },
+                          "mode": "borrow"
+                        }
+                      ],
+                      "callMode": "consume",
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "winapi:IsHidden"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:U32AsU64"
+                            },
+                            "arguments": [
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "windows:MetadataFileAttributes"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "md"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "var",
+              "name": "attributeHidden"
+            },
+            "then": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": true
+            },
+            "otherwise": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "common:IsHiddenPathOnly"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "walk:DirEntryPath"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "entry"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "IsHiddenPath": {
+      "definitionId": "IsHiddenPath"
+    },
+    "IsHiddenEntry": {
+      "definitionId": "IsHiddenEntry"
+    }
+  }
+}

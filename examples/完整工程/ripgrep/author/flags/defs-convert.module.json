@@ -1,0 +1,786 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:core:flags:defs:convert",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    },
+    "anyhow": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:anyhow"
+    },
+    "cli": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:cli:human"
+    }
+  },
+  "definitions": {
+    "Str": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "machine:Str"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:OsStrToStr"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "invalid",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "anyhow:Message"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "value is not valid UTF-8"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "valid",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "var",
+                  "name": "valid"
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "String": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "path:OsString"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "text"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:OsStringIntoString"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "invalid",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "anyhow:Message"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "value is not valid UTF-8"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "valid",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "var",
+                  "name": "valid"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Usize": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Usize"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Str"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "text",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ParseUsize"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "text"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "anyhow:Context"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "error"
+                          },
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "value is not a valid number"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "number",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Ok",
+                      "payload": {
+                        "op": "var",
+                        "name": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "U64": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:U64"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Str"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "text",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ParseU64"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "text"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "anyhow:Context"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "error"
+                          },
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "value is not a valid number"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "number",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Ok",
+                      "payload": {
+                        "op": "var",
+                        "name": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "HumanReadableU64": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:U64"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Str"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "text",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "cli:ParseHumanReadableSize"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "text"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "error",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "anyhow:Context"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "error"
+                          },
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "invalid size"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "number",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Ok",
+                      "payload": {
+                        "op": "var",
+                        "name": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "HumanReadableUsize": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:OsStr"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Usize"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:HumanReadableU64"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "number",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:UsizeTryFromU64"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "number"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "Err",
+                    "binding": "tooBig",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Err",
+                      "payload": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "anyhow:Message"
+                        },
+                        "arguments": [
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "size is too big"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Ok",
+                    "binding": "size",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Ok",
+                      "payload": {
+                        "op": "var",
+                        "name": "size"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "Str": {
+      "definitionId": "Str"
+    },
+    "String": {
+      "definitionId": "String"
+    },
+    "Usize": {
+      "definitionId": "Usize"
+    },
+    "U64": {
+      "definitionId": "U64"
+    },
+    "HumanReadableU64": {
+      "definitionId": "HumanReadableU64"
+    },
+    "HumanReadableUsize": {
+      "definitionId": "HumanReadableUsize"
+    }
+  }
+}

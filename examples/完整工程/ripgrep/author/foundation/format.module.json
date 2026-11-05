@@ -1,0 +1,111 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:format",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_format"
+    },
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Debug": {
+      "import": "machine",
+      "export": "Debug"
+    },
+    "Display": {
+      "import": "machine",
+      "export": "Display"
+    },
+    "DebugStructBuilder": {
+      "import": "native",
+      "export": "DebugStruct"
+    },
+    "DebugTupleBuilder": {
+      "import": "native",
+      "export": "DebugTuple"
+    },
+    "DebugListBuilder": {
+      "import": "native",
+      "export": "DebugList"
+    },
+    "Formatter": {
+      "import": "native",
+      "export": "Formatter"
+    },
+    "FormatResult": {
+      "import": "native",
+      "export": "FormatResult"
+    },
+    "DebugField": {
+      "import": "native",
+      "export": "debug_struct_field"
+    },
+    "DebugFinish": {
+      "import": "native",
+      "export": "debug_struct_finish"
+    },
+    "WriteText": {
+      "import": "native",
+      "export": "write_text"
+    },
+    "WriteUsize": {
+      "import": "native",
+      "export": "write_usize"
+    },
+    "WriteDisplay": {
+      "import": "native",
+      "export": "write_display"
+    },
+    "DisplayFmt": {
+      "import": "native",
+      "export": "display_fmt"
+    },
+    "DisplayToText": {
+      "import": "native",
+      "export": "display_to_text"
+    },
+    "WriteF64Fixed": {
+      "import": "native",
+      "export": "write_f64_fixed"
+    },
+    "F64FixedToText": {
+      "import": "native",
+      "export": "f64_fixed_to_text"
+    },
+    "DebugStruct": {
+      "import": "native",
+      "export": "debug_struct"
+    },
+    "DebugTuple": {
+      "import": "native",
+      "export": "debug_tuple"
+    },
+    "DebugTupleField": {
+      "import": "native",
+      "export": "debug_tuple_field"
+    },
+    "DebugTupleFinish": {
+      "import": "native",
+      "export": "debug_tuple_finish"
+    },
+    "DebugList": {
+      "import": "native",
+      "export": "debug_list"
+    },
+    "DebugListEntry": {
+      "import": "native",
+      "export": "debug_list_entry"
+    },
+    "DebugListEntries": {
+      "import": "native",
+      "export": "debug_list_entries"
+    },
+    "DebugListFinish": {
+      "import": "native",
+      "export": "debug_list_finish"
+    }
+  }
+}

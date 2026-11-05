@@ -1,0 +1,23 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_runtime",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "panic": {
+      "sourcePath": "native-support/runtime.rs",
+      "nativeExport": "panic",
+      "role": "callable"
+    },
+    "assert_option_usize_equal": {
+      "sourcePath": "native-support/runtime.rs",
+      "nativeExport": "assert_option_usize_equal",
+      "role": "callable"
+    },
+    "unwrap_error": {
+      "sourcePath": "native-support/runtime.rs",
+      "nativeExport": "unwrap_error",
+      "role": "callable"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_path_windows",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "os_str_encode_wide": {
+      "sourcePath": "native-support/path.rs",
+      "nativeExport": "os_str_encode_wide",
+      "role": "callable"
+    },
+    "os_string_from_wide": {
+      "sourcePath": "native-support/path.rs",
+      "nativeExport": "os_string_from_wide",
+      "role": "callable"
+    }
+  }
+}

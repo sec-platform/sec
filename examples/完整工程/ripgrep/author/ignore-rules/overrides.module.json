@@ -1,0 +1,4069 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:overrides",
+  "imports": {
+    "core": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:ignore:core"
+    },
+    "gitignore": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:ignore:gitignore"
+    },
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    },
+    "format": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:format"
+    }
+  },
+  "definitions": {
+    "Glob": {
+      "kind": "core:type",
+      "body": {
+        "typeParams": [
+          {
+            "name": "a",
+            "kind": "Region"
+          }
+        ],
+        "type": {
+          "tag": "record",
+          "fields": {
+            "inner": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "local:GlobInner"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "a"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "Override": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "gitignore": {
+              "type": {
+                "tag": "nominal",
+                "ref": "gitignore:Gitignore"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "OverrideBuilder": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "builder": {
+              "type": {
+                "tag": "nominal",
+                "ref": "gitignore:GitignoreBuilder"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "GlobUnmatched": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:Glob"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "g"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "inner",
+              "value": {
+                "op": "variant",
+                "constructor": "UnmatchedIgnore",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          ]
+        },
+        "termination": "total",
+        "typeParams": [
+          {
+            "name": "g",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "ClassifyMatch": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "underlying",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "core:Match"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Borrow"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "gitignore:Glob"
+                    },
+                    {
+                      "region": {
+                        "parameter": "g"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "mode": "move"
+          },
+          {
+            "name": "numWhitelists",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "isDir",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "core:Match"
+          },
+          "arguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:Glob"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "g"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "underlying"
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "unit",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:U64Greater"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "numWhitelists"
+                      },
+                      {
+                        "op": "symbol",
+                        "ref": "machine:U64Zero"
+                      }
+                    ]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "var",
+                      "name": "isDir"
+                    },
+                    "then": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "bool"
+                      },
+                      "value": false
+                    },
+                    "otherwise": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "bool"
+                      },
+                      "value": true
+                    }
+                  },
+                  "otherwise": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": false
+                  }
+                },
+                "then": {
+                  "op": "variant",
+                  "constructor": "Ignore",
+                  "payload": {
+                    "op": "record",
+                    "fields": [
+                      {
+                        "name": "inner",
+                        "value": {
+                          "op": "variant",
+                          "constructor": "UnmatchedIgnore",
+                          "payload": {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "unit"
+                            },
+                            "value": null
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "otherwise": {
+                  "op": "variant",
+                  "constructor": "None",
+                  "payload": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "unit"
+                    },
+                    "value": null
+                  }
+                }
+              }
+            },
+            {
+              "constructor": "Ignore",
+              "binding": "g",
+              "body": {
+                "op": "variant",
+                "constructor": "Whitelist",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "inner",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Matched",
+                        "payload": {
+                          "op": "var",
+                          "name": "g"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "constructor": "Whitelist",
+              "binding": "g",
+              "body": {
+                "op": "variant",
+                "constructor": "Ignore",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "inner",
+                      "value": {
+                        "op": "variant",
+                        "constructor": "Matched",
+                        "payload": {
+                          "op": "var",
+                          "name": "g"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "termination": "total",
+        "typeParams": [
+          {
+            "name": "g",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "Empty": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Override"
+        },
+        "termination": "total",
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "gitignore",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "gitignore:Empty"
+                },
+                "arguments": []
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Path": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "path:Path"
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "gitignore:Path"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "gitignore"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "IsEmpty": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "gitignore:IsEmpty"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "gitignore"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "NumIgnores": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "gitignore:NumWhitelists"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "gitignore"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "NumWhitelists": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "gitignore:NumIgnores"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "gitignore"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "Matched": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Override"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "p"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "isDir",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "core:Match"
+          },
+          "arguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:Glob"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "p",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:IsEmpty"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              }
+            ]
+          },
+          "then": {
+            "op": "variant",
+            "constructor": "None",
+            "payload": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "value": null
+            }
+          },
+          "otherwise": {
+            "op": "let",
+            "name": "matched",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "gitignore:Matched"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:BorrowField"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:Override"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "gitignore"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "op": "var",
+                  "name": "path"
+                },
+                {
+                  "op": "var",
+                  "name": "isDir"
+                }
+              ]
+            },
+            "body": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "local:ClassifyMatch"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "matched"
+                },
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:NumWhitelists"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    }
+                  ]
+                },
+                {
+                  "op": "var",
+                  "name": "isDir"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "BuilderNew": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "p"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:OverrideBuilder"
+        },
+        "typeParams": [
+          {
+            "name": "p",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "gitignore:BuilderNew"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "path"
+                  }
+                ]
+              },
+              "type": {
+                "tag": "nominal",
+                "ref": "gitignore:GitignoreBuilder"
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "params": [
+                      {
+                        "name": "view",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "gitignore:GitignoreBuilder"
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "callMode": "consume",
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "gitignore:BuilderAllowUnclosedClass"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "view"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "bool"
+                                },
+                                "value": false
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "result": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        "value": null
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "record",
+            "fields": [
+              {
+                "name": "builder",
+                "value": {
+                  "op": "var",
+                  "name": "builder"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "BuilderBuild": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:OverrideBuilder"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "local:Override"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "core:Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "gitignore:BuilderBuild"
+            },
+            "arguments": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:OverrideBuilder"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "builder"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "gitignore",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "record",
+                  "fields": [
+                    {
+                      "name": "gitignore",
+                      "value": {
+                        "op": "var",
+                        "name": "gitignore"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "BuilderAdd": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:OverrideBuilder"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "glob",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:Str"
+                },
+                {
+                  "region": {
+                    "parameter": "g"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:BorrowMut"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "local:OverrideBuilder"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "core:Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "g",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithFieldBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              },
+              {
+                "op": "lambda",
+                "params": [
+                  {
+                    "name": "field",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "gitignore:GitignoreBuilder"
+                        },
+                        {
+                          "region": {
+                            "parameter": "short"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "typeParams": [
+                  {
+                    "name": "short",
+                    "kind": "Region"
+                  }
+                ],
+                "callMode": "consume",
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "gitignore:BuilderAddLine"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "field"
+                      },
+                      {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      },
+                      {
+                        "op": "var",
+                        "name": "glob"
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "Err",
+                      "binding": "error",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Err",
+                        "payload": {
+                          "op": "var",
+                          "name": "error"
+                        }
+                      }
+                    },
+                    {
+                      "constructor": "Ok",
+                      "binding": "same",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Ok",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "semanticArguments": [
+              {
+                "tag": "nominal",
+                "ref": "local:OverrideBuilder"
+              },
+              {
+                "value": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "value": "builder"
+                }
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              },
+              {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "core:Error"
+                }
+              },
+              {
+                "effectRow": {
+                  "members": [
+                    {
+                      "class": "state-read"
+                    },
+                    {
+                      "class": "state-write"
+                    },
+                    {
+                      "class": "alloc"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "u",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "var",
+                  "name": "self"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "BuilderCaseInsensitive": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:OverrideBuilder"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "yes",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:BorrowMut"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "local:OverrideBuilder"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "core:Error"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithFieldBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              },
+              {
+                "op": "lambda",
+                "params": [
+                  {
+                    "name": "field",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "gitignore:GitignoreBuilder"
+                        },
+                        {
+                          "region": {
+                            "parameter": "short"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "typeParams": [
+                  {
+                    "name": "short",
+                    "kind": "Region"
+                  }
+                ],
+                "callMode": "consume",
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "gitignore:BuilderCaseInsensitive"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "field"
+                      },
+                      {
+                        "op": "var",
+                        "name": "yes"
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "Err",
+                      "binding": "error",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Err",
+                        "payload": {
+                          "op": "var",
+                          "name": "error"
+                        }
+                      }
+                    },
+                    {
+                      "constructor": "Ok",
+                      "binding": "same",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Ok",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "semanticArguments": [
+              {
+                "tag": "nominal",
+                "ref": "local:OverrideBuilder"
+              },
+              {
+                "value": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "value": "builder"
+                }
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              },
+              {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "core:Error"
+                }
+              },
+              {
+                "effectRow": {
+                  "members": [
+                    {
+                      "class": "state-write"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "u",
+              "body": {
+                "op": "variant",
+                "constructor": "Ok",
+                "payload": {
+                  "op": "var",
+                  "name": "self"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "BuilderAllowUnclosedClass": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:OverrideBuilder"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "yes",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:BorrowMut"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:OverrideBuilder"
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "termination": "total",
+        "body": {
+          "op": "let",
+          "name": "done",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithFieldBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              },
+              {
+                "op": "lambda",
+                "params": [
+                  {
+                    "name": "field",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "gitignore:GitignoreBuilder"
+                        },
+                        {
+                          "region": {
+                            "parameter": "short"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "typeParams": [
+                  {
+                    "name": "short",
+                    "kind": "Region"
+                  }
+                ],
+                "callMode": "consume",
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "lambda",
+                    "params": [],
+                    "callMode": "consume",
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "gitignore:BuilderAllowUnclosedClass"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "field"
+                              },
+                              {
+                                "op": "var",
+                                "name": "yes"
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "result": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        "value": null
+                      }
+                    }
+                  },
+                  "arguments": []
+                }
+              }
+            ],
+            "semanticArguments": [
+              {
+                "tag": "nominal",
+                "ref": "local:OverrideBuilder"
+              },
+              {
+                "value": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "value": "builder"
+                }
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              },
+              {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              {
+                "effectRow": {
+                  "members": [
+                    {
+                      "class": "state-write"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "var",
+            "name": "self"
+          }
+        }
+      }
+    },
+    "GlobInner": {
+      "kind": "core:type",
+      "body": {
+        "typeParams": [
+          {
+            "name": "a",
+            "kind": "Region"
+          }
+        ],
+        "type": {
+          "tag": "variant",
+          "cases": {
+            "UnmatchedIgnore": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "Matched": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "gitignore:Glob"
+                },
+                {
+                  "region": {
+                    "parameter": "a"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "opaque": true
+      }
+    },
+    "CloneForGlobInner": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "local:GlobInner"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "a"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:GlobInner"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "a"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "local:GlobInner"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "a"
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "var",
+                  "name": "self"
+                },
+                "cases": [
+                  {
+                    "constructor": "UnmatchedIgnore",
+                    "binding": "unit",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "UnmatchedIgnore",
+                      "payload": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        "value": null
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Matched",
+                    "binding": "value",
+                    "body": {
+                      "op": "variant",
+                      "constructor": "Matched",
+                      "payload": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:ReadCopy"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "value"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          },
+          "typeParams": [
+            {
+              "name": "a",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "CloneForGlob": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "local:Glob"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "a"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Glob"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "a"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "local:Glob"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "a"
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "inner",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:CloneValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:BorrowField"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "self"
+                            }
+                          ],
+                          "semanticArguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "local:Glob"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "a"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "value": {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "inner"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "r"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          },
+          "typeParams": [
+            {
+              "name": "a",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForGlobInner": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "local:GlobInner"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "a"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:GlobInner"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "a"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "format:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "var",
+                  "name": "self"
+                },
+                "cases": [
+                  {
+                    "constructor": "UnmatchedIgnore",
+                    "binding": "unit",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "format:WriteText"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "formatter"
+                        },
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "UnmatchedIgnore"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "constructor": "Matched",
+                    "binding": "value",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "lambda",
+                        "params": [],
+                        "callMode": "consume",
+                        "body": {
+                          "op": "exec:block",
+                          "statements": [
+                            {
+                              "op": "var",
+                              "name": "builder",
+                              "value": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "format:DebugTuple"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "formatter"
+                                  },
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "text"
+                                    },
+                                    "value": "Matched"
+                                  }
+                                ]
+                              },
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "format:DebugTupleBuilder"
+                                },
+                                "arguments": [
+                                  {
+                                    "region": {
+                                      "parameter": "f"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "data"
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "op": "eval",
+                              "value": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:WithBorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "builder"
+                                  },
+                                  {
+                                    "op": "lambda",
+                                    "params": [
+                                      {
+                                        "name": "view",
+                                        "type": {
+                                          "tag": "apply",
+                                          "constructor": {
+                                            "decl": "machine:BorrowMut"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "tag": "apply",
+                                              "constructor": {
+                                                "decl": "format:DebugTupleBuilder"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "region": {
+                                                    "parameter": "f"
+                                                  }
+                                                },
+                                                {
+                                                  "region": {
+                                                    "parameter": "data"
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "builderField"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "mode": "inout"
+                                      }
+                                    ],
+                                    "typeParams": [
+                                      {
+                                        "name": "builderField",
+                                        "kind": "Region"
+                                      }
+                                    ],
+                                    "callMode": "consume",
+                                    "parameterContracts": [
+                                      {
+                                        "position": 0,
+                                        "retention": "noescape"
+                                      }
+                                    ],
+                                    "body": {
+                                      "op": "exec:block",
+                                      "statements": [
+                                        {
+                                          "op": "eval",
+                                          "value": {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "format:DebugTupleField"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "view"
+                                              },
+                                              {
+                                                "op": "var",
+                                                "name": "value"
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ],
+                                      "result": {
+                                        "op": "literal",
+                                        "type": {
+                                          "tag": "scalar",
+                                          "name": "unit"
+                                        },
+                                        "value": null
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ],
+                          "result": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builder"
+                              },
+                              {
+                                "op": "lambda",
+                                "params": [
+                                  {
+                                    "name": "view",
+                                    "type": {
+                                      "tag": "apply",
+                                      "constructor": {
+                                        "decl": "machine:BorrowMut"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "tag": "apply",
+                                          "constructor": {
+                                            "decl": "format:DebugTupleBuilder"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "region": {
+                                                "parameter": "f"
+                                              }
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "data"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "region": {
+                                            "parameter": "builderFinish"
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    "mode": "inout"
+                                  }
+                                ],
+                                "typeParams": [
+                                  {
+                                    "name": "builderFinish",
+                                    "kind": "Region"
+                                  }
+                                ],
+                                "callMode": "consume",
+                                "parameterContracts": [
+                                  {
+                                    "position": 0,
+                                    "retention": "noescape"
+                                  }
+                                ],
+                                "body": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "format:DebugTupleFinish"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "view"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "arguments": []
+                    }
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          },
+          "typeParams": [
+            {
+              "name": "a",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForGlob": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "local:Glob"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "a"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Glob"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "a"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "format:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "lambda",
+                  "params": [],
+                  "callMode": "consume",
+                  "body": {
+                    "op": "exec:block",
+                    "statements": [
+                      {
+                        "op": "var",
+                        "name": "builder",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "format:DebugTuple"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "formatter"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "Glob"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugTupleBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "op": "eval",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:WithBorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "builder"
+                            },
+                            {
+                              "op": "lambda",
+                              "params": [
+                                {
+                                  "name": "view",
+                                  "type": {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:BorrowMut"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "apply",
+                                        "constructor": {
+                                          "decl": "format:DebugTupleBuilder"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "region": {
+                                              "parameter": "f"
+                                            }
+                                          },
+                                          {
+                                            "region": {
+                                              "parameter": "data"
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "builderField"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "mode": "inout"
+                                }
+                              ],
+                              "typeParams": [
+                                {
+                                  "name": "builderField",
+                                  "kind": "Region"
+                                }
+                              ],
+                              "callMode": "consume",
+                              "parameterContracts": [
+                                {
+                                  "position": 0,
+                                  "retention": "noescape"
+                                }
+                              ],
+                              "body": {
+                                "op": "exec:block",
+                                "statements": [
+                                  {
+                                    "op": "eval",
+                                    "value": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "format:DebugTupleField"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "view"
+                                        },
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:BorrowField"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "var",
+                                              "name": "self"
+                                            }
+                                          ],
+                                          "semanticArguments": [
+                                            {
+                                              "tag": "apply",
+                                              "constructor": {
+                                                "decl": "local:Glob"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "region": {
+                                                    "parameter": "a"
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "value": {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "text"
+                                                },
+                                                "value": "inner"
+                                              }
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "r"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "result": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "unit"
+                                  },
+                                  "value": null
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "result": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "builder"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "view",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "format:DebugTupleBuilder"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "region": {
+                                          "parameter": "f"
+                                        }
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "data"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "builderFinish"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "builderFinish",
+                              "kind": "Region"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugTupleFinish"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "view"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "arguments": []
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          },
+          "typeParams": [
+            {
+              "name": "a",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "CloneForOverride": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "local:Override"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Override"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "local:Override"
+              },
+              "body": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "gitignore",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:CloneValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:BorrowField"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "self"
+                            }
+                          ],
+                          "semanticArguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "local:Override"
+                            },
+                            {
+                              "value": {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "gitignore"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "r"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "CloneForOverrideBuilder": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "local:OverrideBuilder"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:OverrideBuilder"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "local:OverrideBuilder"
+              },
+              "body": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "builder",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:CloneValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:BorrowField"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "self"
+                            }
+                          ],
+                          "semanticArguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "local:OverrideBuilder"
+                            },
+                            {
+                              "value": {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "builder"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "r"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForOverride": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "local:Override"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Override"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "format:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "lambda",
+                  "params": [],
+                  "callMode": "consume",
+                  "body": {
+                    "op": "exec:block",
+                    "statements": [
+                      {
+                        "op": "var",
+                        "name": "builder",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "format:DebugTuple"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "formatter"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "Override"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugTupleBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "op": "eval",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:WithBorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "builder"
+                            },
+                            {
+                              "op": "lambda",
+                              "params": [
+                                {
+                                  "name": "view",
+                                  "type": {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:BorrowMut"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "apply",
+                                        "constructor": {
+                                          "decl": "format:DebugTupleBuilder"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "region": {
+                                              "parameter": "f"
+                                            }
+                                          },
+                                          {
+                                            "region": {
+                                              "parameter": "data"
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "builderField"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "mode": "inout"
+                                }
+                              ],
+                              "typeParams": [
+                                {
+                                  "name": "builderField",
+                                  "kind": "Region"
+                                }
+                              ],
+                              "callMode": "consume",
+                              "parameterContracts": [
+                                {
+                                  "position": 0,
+                                  "retention": "noescape"
+                                }
+                              ],
+                              "body": {
+                                "op": "exec:block",
+                                "statements": [
+                                  {
+                                    "op": "eval",
+                                    "value": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "format:DebugTupleField"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "view"
+                                        },
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:BorrowField"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "var",
+                                              "name": "self"
+                                            }
+                                          ],
+                                          "semanticArguments": [
+                                            {
+                                              "tag": "nominal",
+                                              "ref": "local:Override"
+                                            },
+                                            {
+                                              "value": {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "text"
+                                                },
+                                                "value": "gitignore"
+                                              }
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "r"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "result": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "unit"
+                                  },
+                                  "value": null
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "result": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "builder"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "view",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "format:DebugTupleBuilder"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "region": {
+                                          "parameter": "f"
+                                        }
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "data"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "builderFinish"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "builderFinish",
+                              "kind": "Region"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugTupleFinish"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "view"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "arguments": []
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForOverrideBuilder": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "local:OverrideBuilder"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:OverrideBuilder"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "format:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "lambda",
+                  "params": [],
+                  "callMode": "consume",
+                  "body": {
+                    "op": "exec:block",
+                    "statements": [
+                      {
+                        "op": "var",
+                        "name": "builder",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "format:DebugStruct"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "formatter"
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "OverrideBuilder"
+                            }
+                          ]
+                        },
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugStructBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "op": "eval",
+                        "value": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:WithBorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "builder"
+                            },
+                            {
+                              "op": "lambda",
+                              "params": [
+                                {
+                                  "name": "view",
+                                  "type": {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:BorrowMut"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "apply",
+                                        "constructor": {
+                                          "decl": "format:DebugStructBuilder"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "region": {
+                                              "parameter": "f"
+                                            }
+                                          },
+                                          {
+                                            "region": {
+                                              "parameter": "data"
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "builderField"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "mode": "inout"
+                                }
+                              ],
+                              "typeParams": [
+                                {
+                                  "name": "builderField",
+                                  "kind": "Region"
+                                }
+                              ],
+                              "callMode": "consume",
+                              "parameterContracts": [
+                                {
+                                  "position": 0,
+                                  "retention": "noescape"
+                                }
+                              ],
+                              "body": {
+                                "op": "exec:block",
+                                "statements": [
+                                  {
+                                    "op": "eval",
+                                    "value": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "format:DebugField"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "view"
+                                        },
+                                        {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "text"
+                                          },
+                                          "value": "builder"
+                                        },
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:BorrowField"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "var",
+                                              "name": "self"
+                                            }
+                                          ],
+                                          "semanticArguments": [
+                                            {
+                                              "tag": "nominal",
+                                              "ref": "local:OverrideBuilder"
+                                            },
+                                            {
+                                              "value": {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "text"
+                                                },
+                                                "value": "builder"
+                                              }
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "r"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "result": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "unit"
+                                  },
+                                  "value": null
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "result": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "builder"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "view",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "format:DebugStructBuilder"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "region": {
+                                          "parameter": "f"
+                                        }
+                                      },
+                                      {
+                                        "region": {
+                                          "parameter": "data"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "builderFinish"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "builderFinish",
+                              "kind": "Region"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugFinish"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "view"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "arguments": []
+              },
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": {
+    "Glob": {
+      "definitionId": "Glob"
+    },
+    "Override": {
+      "definitionId": "Override"
+    },
+    "OverrideBuilder": {
+      "definitionId": "OverrideBuilder"
+    },
+    "GlobUnmatched": {
+      "definitionId": "GlobUnmatched"
+    },
+    "ClassifyMatch": {
+      "definitionId": "ClassifyMatch"
+    },
+    "Empty": {
+      "definitionId": "Empty"
+    },
+    "Path": {
+      "definitionId": "Path"
+    },
+    "IsEmpty": {
+      "definitionId": "IsEmpty"
+    },
+    "NumIgnores": {
+      "definitionId": "NumIgnores"
+    },
+    "NumWhitelists": {
+      "definitionId": "NumWhitelists"
+    },
+    "Matched": {
+      "definitionId": "Matched"
+    },
+    "BuilderNew": {
+      "definitionId": "BuilderNew"
+    },
+    "BuilderBuild": {
+      "definitionId": "BuilderBuild"
+    },
+    "BuilderAdd": {
+      "definitionId": "BuilderAdd"
+    },
+    "BuilderCaseInsensitive": {
+      "definitionId": "BuilderCaseInsensitive"
+    },
+    "BuilderAllowUnclosedClass": {
+      "definitionId": "BuilderAllowUnclosedClass"
+    },
+    "CloneForGlobInner": {
+      "definitionId": "CloneForGlobInner"
+    },
+    "CloneForGlob": {
+      "definitionId": "CloneForGlob"
+    },
+    "DebugForGlobInner": {
+      "definitionId": "DebugForGlobInner"
+    },
+    "DebugForGlob": {
+      "definitionId": "DebugForGlob"
+    },
+    "CloneForOverride": {
+      "definitionId": "CloneForOverride"
+    },
+    "CloneForOverrideBuilder": {
+      "definitionId": "CloneForOverrideBuilder"
+    },
+    "DebugForOverride": {
+      "definitionId": "DebugForOverride"
+    },
+    "DebugForOverrideBuilder": {
+      "definitionId": "DebugForOverrideBuilder"
+    }
+  },
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  }
+}

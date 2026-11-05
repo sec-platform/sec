@@ -1,0 +1,2689 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:printer:core-traits",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "stats": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:stats"
+    },
+    "duration": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:nice-duration"
+    },
+    "counter": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:counter"
+    },
+    "decimal": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:decimal"
+    },
+    "lines": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:searcher:lines"
+    },
+    "io": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:io"
+    },
+    "termcolor": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:termcolor"
+    }
+  },
+  "definitions": {
+    "CloneForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "stats:Stats"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:Clone"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:Debug"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DefaultForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Default",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "default": {
+              "parameters": [],
+              "returns": {
+                "tag": "nominal",
+                "ref": "stats:Stats"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:Default"
+                },
+                "arguments": []
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "PartialEqForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:PartialEq",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "eq": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "otherRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "other",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "otherRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:Equal"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "other"
+                  }
+                ]
+              }
+            }
+          },
+          "traitArguments": [
+            {
+              "tag": "nominal",
+              "ref": "stats:Stats"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "EqForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Eq",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {}
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "CloneForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "duration:NiceDuration"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Clone"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Debug"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DefaultForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Default",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "default": {
+              "parameters": [],
+              "returns": {
+                "tag": "nominal",
+                "ref": "duration:NiceDuration"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Default"
+                },
+                "arguments": []
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "PartialEqForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:PartialEq",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "eq": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "otherRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "other",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "otherRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Equal"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "other"
+                  }
+                ]
+              }
+            }
+          },
+          "traitArguments": [
+            {
+              "tag": "nominal",
+              "ref": "duration:NiceDuration"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "EqForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Eq",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {}
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "CopyForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Copy",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {}
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DisplayForNiceDuration": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Display",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "duration:NiceDuration"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Display"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "CloneForCounterWriter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "counter:CounterWriter"
+            },
+            "arguments": [
+              {
+                "tag": "param",
+                "name": "W"
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "counter:CounterWriter"
+                },
+                "arguments": [
+                  {
+                    "tag": "param",
+                    "name": "W"
+                  }
+                ]
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:Clone"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          },
+          "typeParams": [
+            {
+              "name": "W",
+              "kind": "Type",
+              "constraintRefs": [
+                "machine:Sized"
+              ],
+              "traitBounds": [
+                {
+                  "traitRef": "machine:Clone",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForCounterWriter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "counter:CounterWriter"
+            },
+            "arguments": [
+              {
+                "tag": "param",
+                "name": "W"
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:Debug"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          },
+          "typeParams": [
+            {
+              "name": "W",
+              "kind": "Type",
+              "constraintRefs": [
+                "machine:Sized"
+              ],
+              "traitBounds": [
+                {
+                  "traitRef": "machine:Debug",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForDecimalFormatter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "decimal:DecimalFormatter"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "decimal:DecimalFormatter"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "decimal:Debug"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForLineStep": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "lines:LineStep"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lines:LineStep"
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "lines:LineStepDebug"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForLineIter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "lines:LineIter"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "b"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "f",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "lines:LineIter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "b"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "f"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "lines:LineIterDebug"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  }
+                ]
+              }
+            }
+          },
+          "typeParams": [
+            {
+              "name": "b",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "AddOwnedForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Add",
+          "traitArguments": [
+            {
+              "tag": "nominal",
+              "ref": "stats:Stats"
+            }
+          ],
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {
+            "Output": {
+              "tag": "nominal",
+              "ref": "stats:Stats"
+            }
+          },
+          "methods": {
+            "add": {
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "stats:Stats"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "rhs",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "stats:Stats"
+                  },
+                  "mode": "move"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "stats:Stats"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:AddOwned"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "rhs"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "AddRefForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Add",
+          "traitArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "stats:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "rhsRegion"
+                  }
+                }
+              ]
+            }
+          ],
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {
+            "Output": {
+              "tag": "nominal",
+              "ref": "stats:Stats"
+            }
+          },
+          "methods": {
+            "add": {
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "stats:Stats"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "rhs",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "rhsRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "stats:Stats"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:AddRef"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "rhs"
+                  }
+                ]
+              }
+            }
+          },
+          "typeParams": [
+            {
+              "name": "rhsRegion",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "AddAssignOwnedForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:AddAssign",
+          "traitArguments": [
+            {
+              "tag": "nominal",
+              "ref": "stats:Stats"
+            }
+          ],
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "add_assign": {
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                },
+                {
+                  "name": "rhs",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "stats:Stats"
+                  },
+                  "mode": "move"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:AddAssignOwned"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "rhs"
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ]
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "AddAssignRefForStats": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:AddAssign",
+          "traitArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "stats:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "rhsRegion"
+                  }
+                }
+              ]
+            }
+          ],
+          "selfType": {
+            "tag": "nominal",
+            "ref": "stats:Stats"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "add_assign": {
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                },
+                {
+                  "name": "rhs",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "stats:Stats"
+                      },
+                      {
+                        "region": {
+                          "parameter": "rhsRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "stats:AddAssignRef"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "rhs"
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ]
+            }
+          },
+          "typeParams": [
+            {
+              "name": "rhsRegion",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "WriteForCounterWriter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "typeParams": [
+            {
+              "name": "W",
+              "kind": "Type",
+              "constraintRefs": [
+                "machine:Sized"
+              ],
+              "traitBounds": [
+                {
+                  "traitRef": "io:Write",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  }
+                }
+              ]
+            }
+          ],
+          "traitRef": "io:Write",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "counter:CounterWriter"
+            },
+            "arguments": [
+              {
+                "tag": "param",
+                "name": "W"
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "write": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                },
+                {
+                  "name": "buffer",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:ByteSlice"
+                      },
+                      {
+                        "region": {
+                          "parameter": "s"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "s",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:Write"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "buffer"
+                  }
+                ]
+              }
+            },
+            "flush": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:Flush"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "WriteColorForCounterWriter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "typeParams": [
+            {
+              "name": "W",
+              "kind": "Type",
+              "constraintRefs": [
+                "machine:Sized"
+              ],
+              "traitBounds": [
+                {
+                  "traitRef": "termcolor:WriteColor",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  }
+                }
+              ]
+            }
+          ],
+          "traitRef": "termcolor:WriteColor",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "counter:CounterWriter"
+            },
+            "arguments": [
+              {
+                "tag": "param",
+                "name": "W"
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "supports_color": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:SupportsColor"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            },
+            "supports_hyperlinks": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:SupportsHyperlinks"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            },
+            "set_color": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                },
+                {
+                  "name": "spec",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "termcolor:ColorSpec"
+                      },
+                      {
+                        "region": {
+                          "parameter": "s"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "s",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:SetColor"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "spec"
+                  }
+                ]
+              }
+            },
+            "set_hyperlink": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                },
+                {
+                  "name": "spec",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "termcolor:HyperlinkSpec"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "s"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                },
+                {
+                  "name": "s",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:SetHyperlink"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "var",
+                    "name": "spec"
+                  }
+                ]
+              }
+            },
+            "reset": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:Reset"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            },
+            "is_synchronous": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "counter:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "receiver": "self",
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "counter:IsSynchronous"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "IteratorForLineIter": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "typeParams": [
+            {
+              "name": "b",
+              "kind": "Region"
+            }
+          ],
+          "traitRef": "machine:Iterator",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "lines:LineIter"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "b"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {
+            "Item": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "b"
+                  }
+                }
+              ]
+            }
+          },
+          "methods": {
+            "next": {
+              "typeParams": [
+                {
+                  "name": "r",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "lines:LineIter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "b"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Borrow"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "machine:ByteSlice"
+                    },
+                    {
+                      "region": {
+                        "parameter": "b"
+                      }
+                    }
+                  ]
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "lines:LineIterNext"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": {
+    "CloneForStats": {
+      "definitionId": "CloneForStats"
+    },
+    "DebugForStats": {
+      "definitionId": "DebugForStats"
+    },
+    "DefaultForStats": {
+      "definitionId": "DefaultForStats"
+    },
+    "PartialEqForStats": {
+      "definitionId": "PartialEqForStats"
+    },
+    "EqForStats": {
+      "definitionId": "EqForStats"
+    },
+    "CloneForNiceDuration": {
+      "definitionId": "CloneForNiceDuration"
+    },
+    "DebugForNiceDuration": {
+      "definitionId": "DebugForNiceDuration"
+    },
+    "DefaultForNiceDuration": {
+      "definitionId": "DefaultForNiceDuration"
+    },
+    "PartialEqForNiceDuration": {
+      "definitionId": "PartialEqForNiceDuration"
+    },
+    "EqForNiceDuration": {
+      "definitionId": "EqForNiceDuration"
+    },
+    "CopyForNiceDuration": {
+      "definitionId": "CopyForNiceDuration"
+    },
+    "DisplayForNiceDuration": {
+      "definitionId": "DisplayForNiceDuration"
+    },
+    "CloneForCounterWriter": {
+      "definitionId": "CloneForCounterWriter"
+    },
+    "DebugForCounterWriter": {
+      "definitionId": "DebugForCounterWriter"
+    },
+    "DebugForDecimalFormatter": {
+      "definitionId": "DebugForDecimalFormatter"
+    },
+    "DebugForLineStep": {
+      "definitionId": "DebugForLineStep"
+    },
+    "DebugForLineIter": {
+      "definitionId": "DebugForLineIter"
+    },
+    "AddOwnedForStats": {
+      "definitionId": "AddOwnedForStats"
+    },
+    "AddRefForStats": {
+      "definitionId": "AddRefForStats"
+    },
+    "AddAssignOwnedForStats": {
+      "definitionId": "AddAssignOwnedForStats"
+    },
+    "AddAssignRefForStats": {
+      "definitionId": "AddAssignRefForStats"
+    },
+    "WriteForCounterWriter": {
+      "definitionId": "WriteForCounterWriter"
+    },
+    "WriteColorForCounterWriter": {
+      "definitionId": "WriteColorForCounterWriter"
+    },
+    "IteratorForLineIter": {
+      "definitionId": "IteratorForLineIter"
+    }
+  },
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "scope": "Native std trait implementation witnesses delegate to the unique existing Gift bodies; target must retain original crate paths and visibility."
+  }
+}

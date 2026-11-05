@@ -1,0 +1,1169 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:core:flags:defs:separators",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "parse": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:flags:parse"
+    },
+    "lowargs": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:flags:lowargs"
+    },
+    "anyhow": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:anyhow"
+    },
+    "runtime": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:runtime"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    }
+  },
+  "definitions": {
+    "UpdateContextSeparator": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "argRegion",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "parse:FlagValue"
+            },
+            "mode": "move"
+          },
+          {
+            "name": "args",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "lowargs:LowArgs"
+                },
+                {
+                  "region": {
+                    "parameter": "argRegion"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "var",
+            "name": "value"
+          },
+          "cases": [
+            {
+              "constructor": "Switch",
+              "binding": "enabled",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "var",
+                  "name": "enabled"
+                },
+                "then": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "runtime:Panic"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "internal error: entered unreachable code: flag can only be disabled"
+                    }
+                  ]
+                },
+                "otherwise": {
+                  "op": "do",
+                  "steps": [
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithFieldBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "args"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "slot",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "lowargs:ContextSeparator"
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "slotRegion"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "slotRegion",
+                              "kind": "Region",
+                              "binding": "argument"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WriteValue"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "slot"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "lowargs:ContextSeparatorDisabled"
+                                },
+                                "arguments": []
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "semanticArguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "lowargs:LowArgs"
+                        },
+                        {
+                          "value": {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "context_separator"
+                          }
+                        },
+                        {
+                          "region": {
+                            "parameter": "argRegion"
+                          }
+                        },
+                        {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        {
+                          "effectRow": {
+                            "members": [
+                              {
+                                "class": "state-read"
+                              },
+                              {
+                                "class": "state-write"
+                              },
+                              {
+                                "class": "external"
+                              },
+                              {
+                                "class": "time"
+                              },
+                              {
+                                "class": "random"
+                              },
+                              {
+                                "class": "spawn"
+                              },
+                              {
+                                "class": "await"
+                              },
+                              {
+                                "class": "io"
+                              },
+                              {
+                                "class": "alloc"
+                              },
+                              {
+                                "class": "unsafe"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "result": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "constructor": "Value",
+              "binding": "valueOs",
+              "body": {
+                "op": "let",
+                "name": "raw",
+                "value": {
+                  "op": "var",
+                  "name": "valueOs"
+                },
+                "body": {
+                  "op": "match",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:WithBorrow"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "raw"
+                      },
+                      {
+                        "op": "lambda",
+                        "params": [
+                          {
+                            "name": "os",
+                            "type": {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "machine:Borrow"
+                              },
+                              "arguments": [
+                                {
+                                  "tag": "nominal",
+                                  "ref": "path:OsString"
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "borrowRegion"
+                                  }
+                                }
+                              ]
+                            },
+                            "mode": "borrow"
+                          }
+                        ],
+                        "typeParams": [
+                          {
+                            "name": "borrowRegion",
+                            "kind": "Region",
+                            "binding": "argument"
+                          }
+                        ],
+                        "callMode": "consume",
+                        "parameterContracts": [
+                          {
+                            "position": 0,
+                            "retention": "noescape"
+                          }
+                        ],
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "lowargs:ContextSeparatorNew"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "os"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "cases": [
+                    {
+                      "constructor": "Err",
+                      "binding": "error",
+                      "body": {
+                        "op": "variant",
+                        "constructor": "Err",
+                        "payload": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "anyhow:FromError"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "error"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "constructor": "Ok",
+                      "binding": "separator",
+                      "body": {
+                        "op": "do",
+                        "steps": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithFieldBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "args"
+                              },
+                              {
+                                "op": "lambda",
+                                "params": [
+                                  {
+                                    "name": "slot",
+                                    "type": {
+                                      "tag": "apply",
+                                      "constructor": {
+                                        "decl": "machine:BorrowMut"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "tag": "nominal",
+                                          "ref": "lowargs:ContextSeparator"
+                                        },
+                                        {
+                                          "region": {
+                                            "parameter": "slotRegion"
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    "mode": "inout"
+                                  }
+                                ],
+                                "typeParams": [
+                                  {
+                                    "name": "slotRegion",
+                                    "kind": "Region",
+                                    "binding": "argument"
+                                  }
+                                ],
+                                "callMode": "consume",
+                                "parameterContracts": [
+                                  {
+                                    "position": 0,
+                                    "retention": "noescape"
+                                  }
+                                ],
+                                "body": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:WriteValue"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "slot"
+                                    },
+                                    {
+                                      "op": "var",
+                                      "name": "separator"
+                                    }
+                                  ]
+                                }
+                              }
+                            ],
+                            "semanticArguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "lowargs:LowArgs"
+                              },
+                              {
+                                "value": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "text"
+                                  },
+                                  "value": "context_separator"
+                                }
+                              },
+                              {
+                                "region": {
+                                  "parameter": "argRegion"
+                                }
+                              },
+                              {
+                                "tag": "scalar",
+                                "name": "unit"
+                              },
+                              {
+                                "effectRow": {
+                                  "members": [
+                                    {
+                                      "class": "state-read"
+                                    },
+                                    {
+                                      "class": "state-write"
+                                    },
+                                    {
+                                      "class": "external"
+                                    },
+                                    {
+                                      "class": "time"
+                                    },
+                                    {
+                                      "class": "random"
+                                    },
+                                    {
+                                      "class": "spawn"
+                                    },
+                                    {
+                                      "class": "await"
+                                    },
+                                    {
+                                      "class": "io"
+                                    },
+                                    {
+                                      "class": "alloc"
+                                    },
+                                    {
+                                      "class": "unsafe"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "result": {
+                          "op": "variant",
+                          "constructor": "Ok",
+                          "payload": {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "unit"
+                            },
+                            "value": null
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "UpdateFieldContextSeparator": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "argRegion",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "parse:FlagValue"
+            },
+            "mode": "move"
+          },
+          {
+            "name": "args",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "lowargs:LowArgs"
+                },
+                {
+                  "region": {
+                    "parameter": "argRegion"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "raw",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "parse:FlagValueUnwrapValue"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "body": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:WithBorrow"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "raw"
+                },
+                {
+                  "op": "lambda",
+                  "params": [
+                    {
+                      "name": "os",
+                      "type": {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Borrow"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "path:OsString"
+                          },
+                          {
+                            "region": {
+                              "parameter": "borrowRegion"
+                            }
+                          }
+                        ]
+                      },
+                      "mode": "borrow"
+                    }
+                  ],
+                  "typeParams": [
+                    {
+                      "name": "borrowRegion",
+                      "kind": "Region",
+                      "binding": "argument"
+                    }
+                  ],
+                  "callMode": "consume",
+                  "parameterContracts": [
+                    {
+                      "position": 0,
+                      "retention": "noescape"
+                    }
+                  ],
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "lowargs:FieldContextSeparatorNew"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "os"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "anyhow:FromError"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "separator",
+                "body": {
+                  "op": "do",
+                  "steps": [
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithFieldBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "args"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "slot",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "lowargs:FieldContextSeparator"
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "slotRegion"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "slotRegion",
+                              "kind": "Region",
+                              "binding": "argument"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WriteValue"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "slot"
+                              },
+                              {
+                                "op": "var",
+                                "name": "separator"
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "semanticArguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "lowargs:LowArgs"
+                        },
+                        {
+                          "value": {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "field_context_separator"
+                          }
+                        },
+                        {
+                          "region": {
+                            "parameter": "argRegion"
+                          }
+                        },
+                        {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        {
+                          "effectRow": {
+                            "members": [
+                              {
+                                "class": "state-read"
+                              },
+                              {
+                                "class": "state-write"
+                              },
+                              {
+                                "class": "external"
+                              },
+                              {
+                                "class": "time"
+                              },
+                              {
+                                "class": "random"
+                              },
+                              {
+                                "class": "spawn"
+                              },
+                              {
+                                "class": "await"
+                              },
+                              {
+                                "class": "io"
+                              },
+                              {
+                                "class": "alloc"
+                              },
+                              {
+                                "class": "unsafe"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "result": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "UpdateFieldMatchSeparator": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "argRegion",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "parse:FlagValue"
+            },
+            "mode": "move"
+          },
+          {
+            "name": "args",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "lowargs:LowArgs"
+                },
+                {
+                  "region": {
+                    "parameter": "argRegion"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "raw",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "parse:FlagValueUnwrapValue"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "value"
+              }
+            ]
+          },
+          "body": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:WithBorrow"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "raw"
+                },
+                {
+                  "op": "lambda",
+                  "params": [
+                    {
+                      "name": "os",
+                      "type": {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Borrow"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "path:OsString"
+                          },
+                          {
+                            "region": {
+                              "parameter": "borrowRegion"
+                            }
+                          }
+                        ]
+                      },
+                      "mode": "borrow"
+                    }
+                  ],
+                  "typeParams": [
+                    {
+                      "name": "borrowRegion",
+                      "kind": "Region",
+                      "binding": "argument"
+                    }
+                  ],
+                  "callMode": "consume",
+                  "parameterContracts": [
+                    {
+                      "position": 0,
+                      "retention": "noescape"
+                    }
+                  ],
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "lowargs:FieldMatchSeparatorNew"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "os"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "anyhow:FromError"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "separator",
+                "body": {
+                  "op": "do",
+                  "steps": [
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithFieldBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "args"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "slot",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "lowargs:FieldMatchSeparator"
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "slotRegion"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "slotRegion",
+                              "kind": "Region",
+                              "binding": "argument"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WriteValue"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "slot"
+                              },
+                              {
+                                "op": "var",
+                                "name": "separator"
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "semanticArguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "lowargs:LowArgs"
+                        },
+                        {
+                          "value": {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "field_match_separator"
+                          }
+                        },
+                        {
+                          "region": {
+                            "parameter": "argRegion"
+                          }
+                        },
+                        {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        {
+                          "effectRow": {
+                            "members": [
+                              {
+                                "class": "state-read"
+                              },
+                              {
+                                "class": "state-write"
+                              },
+                              {
+                                "class": "external"
+                              },
+                              {
+                                "class": "time"
+                              },
+                              {
+                                "class": "random"
+                              },
+                              {
+                                "class": "spawn"
+                              },
+                              {
+                                "class": "await"
+                              },
+                              {
+                                "class": "io"
+                              },
+                              {
+                                "class": "alloc"
+                              },
+                              {
+                                "class": "unsafe"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "result": {
+                    "op": "variant",
+                    "constructor": "Ok",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "UpdateContextSeparator": {
+      "definitionId": "UpdateContextSeparator"
+    },
+    "UpdateFieldContextSeparator": {
+      "definitionId": "UpdateFieldContextSeparator"
+    },
+    "UpdateFieldMatchSeparator": {
+      "definitionId": "UpdateFieldMatchSeparator"
+    }
+  }
+}

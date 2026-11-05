@@ -1,12 +1,12 @@
-# ignore 类型数据与选择策略的 Gift 作者源码
+# ignore 类型选择候选与历史对应
 
-本目录交付的是完整内置类型数据，以及 `ignore::types` 中已经写出主体的分类、选择、状态推进算法。它是整个 ripgrep 作者迁移的一个真实分量，**不是完整 ripgrep 迁移完成，也不是已经替换原生 `Types` 的可运行成品**。原生 `Types` 整体没有被重新标为供给；尚缺的文本操作、glob 编译与集合匹配、公开借用视图和实际调用接线在本文逐项列出。
+完整内置类型数据已按原字节归到 [library](../../library/default-file-types.module.json)，其当前来源与消费边界见 [数据说明](../../library/DEFAULT-FILE-TYPES.md)。本目录保留 `ignore::types` 分类、选择和状态推进的未采用候选及其历史对应，不属于当前 Project 的活动源，**不是完整 ripgrep 迁移完成，也不是已经替换原生 `Types` 的可运行成品**。原生 `Types` 整体没有被重新标为供给；尚缺的文本操作、glob 编译与集合匹配、公开借用视图和实际调用接线在本文逐项列出。
 
 ## 源码与准确来源
 
-| 本目录作者文件 | 内容与身份 | 原始来源 |
+| 数据或历史候选 | 内容与身份 | 原始来源 |
 |---|---|---|
-| [default-types.module.json](default-types.module.json) | `ripgrep:ignore:default_types`；`DefaultTypeGroup` 类型与 `DefaultTypes` 常量 | `crates/ignore/src/default_types.rs` 的完整 `DEFAULT_TYPES` |
+| [默认类型数据](../../library/default-file-types.module.json) | `ripgrep:ignore:default_types`；`DefaultTypeGroup` 类型与 `DefaultTypes` 常量；已按原字节归位 | `crates/ignore/src/default_types.rs` 的完整 `DEFAULT_TYPES` |
 | [types.module.json](types.module.json) | `ripgrep:ignore:types`；12 个类型、45 个有实际主体的纯函数 | `crates/ignore/src/types.rs` 的数据更新、选择、构建顺序、结果分类 |
 
 固定来源 P 为 `4c2362d359d9913c7a5e391ccd79cb4da22bc89b`，源树 `e41450e1cd2b5b7a3fef684b5c38cf5d504fc030`。来源 Q 为 `7155f6408d370e699795dc75e954635abfaf08a6`；两份被迁出的原文件在该差额中保持，`pathutil` 的 Unix `file_name` 改动会影响 `Types::matched` 的输入分支。Q 不需要另抄本目录全部作者源。
@@ -15,7 +15,7 @@
 
 数据完整性按实际数组取得：**219 组、224 个别名、594 个组内 glob 项、609 个展开后的 name/glob 对**。保留组顺序、别名顺序、glob 顺序、大小写、通配符内容和重复。`py`/`python` 等别名是分别登记的类型名；它们不是引用同一可变条目的别名指针。保留原顺序不表示原源已经把每组 glob 排序；显示用排序属于 `definitions()`。
 
-常量是 `Sequence<DefaultTypeGroup>`，每组是 `{names:Sequence<Text>,globs:Sequence<Text>}`。作者值通过真正的 `Expr.sequence`、`Expr.record`、标明 Text 的 `Expr.literal` 构造，**没有把 JSON 数组／对象当任意 Type 的 literal**，没有把 Rust 初始值文本塞进不解释的字符串。数据只保存一份，`types` 通过 workspace import 消费 `defaults:DefaultTypes`。
+常量是 `Sequence<DefaultTypeGroup>`，每组是 `{names:Sequence<Text>,globs:Sequence<Text>}`。作者值通过真正的 `Expr.sequence`、`Expr.record`、标明 Text 的 `Expr.literal` 构造，**没有把 JSON 数组／对象当任意 Type 的 literal**，没有把 Rust 初始值文本塞进不解释的字符串。数据定义只保存一份；旧 `types` 候选含有对 `defaults:DefaultTypes` 的 workspace import，但不属于当前 Project 消费链，也不证明真实类型选择已经接合。
 
 ## 已有主体和原函数的对应
 

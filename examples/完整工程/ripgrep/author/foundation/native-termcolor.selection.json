@@ -1,0 +1,48 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:external:native_termcolor",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "ColorChoice": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "ColorChoice",
+      "role": "type"
+    },
+    "ColorSpec": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "ColorSpec",
+      "role": "type"
+    },
+    "HyperlinkSpec": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "HyperlinkSpec",
+      "role": "type"
+    },
+    "WriteColor": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "WriteColor",
+      "role": "trait"
+    },
+    "ALWAYS": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "ALWAYS",
+      "role": "constant"
+    },
+    "ALWAYS_ANSI": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "ALWAYS_ANSI",
+      "role": "constant"
+    },
+    "AUTO": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "AUTO",
+      "role": "constant"
+    },
+    "NEVER": {
+      "sourcePath": "native-support/termcolor.rs",
+      "nativeExport": "NEVER",
+      "role": "constant"
+    }
+  }
+}

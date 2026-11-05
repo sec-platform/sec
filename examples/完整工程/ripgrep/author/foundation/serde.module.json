@@ -1,0 +1,24 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:external:serde",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:external:native_serde"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Serialize": {
+      "import": "native",
+      "export": "Serialize"
+    },
+    "Serializer": {
+      "import": "native",
+      "export": "Serializer"
+    },
+    "SerializeStruct": {
+      "import": "native",
+      "export": "SerializeStruct"
+    }
+  }
+}

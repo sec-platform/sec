@@ -1,0 +1,4446 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:core:flags:defs:impl:values",
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  },
+  "imports": {
+    "traits": {
+      "workspace": "ripgrep:core:flags:defs"
+    },
+    "ids": {
+      "workspace": "ripgrep:core:flags:defs:identities"
+    },
+    "updates": {
+      "workspace": "ripgrep:core:flags:defs:values"
+    },
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "statics": {
+      "workspace": "ripgrep:foundation:static"
+    },
+    "parse": {
+      "workspace": "ripgrep:core:flags:parse"
+    },
+    "lowargs": {
+      "workspace": "ripgrep:core:flags:lowargs"
+    },
+    "anyhow": {
+      "workspace": "ripgrep:external:anyhow"
+    }
+  },
+  "definitions": {
+    "FlagForFile": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:File"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "102"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "file"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "PATTERNFILE"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Input",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Search for patterns from the given file."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nSearch for patterns from the given file, with one pattern per line. When this\nflag is used multiple times or in combination with the \\flag{regexp} flag, then\nall patterns provided are searched. Empty pattern lines will match all input\nlines, and the newline is not counted as part of the pattern.\n.sp\nA line is printed if and only if it matches at least one of the patterns.\n.sp\nWhen \\fIPATTERNFILE\\fP is \\fB-\\fP, then \\fBstdin\\fP will be read for the\npatterns.\n.sp\nWhen \\flag{file} or \\flag{regexp} is used, then ripgrep treats all positional\narguments as files or directories to search.\n"
+              },
+              "termination": "partial"
+            },
+            "completion_type": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:CompletionType"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filename",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:File"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateFile"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForGlob": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:Glob"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "103"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "glob"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "GLOB"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Include or exclude file paths."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nInclude or exclude files and directories for searching that match the given\nglob. This always overrides any other ignore logic. Multiple glob flags may\nbe used. Globbing rules match \\fB.gitignore\\fP globs. Precede a glob with a\n\\fB!\\fP to exclude it. If multiple globs match a file or directory, the glob\ngiven later in the command line takes precedence.\n.sp\nAs an extension, globs support specifying alternatives:\n.BI \"\\-g '\" ab{c,d}* '\nis equivalent to\n.BI \"\\-g \" \"abc \" \"\\-g \" abd.\nEmpty alternatives like\n.BI \"\\-g '\" ab{,c} '\nare not currently supported. Note that this syntax extension is also currently\nenabled in \\fBgitignore\\fP files, even though this syntax isn't supported by\ngit itself. ripgrep may disable this syntax extension in gitignore files, but\nit will always remain available via the \\flag{glob} flag.\n.sp\nWhen this flag is set, every file and directory is applied to it to test for\na match. For example, if you only want to search in a particular directory\n\\fIfoo\\fP, then\n.BI \"\\-g \" foo\nis incorrect because \\fIfoo/bar\\fP does not match\nthe glob \\fIfoo\\fP. Instead, you should use\n.BI \"\\-g '\" foo/** '.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Glob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateGlob"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForIGlob": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:IGlob"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "iglob"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "GLOB"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Include/exclude paths case insensitively."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nInclude or exclude files and directories for searching that match the given\nglob. This always overrides any other ignore logic. Multiple glob flags may\nbe used. Globbing rules match \\fB.gitignore\\fP globs. Precede a glob with a\n\\fB!\\fP to exclude it. If multiple globs match a file or directory, the glob\ngiven later in the command line takes precedence. Globs used via this flag are\nmatched case insensitively.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateIGlob"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForIgnoreFile": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:IgnoreFile"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "ignore-file"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "PATH"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Specify additional ignore files."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nSpecifies a path to one or more \\fBgitignore\\fP formatted rules files.\nThese patterns are applied after the patterns found in \\fB.gitignore\\fP,\n\\fB.rgignore\\fP and \\fB.ignore\\fP are applied and are matched relative to the\ncurrent working directory. That is, files specified via this flag have lower\nprecedence than files automatically found in the directory tree. Multiple\nadditional ignore files can be specified by using this flag repeatedly. When\nspecifying multiple ignore files, earlier files have lower precedence than\nlater files.\n.sp\nIf you are looking for a way to include or exclude files and directories\ndirectly on the command line, then use \\flag{glob} instead.\n"
+              },
+              "termination": "partial"
+            },
+            "completion_type": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:CompletionType"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filename",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:IgnoreFile"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateIgnoreFile"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForPreGlob": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:PreGlob"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "pre-glob"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "GLOB"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Input",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Include or exclude files from a preprocessor."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nThis flag works in conjunction with the \\flag{pre} flag. Namely, when one or\nmore \\flag{pre-glob} flags are given, then only files that match the given set\nof globs will be handed to the command specified by the \\flag{pre} flag. Any\nnon-matching files will be searched without using the preprocessor command.\n.sp\nThis flag is useful when searching many files with the \\flag{pre} flag.\nNamely, it provides the ability to avoid process overhead for files that\ndon't need preprocessing. For example, given the following shell script,\n\\fIpre-pdftotext\\fP:\n.sp\n.EX\n    #!/bin/sh\n    pdftotext \"$1\" -\n.EE\n.sp\nthen it is possible to use \\fB\\-\\-pre\\fP \\fIpre-pdftotext\\fP\n\\fB\\-\\-pre\\-glob\\fP '\\fI*.pdf\\fP' to make it so ripgrep only executes\nthe \\fIpre-pdftotext\\fP command on files with a \\fI.pdf\\fP extension.\n.sp\nMultiple \\flag{pre-glob} flags may be used. Globbing rules match\n\\fBgitignore\\fP globs. Precede a glob with a \\fB!\\fP to exclude it.\n.sp\nThis flag has no effect if the \\flag{pre} flag is not used.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:PreGlob"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdatePreGlob"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForRegexp": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:Regexp"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "101"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "regexp"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "PATTERN"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Input",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "A pattern to search for."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nA pattern to search for. This option can be provided multiple times, where\nall patterns given are searched, in addition to any patterns provided by\n\\flag{file}. Lines matching at least one of the provided patterns are printed.\nThis flag can also be used when searching for patterns that start with a dash.\n.sp\nFor example, to search for the literal \\fB\\-foo\\fP:\n.sp\n.EX\n    rg \\-e \\-foo\n.EE\n.sp\nYou can also use the special \\fB\\-\\-\\fP delimiter to indicate that no more\nflags will be provided. Namely, the following is equivalent to the above:\n.sp\n.EX\n    rg \\-\\- \\-foo\n.EE\n.sp\nWhen \\flag{file} or \\flag{regexp} is used, then ripgrep treats all positional\narguments as files or directories to search.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Regexp"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateRegexp"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForType": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:Type"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "116"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "type"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "TYPE"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Only search files matching TYPE."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nThis flag limits ripgrep to searching files matching \\fITYPE\\fP. Multiple\n\\flag{type} flags may be provided.\n.sp\nThis flag supports the special value \\fBall\\fP, which will behave as if\n\\flag{type} was provided for every file type supported by ripgrep (including\nany custom file types). The end result is that \\fB\\-\\-type=all\\fP causes\nripgrep to search in \"whitelist\" mode, where it will only search files it\nrecognizes via its type definitions.\n.sp\nNote that this flag has lower precedence than both the \\flag{glob} flag and\nany rules found in ignore files.\n.sp\nTo see the list of available file types, use the \\flag{type-list} flag.\n"
+              },
+              "termination": "partial"
+            },
+            "completion_type": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:CompletionType"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filetype",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Type"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateType"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForTypeAdd": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:TypeAdd"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "type-add"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "TYPESPEC"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Add a new glob for a file type."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nThis flag adds a new glob for a particular file type. Only one glob can be\nadded at a time. Multiple \\flag{type-add} flags can be provided. Unless\n\\flag{type-clear} is used, globs are added to any existing globs defined inside\nof ripgrep.\n.sp\nNote that this must be passed to every invocation of ripgrep. Type settings are\nnot persisted. See \\fBCONFIGURATION FILES\\fP for a workaround.\n.sp\nExample:\n.sp\n.EX\n    rg \\-\\-type\\-add 'foo:*.foo' -tfoo \\fIPATTERN\\fP\n.EE\n.sp\nThis flag can also be used to include rules from other types with the special\ninclude directive. The include directive permits specifying one or more other\ntype names (separated by a comma) that have been defined and its rules will\nautomatically be imported into the type specified. For example, to create a\ntype called src that matches C++, Python and Markdown files, one can use:\n.sp\n.EX\n    \\-\\-type\\-add 'src:include:cpp,py,md'\n.EE\n.sp\nAdditional glob rules can still be added to the src type by using this flag\nagain:\n.sp\n.EX\n    \\-\\-type\\-add 'src:include:cpp,py,md' \\-\\-type\\-add 'src:*.foo'\n.EE\n.sp\nNote that type names must consist only of Unicode letters or numbers.\nPunctuation characters are not allowed.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeAdd"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateTypeAdd"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForTypeClear": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:TypeClear"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "type-clear"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "TYPE"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Clear globs for a file type."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nClear the file type globs previously defined for \\fITYPE\\fP. This clears any\npreviously defined globs for the \\fITYPE\\fP, but globs can be added after this\nflag.\n.sp\nNote that this must be passed to every invocation of ripgrep. Type settings are\nnot persisted. See \\fBCONFIGURATION FILES\\fP for a workaround.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeClear"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateTypeClear"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForTypeNot": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:TypeNot"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "84"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "type-not"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "TYPE"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filter",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Do not search files matching TYPE."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nDo not search files matching \\fITYPE\\fP. Multiple \\flag{type-not} flags may be\nprovided. Use the \\flag{type-list} flag to list all available types.\n.sp\nThis flag supports the special value \\fBall\\fP, which will behave\nas if \\flag{type-not} was provided for every file type supported by\nripgrep (including any custom file types). The end result is that\n\\fB\\-\\-type\\-not=all\\fP causes ripgrep to search in \"blacklist\" mode, where it\nwill only search files that are unrecognized by its type definitions.\n.sp\nTo see the list of available file types, use the \\flag{type-list} flag.\n"
+              },
+              "termination": "partial"
+            },
+            "completion_type": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:CompletionType"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Filetype",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:TypeNot"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateTypeNot"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": [
+    "FlagForFile",
+    "FlagForGlob",
+    "FlagForIGlob",
+    "FlagForIgnoreFile",
+    "FlagForPreGlob",
+    "FlagForRegexp",
+    "FlagForType",
+    "FlagForTypeAdd",
+    "FlagForTypeClear",
+    "FlagForTypeNot"
+  ]
+}

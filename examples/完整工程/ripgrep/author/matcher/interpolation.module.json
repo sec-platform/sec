@@ -619,9 +619,8 @@
         "typeParams": [
           {"name":"replacementRegion","kind":"Region"},
           {"name":"destinationRegion","kind":"Region"},
-          {"name":"appendEnvironment","kind":"Region"},
-          {"name":"nameEnvironment","kind":"Region"},
-          {"name":"Fx","kind":"EffectRow"}
+          {"name":"A","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"A"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"A"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Pair"},"arguments":[{"tag":"nominal","ref":"machine:Usize"},{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]}]}],"typeParams":[{"name":"writeRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"A"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Pair"},"arguments":[{"tag":"nominal","ref":"machine:Usize"},{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]}]}],"typeParams":[{"name":"writeRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"scalar","name":"unit"}}}]},
+          {"name":"N","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"N"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"N"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"N"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}}}}]}
         ],
         "parameters": [
           {
@@ -634,43 +633,12 @@
           },
           {
             "name": "append",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"writeRegion","kind":"Region"}],
-              "params": [
-                {"tag":"nominal","ref":"machine:Usize"},
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:BorrowMut"},
-                  "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]
-                }
-              ],
-              "returns": {"tag":"scalar","name":"unit"},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"appendEnvironment"}}],
-              "parameterContracts": [{"position":1,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"A"},
             "mode": "inout"
           },
           {
             "name": "nameToIndex",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"nameRegion","kind":"Region"}],
-              "params": [
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:Borrow"},
-                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
-                }
-              ],
-              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"nameEnvironment"}}],
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"N"},
             "mode": "inout"
           },
           {
@@ -684,12 +652,7 @@
           }
         ],
         "returns": {"tag":"scalar","name":"unit"},
-        "parameterContracts": [
-          {"position":0,"retention":"noescape"},
-          {"position":1,"retention":"noescape"},
-          {"position":2,"retention":"noescape"},
-          {"position":3,"retention":"noescape"}
-        ],
+        "parameterContracts": [],
         "body": {
           "op": "match",
           "value": {"op":"var","name":"capture"},
@@ -736,9 +699,8 @@
         "typeParams": [
           {"name":"replacementRegion","kind":"Region"},
           {"name":"destinationRegion","kind":"Region"},
-          {"name":"appendEnvironment","kind":"Region"},
-          {"name":"nameEnvironment","kind":"Region"},
-          {"name":"Fx","kind":"EffectRow"}
+          {"name":"A","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"A"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"A"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Pair"},"arguments":[{"tag":"nominal","ref":"machine:Usize"},{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]}]}],"typeParams":[{"name":"writeRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"A"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Pair"},"arguments":[{"tag":"nominal","ref":"machine:Usize"},{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]}]}],"typeParams":[{"name":"writeRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"scalar","name":"unit"}}}]},
+          {"name":"N","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"N"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"N"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"N"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}}}}]}
         ],
         "parameters": [
           {
@@ -753,43 +715,12 @@
           {"name":"index","type":{"tag":"nominal","ref":"machine:Usize"}},
           {
             "name": "append",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"writeRegion","kind":"Region"}],
-              "params": [
-                {"tag":"nominal","ref":"machine:Usize"},
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:BorrowMut"},
-                  "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]
-                }
-              ],
-              "returns": {"tag":"scalar","name":"unit"},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"appendEnvironment"}}],
-              "parameterContracts": [{"position":1,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"A"},
             "mode": "inout"
           },
           {
             "name": "nameToIndex",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"nameRegion","kind":"Region"}],
-              "params": [
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:Borrow"},
-                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
-                }
-              ],
-              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"nameEnvironment"}}],
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"N"},
             "mode": "inout"
           },
           {
@@ -807,7 +738,7 @@
           "constructor": {"decl":"local:InterpolationStep"},
           "arguments": [{"region":{"parameter":"replacementRegion"}}]
         },
-        "parameterContracts": [{"position":2,"retention":"noescape"},{"position":3,"retention":"noescape"},{"position":4,"retention":"noescape"}],
+        "parameterContracts": [],
         "body": {
           "op": "exec:block",
           "statements": [
@@ -1013,9 +944,8 @@
         "typeParams": [
           {"name":"replacementRegion","kind":"Region"},
           {"name":"destinationRegion","kind":"Region"},
-          {"name":"appendEnvironment","kind":"Region"},
-          {"name":"nameEnvironment","kind":"Region"},
-          {"name":"Fx","kind":"EffectRow"}
+          {"name":"A","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"A"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"A"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Pair"},"arguments":[{"tag":"nominal","ref":"machine:Usize"},{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]}]}],"typeParams":[{"name":"writeRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"A"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Pair"},"arguments":[{"tag":"nominal","ref":"machine:Usize"},{"tag":"apply","constructor":{"decl":"machine:BorrowMut"},"arguments":[{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]}]}],"typeParams":[{"name":"writeRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"scalar","name":"unit"}}}]},
+          {"name":"N","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"N"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"N"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"N"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}}}}]}
         ],
         "parameters": [
           {
@@ -1029,43 +959,12 @@
           },
           {
             "name": "append",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"writeRegion","kind":"Region"}],
-              "params": [
-                {"tag":"nominal","ref":"machine:Usize"},
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:BorrowMut"},
-                  "arguments": [{"tag":"nominal","ref":"machine:ByteVector"},{"region":{"parameter":"writeRegion"}}]
-                }
-              ],
-              "returns": {"tag":"scalar","name":"unit"},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"appendEnvironment"}}],
-              "parameterContracts": [{"position":1,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"A"},
             "mode": "move"
           },
           {
             "name": "nameToIndex",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"nameRegion","kind":"Region"}],
-              "params": [
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:Borrow"},
-                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
-                }
-              ],
-              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"nameEnvironment"}}],
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"N"},
             "mode": "move"
           },
           {
@@ -1079,15 +978,12 @@
           }
         ],
         "returns": {"tag":"scalar","name":"unit"},
-        "parameterContracts": [
-          {"position":0,"retention":"noescape"},
-          {"position":1,"retention":"noescape"},
-          {"position":2,"retention":"noescape"},
-          {"position":3,"retention":"noescape"}
-        ],
+        "parameterContracts": [],
         "body": {
           "op": "exec:block",
           "statements": [
+            {"op":"var","name":"appendCallback","value":{"op":"var","name":"append"}},
+            {"op":"var","name":"nameCallback","value":{"op":"var","name":"nameToIndex"}},
             {"op":"var","name":"remaining","value":{"op":"var","name":"replacement"}},
             {"op":"var","name":"scanning","value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true}},
             {
@@ -1156,8 +1052,8 @@
                             "arguments": [
                               {"op":"var","name":"remaining"},
                               {"op":"var","name":"index"},
-                              {"op":"var","name":"append"},
-                              {"op":"var","name":"nameToIndex"},
+                              {"op":"var","name":"appendCallback"},
+                              {"op":"var","name":"nameCallback"},
                               {"op":"var","name":"destination"}
                             ]
                           }

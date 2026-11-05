@@ -1,0 +1,148 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_io",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "File": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "File",
+      "role": "type"
+    },
+    "BufRead": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "BufRead",
+      "role": "trait"
+    },
+    "BufReader": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "BufReader",
+      "role": "type"
+    },
+    "Error": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "Error",
+      "role": "type"
+    },
+    "ErrorKind": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "ErrorKind",
+      "role": "type"
+    },
+    "Lines": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "Lines",
+      "role": "type"
+    },
+    "Read": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "Read",
+      "role": "trait"
+    },
+    "Write": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "Write",
+      "role": "trait"
+    },
+    "StaticError": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "StaticError",
+      "role": "type"
+    },
+    "Stdin": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "Stdin",
+      "role": "type"
+    },
+    "StdinLock": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "StdinLock",
+      "role": "type"
+    },
+    "buf_reader_new": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "buf_reader_new",
+      "role": "callable"
+    },
+    "buf_read_lines": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "buf_read_lines",
+      "role": "callable"
+    },
+    "lines_next": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "lines_next",
+      "role": "callable"
+    },
+    "file_open": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "file_open",
+      "role": "callable"
+    },
+    "write_bytes": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "write_bytes",
+      "role": "callable"
+    },
+    "flush": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "flush",
+      "role": "callable"
+    },
+    "read_to_end": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "read_to_end",
+      "role": "callable"
+    },
+    "stdin": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "stdin",
+      "role": "callable"
+    },
+    "stdin_lock": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "stdin_lock",
+      "role": "callable"
+    },
+    "other_error": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "other_error",
+      "role": "callable"
+    },
+    "other_message": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "other_message",
+      "role": "callable"
+    },
+    "new_message": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "new_message",
+      "role": "callable"
+    },
+    "error_display": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "error_display",
+      "role": "callable"
+    },
+    "error_description": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "error_description",
+      "role": "callable"
+    },
+    "raw_os_error": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "raw_os_error",
+      "role": "callable"
+    },
+    "from_raw_os_error": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "from_raw_os_error",
+      "role": "callable"
+    },
+    "kind": {
+      "sourcePath": "native-support/io.rs",
+      "nativeExport": "kind",
+      "role": "callable"
+    }
+  }
+}

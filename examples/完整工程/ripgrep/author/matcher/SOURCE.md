@@ -1,6 +1,6 @@
 # grep-matcher 的值与捕获默认算法作者片
 
-本片正在把 ripgrep 自有算法迁入 Gift；它不是“保留全部 Rust 就完成 Gift 开发面”的另一种表述。已写作者主体，尚未完成整个 crate 的公共 trait 接合、共享机器供给绑定或生产编译执行。本目录只拥有下面列出的值/默认算法，不声明整个 ripgrep 已完成。
+本片正在把 ripgrep 自有算法迁入 Gift；它不是“保留全部 Rust 就完成 Gift 开发面”的另一种表述。值和捕获默认算法已有作者主体，另有 [Captures/Matcher 结构候选及默认算法](MATCHER-SOURCE.md)；公开泛型回调 F 已有作者参数及约束，其真实调用 witness、共享机器供给绑定和生产编译执行尚未完成。本页负责下面列出的值/默认算法，不声明整个 ripgrep 已完成。
 
 基准是 ripgrep **P `4c2362d359d9913c7a5e391ccd79cb4da22bc89b`** 的 `crates/matcher/src/lib.rs`；实际读取文件的 SHA-256 为 `56212862323457b60a008e8c45f92b2fc3d8590cb82d6d68dc0d31ac6ad97906`。`git diff P Q -- crates/matcher` 为空，故本片同样适用于 Q `7155f6408d370e699795dc75e954635abfaf08a6`。这里的 P/Q 是源码检查点，不是编译器分派条件。
 
@@ -9,7 +9,7 @@
 | 作者文件 | ModuleId | 本片实际内容 |
 |---|---|---|
 | [values.module.json](values.module.json) | `ripgrep:matcher:values` | 9 个类型定义、43 个函数主体；区间、终止符、字节集合、无捕获值、无错误值、行候选种类 |
-| [captures-defaults.module.json](captures-defaults.module.json) | `ripgrep:matcher:captures_defaults` | 3 个默认算法主体；原 Captures trait 身份尚未编码完成 |
+| [captures-defaults.module.json](captures-defaults.module.json) | `ripgrep:matcher:captures_defaults` | 3 个默认算法主体；Captures 结构声明见 [traits.module.json](traits.module.json)，泛型 F 约束已落源，真实 callable/trait witness 仍待资格 |
 
 两文件选用 `gift.author-module/design-converged`，使用真实 kind-key、普通 imports、完整 Expr/ExecBody 和已有 Type.apply。短形只缩短已规定的声明外壳；没有新增表达式、伪造 std 符号、NativeRun、运行供应表或项目版本分派。完整展开是只读核对结果，不另存可写长源。`SOURCE.md` 是本片设计说明和未决，不是运行时解释器，也不能通过 annotations 为源码补隐藏程序。
 
@@ -73,7 +73,7 @@ NoError 的旧说明称 Debug/Display 都 panic；P 的真实代码却是 `#[der
 | Borrow、BorrowMut | `(Type,Region)->Type`；共享/独占资格、有效范围和 reborrow 不可复制/延长；不会创建运行资源 |
 | ReadCopy、ReadCopyMut | `<T,r>(Borrow<T,r>)->T` / `<T,r>(BorrowMut<T,r>)->T`；仅限上述可复制表示；无用户回调、无分配；后者只读一次，不消费或泄漏独占资格 |
 | WriteValue | `<T,r>(BorrowMut<T,r>,T)->Unit`；本片仅用无 Drop/资源的 ByteSet，覆盖同一位置，返回时写入已完成，目标不得复制成另一个实例 |
-| BorrowField | `<R:Type,T:Type,N:Value<Text>,r:Region>(Borrow<R,r>)->Borrow<T,r>`；显式实参在源码中依此顺序。须核 N 为 R 的真实字段、同一个 T、表示权和只读投影。当前唯一使用为 LineTerminator.byte |
+| BorrowField | `<R:Type,N:Value<Text>,r:Region>(Borrow<R,r>)->Borrow<FieldPayload<R,N>,r>`；字段类型由 R 和 N 的真实字段推导，显式实参在源码中依此顺序。须核字段存在、表示权和只读投影。当前唯一使用为 LineTerminator.byte |
 | UsizeFromByte | `(uint8)->Usize`，精确无失败转换；本片只用 0 |
 | UsizeEqual、UsizeLessEqual | `(Usize,Usize)->Bool`，机器无符号比较 |
 | UsizeSubtract | `(Usize,Usize)->Usize`；本片使用点已由 Match 不变量证明 left≥right，不可静默饱和 |
@@ -96,12 +96,12 @@ NoError 的旧说明称 Debug/Display 都 panic；P 的真实代码却是 `#[der
 
 Captures 的 required members 是 `len(&self)->usize` 与 `get(&self,usize)->Option<Match>`，不负责创建 capture 容器。`get(0)` 必须在报告成功捕获时给出整体 Match；len 统计全部槽，未匹配的非零槽数仍非空。默认算法中的 get/len 是保持这些 exact operations 的普通函数值，接收同一 Borrow<C,r>；Fx 保留它们实际的效果上界，不能因为 Rust `&self` 就假定没有 interior mutation 或 panic。
 
-`CapturesInterpolateDefault` 保留原 `name_to_index` 的 exclusive 可变函数资格和受限回调 Region；参数模式 move 对应 F 的按值移交。`nameEnvironment` 是该函数值的潜在借用捕获上界，必须覆盖实际调用激活，允许原 Rust 闭包借用外部名字表；它不能省略成空 captures，也不能延长实际被捕获对象的寿命。多个输入借用须以真实 outlives/共同有效域证明满足此上界，缺证明保持 Need。append lambda 的参数型由已绑定 Interpolate 的唯一签名推导；捕获的 self/haystack 只在同步调用内可见，不得被保留。其所需 **`ripgrep:matcher:interpolate` 的 Interpolate** 已由[实际插值模块](interpolation.module.json)提供作者主体，保持资格与准确边界见[插值说明](INTERPOLATION-SOURCE.md)，生产链接仍未取得；没有把它冒充实际原生 supplier。最终签名必须与 P `interpolate.rs:20` 等价：replacement 借用；同步、不保留的 `FnMut(usize,&mut Vec<u8>)` append；同步、不保留的 `FnMut(&str)->Option<usize>` name_to_index；同一个可写 dst；返回 Unit，实际效果为这些调用与 dst 扩容的联合。
+`CapturesInterpolateDefault` 以原具体 F 的 Sized、FnMut 与 FnOnce/Output 约束保留 `name_to_index`；绑定局部 Region 表示每次调用可用的名字借用，move 表示 F 按值移交。F 的实际捕获和寿命由其真实类型见证推导，不强加空捕获或额外公开环境参数。append lambda 的参数型由已绑定 Interpolate 的唯一签名推导；它捕获 self/haystack，并通过原 Captures witness 调用 get，不能据同步调用推断覆盖方法不保留派生地址。其所需 **`ripgrep:matcher:interpolate` 的 Interpolate** 已由[实际插值模块](interpolation.module.json)提供作者主体，保持资格与准确边界见[插值说明](INTERPOLATION-SOURCE.md)，生产链接仍未取得；没有把它冒充实际原生 supplier。P `interpolate.rs:20` 的具体函数体同步调用两个 FnMut；开放的 Captures trait 覆盖实现没有因此取得对按值回调 F 或其他参数的 noescape 限制。具体函数与开放方法的 F 泛型身份、同一个可写 dst 和真实效果仍须按各自接口保持。
 
 以下义务仍开放，不能用本片函数数冲销：
 
-1. **Captures trait 声明/impl/default 装配。** `core:interface` 是 operation input/output/errors/effects 端口，perform 固定产生 Result；不等于 Rust trait。[共同trait结构画像](../../../../../docs/领域/计算基础/作者表示与实现分工.md#structured-trait-profile)已给出约束、Self、关联投影、默认方法与覆盖接合；本工程的实际trait声明和实例仍须按该合同落源，不能把每个应用调用的 get/len 参数当最终 API。
-2. **Matcher trait 与 `impl<M:Matcher> Matcher for &M`。** `lib.rs:546–1381` 的关联 Captures/Error、全部 default search/replace/iteration、两层 Result、空匹配前进和 trait 方法覆盖仍未迁入本片。不能从值层正确推导这些主体存在。
+1. **Captures trait 声明/impl/default 装配。** `core:interface` 是 operation input/output/errors/effects 端口，perform 固定产生 Result；不等于 Rust trait。工程已有 [Captures 结构声明及 NoCaptures 实现](traits.module.json)和三个默认算法主体；公开回调泛型 F 已表达，真实 trait 类型检查、目标公开接口及运行资格仍未闭合，不能把 get/len 函数参数或结构箭头当最终 API。
+2. **Matcher trait 与 `impl<M:Matcher> Matcher for &M`。** `lib.rs:546–1381` 的关联类型、default search/replace/iteration 与全部转发已有[结构候选和主体](MATCHER-SOURCE.md)，包括可供下游观察的具体泛型 F 及其约束；真正类型、目标和运行资格仍开放，不能从值层正确推导这些资格。
 3. **捕获替换解析接合。** `interpolate.rs` 的 `$`/`${}`/`$$`、ASCII 名字、u32 解析后转 usize、缺失名字与原追加顺序已有独立 Gift 作者体；剩余是机器借用/容器/外部memchr真实声明、函数签名及目标消费者资格，不能从已写源码推导这些已完成。
 4. **公开派生与格式协议。** 原 Clone/Copy/Debug/Eq/Hash/PartialEq 的准确集合、Rust Index/IndexMut trait 装配、BitSet Debug 的升序 0..=255 集合格式（含 alternate 等 Formatter 状态）、NoCaptures/NoError/LineMatchKind 派生输出、Error 的其他默认行为尚未完成 trait 资格。显式 Equal/Clone 函数只提供相交算法，不自动生成 impl，不得给 ByteSet/NoCaptures/NoError 新增原本没有的 Copy。
 5. **机器/借用/错误供给。** 上表全部名字需要实际模块、签名、约束和 Method/Target 绑定；泛型 primitive 拥有范围、Formatter 内部寿命、opaque native boundary、panic 和公开布局保持必须逐项验证。未绑定是 Needs，不能作为用户必须亲自补 Rust 的默认要求。

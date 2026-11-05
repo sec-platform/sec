@@ -1,0 +1,36 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:time",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_time"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Duration": {
+      "import": "native",
+      "export": "Duration"
+    },
+    "DurationZero": {
+      "import": "native",
+      "export": "DURATION_ZERO"
+    },
+    "DurationAdd": {
+      "import": "native",
+      "export": "duration_add"
+    },
+    "DurationEqual": {
+      "import": "native",
+      "export": "duration_equal"
+    },
+    "DurationAsSecs": {
+      "import": "native",
+      "export": "duration_as_secs"
+    },
+    "DurationSubsecNanos": {
+      "import": "native",
+      "export": "duration_subsec_nanos"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:runtime",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_runtime"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Panic": {
+      "import": "native",
+      "export": "panic"
+    },
+    "AssertOptionUsizeEqual": {
+      "import": "native",
+      "export": "assert_option_usize_equal"
+    },
+    "UnwrapError": {
+      "import": "native",
+      "export": "unwrap_error"
+    }
+  }
+}

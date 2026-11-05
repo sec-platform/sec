@@ -1,0 +1,166 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:language-v1-ledger",
+  "imports": {
+    "reservation": {
+      "workspace": "module:reservation-semantics"
+    }
+  },
+  "definitions": {
+    "ReservationRules": {
+      "intent:goal": {
+        "roles": {
+          "before": "reservation:State",
+          "request": "reservation:Request",
+          "outcome": "reservation:Outcome",
+          "after": "reservation:State"
+        },
+        "clauses": {
+          "admission_and_settlement": {
+            "achieve": {
+              "reservation:NoOversell": {
+                "before": "before",
+                "request": "request",
+                "outcome": "outcome",
+                "after": "after"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Pool": {
+      "resource:model": {
+        "unitRef": "reservation-slot",
+        "allocation": "shared",
+        "capacityLiteral": {
+          "magnitude": "1",
+          "unitRef": "reservation-slot"
+        }
+      }
+    },
+    "ProjectCapturedState": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "captured",
+            "type": {
+              "tag": "nominal",
+              "ref": "reservation:State"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "reservation:State"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "var",
+          "name": "captured"
+        }
+      }
+    },
+    "PoolView": {
+      "observation:contract": {
+        "subjectRef": "local:Pool",
+        "observerRef": "local:ProjectCapturedState",
+        "scopeRef": "same-reservation-call-cut",
+        "completeness": "closed"
+      }
+    },
+    "ApplyApi": {
+      "core:interface": {
+        "operations": [
+          {
+            "name": "apply",
+            "input": {
+              "tag": "nominal",
+              "ref": "reservation:Request"
+            },
+            "output": {
+              "tag": "nominal",
+              "ref": "reservation:Outcome"
+            },
+            "errors": {
+              "tag": "scalar",
+              "name": "never"
+            },
+            "effects": [
+              {
+                "class": "state-read",
+                "resourceRef": "local:Pool"
+              },
+              {
+                "class": "state-write",
+                "resourceRef": "local:Pool"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Ledger": {
+      "product:component": {
+        "provides": [
+          "local:ApplyApi"
+        ],
+        "requires": [],
+        "resourceParticipations": [
+          {
+            "use": {
+              "ref": "local:Pool",
+              "useId": "pool"
+            },
+            "role": "owner"
+          }
+        ],
+        "observationParticipations": [
+          {
+            "use": {
+              "ref": "local:PoolView",
+              "useId": "poolView"
+            },
+            "role": "produce"
+          }
+        ],
+        "requirements": [
+          {
+            "ref": "local:ReservationRules",
+            "strength": "hard",
+            "callBinding": {
+              "portRef": "local:ApplyApi",
+              "operation": "apply",
+              "exit": "normal",
+              "roleBindings": {
+                "before": {
+                  "kind": "before",
+                  "subjectUseId": "pool",
+                  "observationUseId": "poolView"
+                },
+                "request": {
+                  "kind": "input",
+                  "index": 0
+                },
+                "outcome": {
+                  "kind": "return"
+                },
+                "after": {
+                  "kind": "after",
+                  "subjectUseId": "pool",
+                  "observationUseId": "poolView"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "exports": [
+    "Ledger",
+    "ApplyApi"
+  ]
+}

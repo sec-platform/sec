@@ -1,0 +1,85 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:filename",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    }
+  },
+  "definitions": {
+    "FileNamePath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "path:OsStr"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "path:FileName"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "path"
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "FileNamePath": {
+      "definitionId": "FileNamePath"
+    }
+  }
+}

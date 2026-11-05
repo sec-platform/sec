@@ -1,0 +1,478 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:filename",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    },
+    "unix": {
+      "workspace": "ripgrep:foundation:path_unix"
+    },
+    "memchr": {
+      "workspace": "ripgrep:external:memchr"
+    }
+  },
+  "definitions": {
+    "FileNamePath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "path:OsStr"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "bytes",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "unix:OsStrAsBytes"
+            },
+            "arguments": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "path:AsOsStr"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "path"
+                  }
+                ]
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ByteSliceIsEmpty"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "bytes"
+                }
+              ]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "None",
+              "payload": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "value": null
+              }
+            },
+            "otherwise": {
+              "op": "let",
+              "name": "start",
+              "value": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "memchr:Memrchr"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "uint",
+                        "bits": 8,
+                        "overflow": "checked"
+                      },
+                      "value": "47"
+                    },
+                    {
+                      "op": "var",
+                      "name": "bytes"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "none",
+                    "body": {
+                      "op": "symbol",
+                      "ref": "machine:UsizeZero"
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "lastSlash",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeAdd"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "lastSlash"
+                        },
+                        {
+                          "op": "symbol",
+                          "ref": "machine:UsizeOne"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "op": "let",
+                "name": "nameBytes",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ByteSliceRange"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "bytes"
+                    },
+                    {
+                      "op": "var",
+                      "name": "start"
+                    },
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:ByteSliceLength"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "bytes"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "body": {
+                  "op": "if",
+                  "condition": {
+                    "op": "if",
+                    "condition": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:UsizeEqual"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteSliceLength"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "nameBytes"
+                              }
+                            ]
+                          },
+                          {
+                            "op": "symbol",
+                            "ref": "machine:UsizeOne"
+                          }
+                        ]
+                      },
+                      "then": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:ByteEqual"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteSliceIndex"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "nameBytes"
+                              },
+                              {
+                                "op": "symbol",
+                                "ref": "machine:UsizeZero"
+                              }
+                            ]
+                          },
+                          {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "uint",
+                              "bits": 8,
+                              "overflow": "checked"
+                            },
+                            "value": "46"
+                          }
+                        ]
+                      },
+                      "otherwise": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "bool"
+                        },
+                        "value": false
+                      }
+                    },
+                    "then": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "bool"
+                      },
+                      "value": true
+                    },
+                    "otherwise": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:UsizeEqual"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteSliceLength"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "nameBytes"
+                              }
+                            ]
+                          },
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:UsizeFromByte"
+                            },
+                            "arguments": [
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "uint",
+                                  "bits": 8,
+                                  "overflow": "checked"
+                                },
+                                "value": "2"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "then": {
+                        "op": "if",
+                        "condition": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ByteEqual"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:ByteSliceIndex"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "nameBytes"
+                                },
+                                {
+                                  "op": "symbol",
+                                  "ref": "machine:UsizeZero"
+                                }
+                              ]
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "uint",
+                                "bits": 8,
+                                "overflow": "checked"
+                              },
+                              "value": "46"
+                            }
+                          ]
+                        },
+                        "then": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ByteEqual"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:ByteSliceIndex"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "nameBytes"
+                                },
+                                {
+                                  "op": "symbol",
+                                  "ref": "machine:UsizeOne"
+                                }
+                              ]
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "uint",
+                                "bits": 8,
+                                "overflow": "checked"
+                              },
+                              "value": "46"
+                            }
+                          ]
+                        },
+                        "otherwise": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "bool"
+                          },
+                          "value": false
+                        }
+                      },
+                      "otherwise": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "bool"
+                        },
+                        "value": false
+                      }
+                    }
+                  },
+                  "then": {
+                    "op": "variant",
+                    "constructor": "None",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  },
+                  "otherwise": {
+                    "op": "variant",
+                    "constructor": "Some",
+                    "payload": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "unix:OsStrFromBytes"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "nameBytes"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "FileNamePath": {
+      "definitionId": "FileNamePath"
+    }
+  }
+}

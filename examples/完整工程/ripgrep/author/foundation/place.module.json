@@ -1,0 +1,157 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:place",
+  "imports": {},
+  "definitions": {
+    "Borrow": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {"operation": "shared-borrow-type"},
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "BorrowMut": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {"operation": "exclusive-borrow-type"},
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "FieldPayload": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "field-payload"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "BorrowField": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "borrow-field",
+          "fieldPayloadRef": "local:FieldPayload",
+          "sharedBorrowRef": "local:Borrow",
+          "exclusiveBorrowRef": "local:BorrowMut"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "BorrowFieldMut": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "borrow-field-mut",
+          "fieldPayloadRef": "local:FieldPayload",
+          "sharedBorrowRef": "local:Borrow",
+          "exclusiveBorrowRef": "local:BorrowMut"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "WithFieldBorrowMut": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "with-field-borrow-mut",
+          "fieldPayloadRef": "local:FieldPayload",
+          "sharedBorrowRef": "local:Borrow",
+          "exclusiveBorrowRef": "local:BorrowMut"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "WithBorrow": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "with-borrow",
+          "sharedBorrowRef": "local:Borrow",
+          "exclusiveBorrowRef": "local:BorrowMut"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "WithBorrowMut": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "with-borrow-mut",
+          "sharedBorrowRef": "local:Borrow",
+          "exclusiveBorrowRef": "local:BorrowMut"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "WithSharedBorrow": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "with-shared-borrow",
+          "sharedBorrowRef": "local:Borrow",
+          "exclusiveBorrowRef": "local:BorrowMut"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    },
+    "ConsumeField": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-place-operation",
+        "payload": {
+          "operation": "consume-field",
+          "fieldPayloadRef": "local:FieldPayload"
+        },
+        "bindingRef": "sem:InterpretPlace"
+      }
+    }
+  },
+  "exports": {
+    "Borrow": {
+      "definitionId": "Borrow"
+    },
+    "BorrowMut": {
+      "definitionId": "BorrowMut"
+    },
+    "FieldPayload": {
+      "definitionId": "FieldPayload"
+    },
+    "BorrowField": {
+      "definitionId": "BorrowField"
+    },
+    "BorrowFieldMut": {
+      "definitionId": "BorrowFieldMut"
+    },
+    "WithFieldBorrowMut": {
+      "definitionId": "WithFieldBorrowMut"
+    },
+    "ConsumeField": {
+      "definitionId": "ConsumeField"
+    },
+    "WithBorrow": {
+      "definitionId": "WithBorrow"
+    },
+    "WithBorrowMut": {
+      "definitionId": "WithBorrowMut"
+    },
+    "WithSharedBorrow": {
+      "definitionId": "WithSharedBorrow"
+    }
+  },
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  }
+}

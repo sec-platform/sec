@@ -1,0 +1,44 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:external:termcolor",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:external:native_termcolor"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "ColorChoice": {
+      "import": "native",
+      "export": "ColorChoice"
+    },
+    "ColorSpec": {
+      "import": "native",
+      "export": "ColorSpec"
+    },
+    "HyperlinkSpec": {
+      "import": "native",
+      "export": "HyperlinkSpec"
+    },
+    "WriteColor": {
+      "import": "native",
+      "export": "WriteColor"
+    },
+    "Always": {
+      "import": "native",
+      "export": "ALWAYS"
+    },
+    "AlwaysAnsi": {
+      "import": "native",
+      "export": "ALWAYS_ANSI"
+    },
+    "Auto": {
+      "import": "native",
+      "export": "AUTO"
+    },
+    "Never": {
+      "import": "native",
+      "export": "NEVER"
+    }
+  }
+}

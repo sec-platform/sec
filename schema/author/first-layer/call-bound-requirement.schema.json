@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gift:design-schema:call-bound-requirement",
+  "title": "Requirement application at a typed call boundary, design candidate",
+  "$comment": "Only design-converged selects this shape. Original /2 and /1 schemas retain their meaning. Source owner: docs/作者/结构化源码.md#call-bound-requirement. A binding declares a relation; it does not run, observe, implement or qualify a call.",
+  "$defs": {
+    "RequirementLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        "strength": {"enum": ["hard", "soft"]},
+        "scopeRef": {"type": "string", "minLength": 1},
+        "roleBindings": {
+          "type": "object",
+          "propertyNames": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"},
+          "additionalProperties": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/BusinessRoleActual"}
+        },
+        "callBinding": {"$ref": "#/$defs/CallBinding"}
+      }
+    },
+    "CallBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portRef", "operation", "exit", "roleBindings"],
+      "properties": {
+        "portRef": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Ref"},
+        "operation": {"$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"},
+        "instance": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"},
+        "exit": {"enum": ["normal", "error"]},
+        "roleBindings": {
+          "type": "object",
+          "propertyNames": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"},
+          "additionalProperties": {"$ref": "#/$defs/Endpoint"}
+        }
+      }
+    },
+    "Endpoint": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "index"],
+          "properties": {"kind": {"const": "input"}, "index": {"type": "integer", "minimum": 0}}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"enum": ["return", "error"]}}
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "subjectUseId", "observationUseId"],
+          "properties": {
+            "kind": {"enum": ["before", "after"]},
+            "subjectUseId": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"},
+            "observationUseId": {"$ref": "urn:gift:design-schema:universal-author-module-2#/$defs/Identifier"}
+          }
+        }
+      ]
+    }
+  }
+}

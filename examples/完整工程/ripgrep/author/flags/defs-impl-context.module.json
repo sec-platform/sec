@@ -1,0 +1,1384 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:core:flags:defs:impl:context",
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  },
+  "imports": {
+    "traits": {
+      "workspace": "ripgrep:core:flags:defs"
+    },
+    "ids": {
+      "workspace": "ripgrep:core:flags:defs:identities"
+    },
+    "updates": {
+      "workspace": "ripgrep:core:flags:defs:context"
+    },
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "statics": {
+      "workspace": "ripgrep:foundation:static"
+    },
+    "parse": {
+      "workspace": "ripgrep:core:flags:parse"
+    },
+    "lowargs": {
+      "workspace": "ripgrep:core:flags:lowargs"
+    },
+    "anyhow": {
+      "workspace": "ripgrep:external:anyhow"
+    }
+  },
+  "definitions": {
+    "FlagForAfterContext": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:AfterContext"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "65"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "after-context"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "NUM"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Output",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Show NUM lines after each match."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nShow \\fINUM\\fP lines after each match.\n.sp\nThis overrides the \\flag{passthru} flag and partially overrides the\n\\flag{context} flag.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:AfterContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateAfterContext"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForBeforeContext": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:BeforeContext"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "66"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "before-context"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "NUM"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Output",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Show NUM lines before each match."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nShow \\fINUM\\fP lines before each match.\n.sp\nThis overrides the \\flag{passthru} flag and partially overrides the\n\\flag{context} flag.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:BeforeContext"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateBeforeContext"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FlagForContext": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "traits:Flag",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "ids:Context"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              },
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "67"
+                }
+              },
+              "termination": "partial"
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "context"
+              },
+              "termination": "partial"
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "statics:Str"
+                  },
+                  "value": "NUM"
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "body": {
+                "op": "variant",
+                "constructor": "Output",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "Show NUM lines before and after each match."
+              },
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                },
+                "value": "\nShow \\fINUM\\fP lines before and after each match. This is equivalent to\nproviding both the \\flag{before-context} and \\flag{after-context} flags with\nthe same value.\n.sp\nThis overrides the \\flag{passthru} flag. The \\flag{after-context} and\n\\flag{before-context} flags both partially override this flag, regardless of\nthe order. For example, \\fB\\-A2 \\-C1\\fP is equivalent to \\fB\\-A2 \\-B1\\fP.\n"
+              },
+              "termination": "partial"
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "ids:Context"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "updates:UpdateContext"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "value"
+                  },
+                  {
+                    "op": "var",
+                    "name": "args"
+                  }
+                ]
+              },
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": [
+    "FlagForAfterContext",
+    "FlagForBeforeContext",
+    "FlagForContext"
+  ]
+}

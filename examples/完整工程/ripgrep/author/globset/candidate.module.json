@@ -1,0 +1,3282 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:globset:candidate",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    },
+    "memchr": {
+      "workspace": "ripgrep:external:memchr"
+    },
+    "format": {
+      "workspace": "ripgrep:foundation:format"
+    },
+    "bstr": {
+      "workspace": "ripgrep:external:bstr"
+    }
+  },
+  "definitions": {
+    "Candidate": {
+      "core:type": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          }
+        ],
+        "type": {
+          "tag": "record",
+          "fields": {
+            "path": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:CowBytes"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "origin"
+                    }
+                  }
+                ]
+              }
+            },
+            "basename": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:CowBytes"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "origin"
+                    }
+                  }
+                ]
+              }
+            },
+            "ext": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:CowBytes"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "origin"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "CowRange": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cow",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:CowBytes"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "start",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            }
+          },
+          {
+            "name": "end",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:CowBytes"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "origin"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:CowBytesBorrowedView"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "cow"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Some",
+              "binding": "input",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:CowBytesFromBorrowed"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceRange"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "input"
+                      },
+                      {
+                        "op": "var",
+                        "name": "start"
+                      },
+                      {
+                        "op": "var",
+                        "name": "end"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "constructor": "None",
+              "binding": "owned",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:CowBytesFromOwned"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceToVector"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:ByteSliceRange"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:CowBytesView"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "cow"
+                              }
+                            ]
+                          },
+                          {
+                            "op": "var",
+                            "name": "start"
+                          },
+                          {
+                            "op": "var",
+                            "name": "end"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FileName": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:CowBytes"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:CowBytes"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "origin"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "bytes",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:CowBytesView"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:UsizeEqual"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ByteSliceLength"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "bytes"
+                    }
+                  ]
+                },
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:UsizeFromByte"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "uint",
+                        "bits": 8,
+                        "overflow": "checked"
+                      },
+                      "value": "0"
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "None",
+              "payload": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "value": null
+              }
+            },
+            "otherwise": {
+              "op": "let",
+              "name": "start",
+              "value": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "memchr:Memrchr"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "uint",
+                        "bits": 8,
+                        "overflow": "checked"
+                      },
+                      "value": "47"
+                    },
+                    {
+                      "op": "var",
+                      "name": "bytes"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "none",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeFromByte"
+                      },
+                      "arguments": [
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "uint",
+                            "bits": 8,
+                            "overflow": "checked"
+                          },
+                          "value": "0"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "index",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeAdd"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "index"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:UsizeFromByte"
+                          },
+                          "arguments": [
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "uint",
+                                "bits": 8,
+                                "overflow": "checked"
+                              },
+                              "value": "1"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "op": "let",
+                "name": "got",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:CowRange"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "path"
+                    },
+                    {
+                      "op": "var",
+                      "name": "start"
+                    },
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:ByteSliceLength"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "bytes"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "body": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:WithBorrow"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "got"
+                      },
+                      {
+                        "op": "lambda",
+                        "params": [
+                          {
+                            "name": "view"
+                          }
+                        ],
+                        "callMode": "exclusive",
+                        "body": {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ByteSliceEqualsAscii"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:CowBytesView"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "view"
+                                }
+                              ]
+                            },
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": ".."
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "then": {
+                    "op": "variant",
+                    "constructor": "None",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  },
+                  "otherwise": {
+                    "op": "variant",
+                    "constructor": "Some",
+                    "payload": {
+                      "op": "var",
+                      "name": "got"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "FileNameExtension": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:CowBytes"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:CowBytes"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "origin"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "bytes",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:CowBytesView"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "name"
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:UsizeEqual"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ByteSliceLength"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "bytes"
+                    }
+                  ]
+                },
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:UsizeFromByte"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "uint",
+                        "bits": 8,
+                        "overflow": "checked"
+                      },
+                      "value": "0"
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "op": "variant",
+              "constructor": "None",
+              "payload": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "value": null
+              }
+            },
+            "otherwise": {
+              "op": "match",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "memchr:Memrchr"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    "value": "46"
+                  },
+                  {
+                    "op": "var",
+                    "name": "bytes"
+                  }
+                ]
+              },
+              "cases": [
+                {
+                  "constructor": "None",
+                  "binding": "none",
+                  "body": {
+                    "op": "variant",
+                    "constructor": "None",
+                    "payload": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  }
+                },
+                {
+                  "constructor": "Some",
+                  "binding": "index",
+                  "body": {
+                    "op": "variant",
+                    "constructor": "Some",
+                    "payload": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:CowRange"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "name"
+                        },
+                        {
+                          "op": "var",
+                          "name": "index"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ByteSliceLength"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "bytes"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "NormalizePath": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "input",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:CowBytes"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "origin"
+                  }
+                }
+              ]
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:CowBytes"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "origin"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "path",
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:CowBytes"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "origin"
+                    }
+                  }
+                ]
+              },
+              "value": {
+                "op": "var",
+                "name": "input"
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "path:IsUnixTarget"
+                  },
+                  "arguments": []
+                },
+                "then": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                },
+                "otherwise": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithBorrowMut"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "path"
+                    },
+                    {
+                      "op": "lambda",
+                      "params": [
+                        {
+                          "name": "path"
+                        }
+                      ],
+                      "callMode": "exclusive",
+                      "body": {
+                        "op": "exec:block",
+                        "statements": [
+                          {
+                            "op": "var",
+                            "name": "index",
+                            "type": {
+                              "tag": "nominal",
+                              "ref": "machine:Usize"
+                            },
+                            "value": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:UsizeFromByte"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "uint",
+                                    "bits": 8,
+                                    "overflow": "checked"
+                                  },
+                                  "value": "0"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "op": "while",
+                            "condition": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "std:BoolNot"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:UsizeLessEqual"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:WithSharedBorrow"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "path"
+                                        },
+                                        {
+                                          "op": "lambda",
+                                          "params": [
+                                            {
+                                              "name": "readPath"
+                                            }
+                                          ],
+                                          "callMode": "shared",
+                                          "body": {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:ByteSliceLength"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "machine:CowBytesView"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "var",
+                                                    "name": "readPath"
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "var",
+                                      "name": "index"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            "body": {
+                              "op": "exec:block",
+                              "statements": [
+                                {
+                                  "op": "let",
+                                  "name": "byte",
+                                  "value": {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "machine:WithSharedBorrow"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "path"
+                                      },
+                                      {
+                                        "op": "lambda",
+                                        "params": [
+                                          {
+                                            "name": "readPath"
+                                          }
+                                        ],
+                                        "callMode": "shared",
+                                        "body": {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:ByteSliceIndex"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "machine:CowBytesView"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "var",
+                                                  "name": "readPath"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "op": "var",
+                                              "name": "index"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "op": "eval",
+                                  "value": {
+                                    "op": "if",
+                                    "condition": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:ByteEqual"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "byte"
+                                        },
+                                        {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "uint",
+                                            "bits": 8,
+                                            "overflow": "checked"
+                                          },
+                                          "value": "47"
+                                        }
+                                      ]
+                                    },
+                                    "then": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "unit"
+                                      },
+                                      "value": null
+                                    },
+                                    "otherwise": {
+                                      "op": "if",
+                                      "condition": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "path:IsSeparatorScalar"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:ByteAsScalar"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "byte"
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "then": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "machine:ByteVectorSet"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:CowBytesToMut"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "path"
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "op": "var",
+                                            "name": "index"
+                                          },
+                                          {
+                                            "op": "literal",
+                                            "type": {
+                                              "tag": "scalar",
+                                              "name": "uint",
+                                              "bits": 8,
+                                              "overflow": "checked"
+                                            },
+                                            "value": "47"
+                                          }
+                                        ]
+                                      },
+                                      "otherwise": {
+                                        "op": "literal",
+                                        "type": {
+                                          "tag": "scalar",
+                                          "name": "unit"
+                                        },
+                                        "value": null
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "op": "set",
+                                  "name": "index",
+                                  "value": {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "machine:UsizeAdd"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "index"
+                                      },
+                                      {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "machine:UsizeFromByte"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "literal",
+                                            "type": {
+                                              "tag": "scalar",
+                                              "name": "uint",
+                                              "bits": 8,
+                                              "overflow": "checked"
+                                            },
+                                            "value": "1"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "result": {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "unit"
+                                },
+                                "value": null
+                              }
+                            }
+                          }
+                        ],
+                        "result": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "result": {
+            "op": "var",
+            "name": "path"
+          }
+        }
+      }
+    },
+    "CandidateFromCow": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "input",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:CowBytes"
+              },
+              "arguments": [
+                {
+                  "region": {
+                    "parameter": "origin"
+                  }
+                }
+              ]
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:Candidate"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "origin"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "let",
+          "name": "path",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:NormalizePath"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "input"
+              }
+            ]
+          },
+          "body": {
+            "op": "let",
+            "name": "basename",
+            "value": {
+              "op": "match",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrow"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "path"
+                  },
+                  {
+                    "op": "lambda",
+                    "params": [
+                      {
+                        "name": "p"
+                      }
+                    ],
+                    "callMode": "exclusive",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:FileName"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "p"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "cases": [
+                {
+                  "constructor": "None",
+                  "binding": "none",
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:CowBytesEmptyBorrowed"
+                    },
+                    "arguments": []
+                  }
+                },
+                {
+                  "constructor": "Some",
+                  "binding": "name",
+                  "body": {
+                    "op": "var",
+                    "name": "name"
+                  }
+                }
+              ]
+            },
+            "body": {
+              "op": "let",
+              "name": "ext",
+              "value": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithBorrow"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "basename"
+                    },
+                    {
+                      "op": "lambda",
+                      "params": [
+                        {
+                          "name": "b"
+                        }
+                      ],
+                      "callMode": "exclusive",
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "local:FileNameExtension"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "b"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "none",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:CowBytesEmptyBorrowed"
+                      },
+                      "arguments": []
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "ext",
+                    "body": {
+                      "op": "var",
+                      "name": "ext"
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "path",
+                    "value": {
+                      "op": "var",
+                      "name": "path"
+                    }
+                  },
+                  {
+                    "name": "basename",
+                    "value": {
+                      "op": "var",
+                      "name": "basename"
+                    }
+                  },
+                  {
+                    "name": "ext",
+                    "value": {
+                      "op": "var",
+                      "name": "ext"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "CandidateFromBytes": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "P",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "machine:AsRef",
+                "selfType": {
+                  "tag": "param",
+                  "name": "P"
+                },
+                "traitArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:ByteSlice"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "origin",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "input",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "P"
+                },
+                {
+                  "region": {
+                    "parameter": "origin"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:Candidate"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "origin"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "local:CandidateFromCow"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:CowBytesFromBorrowed"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "trait-method",
+                    "traitRef": "machine:AsRef",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "P"
+                    },
+                    "method": "as_ref",
+                    "traitArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:ByteSlice"
+                      }
+                    ]
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "input"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CandidateNew": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "P",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "machine:AsRef",
+                "selfType": {
+                  "tag": "param",
+                  "name": "P"
+                },
+                "traitArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "path:Path"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "origin",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "P"
+                },
+                {
+                  "region": {
+                    "parameter": "origin"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:Candidate"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "origin"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "local:CandidateFromCow"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "path:PathAsBytesLossy"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "trait-method",
+                    "traitRef": "machine:AsRef",
+                    "selfType": {
+                      "tag": "param",
+                      "name": "P"
+                    },
+                    "method": "as_ref",
+                    "traitArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "path:Path"
+                      }
+                    ]
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "path"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CandidatePath": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteSlice"
+            },
+            {
+              "region": {
+                "parameter": "view"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:CowBytesView"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "path"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CandidateBasename": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteSlice"
+            },
+            {
+              "region": {
+                "parameter": "view"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:CowBytesView"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "basename"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CandidateExtension": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteSlice"
+            },
+            {
+              "region": {
+                "parameter": "view"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:CowBytesView"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "ext"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CandidatePathPrefix": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "max",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteSlice"
+            },
+            {
+              "region": {
+                "parameter": "view"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "let",
+          "name": "path",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:CandidatePath"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              }
+            ]
+          },
+          "body": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:UsizeLessEqual"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ByteSliceLength"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "path"
+                    }
+                  ]
+                },
+                {
+                  "op": "var",
+                  "name": "max"
+                }
+              ]
+            },
+            "then": {
+              "op": "var",
+              "name": "path"
+            },
+            "otherwise": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ByteSliceRange"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                },
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:UsizeFromByte"
+                  },
+                  "arguments": [
+                    {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "uint",
+                        "bits": 8,
+                        "overflow": "checked"
+                      },
+                      "value": "0"
+                    }
+                  ]
+                },
+                {
+                  "op": "var",
+                  "name": "max"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "CandidatePathSuffix": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "max",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteSlice"
+            },
+            {
+              "region": {
+                "parameter": "view"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "let",
+          "name": "path",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:CandidatePath"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              }
+            ]
+          },
+          "body": {
+            "op": "let",
+            "name": "length",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ByteSliceLength"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            },
+            "body": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeLessEqual"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "length"
+                  },
+                  {
+                    "op": "var",
+                    "name": "max"
+                  }
+                ]
+              },
+              "then": {
+                "op": "var",
+                "name": "path"
+              },
+              "otherwise": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ByteSliceRange"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "path"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:UsizeSub"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "length"
+                      },
+                      {
+                        "op": "var",
+                        "name": "max"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "var",
+                    "name": "length"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "CandidateClone": {
+      "core:function": {
+        "typeParams": [
+          {
+            "name": "origin",
+            "kind": "Region"
+          },
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:Candidate"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "origin"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:Candidate"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "origin"
+              }
+            }
+          ]
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "path",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:CowBytesClone"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Candidate"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "origin"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "path"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "basename",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:CowBytesClone"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Candidate"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "origin"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "basename"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "ext",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:CowBytesClone"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Candidate"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "origin"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "ext"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "CloneForCandidate": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Clone",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "local:Candidate"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "origin"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "clone": {
+              "typeParams": [
+                {
+                  "name": "view",
+                  "kind": "Region"
+                }
+              ],
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Candidate"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "origin"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "local:Candidate"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "origin"
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:CandidateClone"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              },
+              "receiver": "self"
+            }
+          },
+          "typeParams": [
+            {
+              "name": "origin",
+              "kind": "Region"
+            }
+          ]
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "DebugForCandidate": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "typeParams": [
+            {
+              "name": "origin",
+              "kind": "Region"
+            }
+          ],
+          "traitRef": "machine:Debug",
+          "selfType": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "local:Candidate"
+            },
+            "arguments": [
+              {
+                "region": {
+                  "parameter": "origin"
+                }
+              }
+            ]
+          },
+          "associatedTypes": {},
+          "methods": {
+            "fmt": {
+              "typeParams": [
+                {
+                  "name": "view",
+                  "kind": "Region"
+                },
+                {
+                  "name": "data",
+                  "kind": "Region"
+                },
+                {
+                  "name": "formatRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:Candidate"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "origin"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "formatter",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:Formatter"
+                        },
+                        "arguments": [
+                          {
+                            "region": {
+                              "parameter": "data"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "region": {
+                          "parameter": "formatRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:FormatResult"
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "var",
+                    "name": "debugBuilder",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "format:DebugStructBuilder"
+                      },
+                      "arguments": [
+                        {
+                          "region": {
+                            "parameter": "formatRegion"
+                          }
+                        },
+                        {
+                          "region": {
+                            "parameter": "data"
+                          }
+                        }
+                      ]
+                    },
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "format:DebugStruct"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "formatter"
+                        },
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "Candidate"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "let",
+                    "name": "pathBstr",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "trait-method",
+                        "traitRef": "bstr:ByteSlice",
+                        "selfType": {
+                          "tag": "nominal",
+                          "ref": "machine:ByteSlice"
+                        },
+                        "method": "as_bstr"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "local:CandidatePath"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "self"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrow"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "pathBstr"
+                        },
+                        {
+                          "op": "lambda",
+                          "typeParams": [
+                            {
+                              "name": "read",
+                              "kind": "Region"
+                            }
+                          ],
+                          "params": [
+                            {
+                              "name": "bytesView"
+                            }
+                          ],
+                          "callMode": "exclusive",
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "debugBuilder"
+                              },
+                              {
+                                "op": "lambda",
+                                "typeParams": [
+                                  {
+                                    "name": "write",
+                                    "kind": "Region"
+                                  }
+                                ],
+                                "params": [
+                                  {
+                                    "name": "builder"
+                                  }
+                                ],
+                                "callMode": "exclusive",
+                                "body": {
+                                  "op": "exec:block",
+                                  "statements": [
+                                    {
+                                      "op": "eval",
+                                      "value": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "format:DebugField"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "builder"
+                                          },
+                                          {
+                                            "op": "literal",
+                                            "type": {
+                                              "tag": "scalar",
+                                              "name": "text"
+                                            },
+                                            "value": "path"
+                                          },
+                                          {
+                                            "op": "var",
+                                            "name": "bytesView"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ],
+                                  "result": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "let",
+                    "name": "basenameBstr",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "trait-method",
+                        "traitRef": "bstr:ByteSlice",
+                        "selfType": {
+                          "tag": "nominal",
+                          "ref": "machine:ByteSlice"
+                        },
+                        "method": "as_bstr"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "local:CandidateBasename"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "self"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrow"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "basenameBstr"
+                        },
+                        {
+                          "op": "lambda",
+                          "typeParams": [
+                            {
+                              "name": "read",
+                              "kind": "Region"
+                            }
+                          ],
+                          "params": [
+                            {
+                              "name": "bytesView"
+                            }
+                          ],
+                          "callMode": "exclusive",
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "debugBuilder"
+                              },
+                              {
+                                "op": "lambda",
+                                "typeParams": [
+                                  {
+                                    "name": "write",
+                                    "kind": "Region"
+                                  }
+                                ],
+                                "params": [
+                                  {
+                                    "name": "builder"
+                                  }
+                                ],
+                                "callMode": "exclusive",
+                                "body": {
+                                  "op": "exec:block",
+                                  "statements": [
+                                    {
+                                      "op": "eval",
+                                      "value": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "format:DebugField"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "builder"
+                                          },
+                                          {
+                                            "op": "literal",
+                                            "type": {
+                                              "tag": "scalar",
+                                              "name": "text"
+                                            },
+                                            "value": "basename"
+                                          },
+                                          {
+                                            "op": "var",
+                                            "name": "bytesView"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ],
+                                  "result": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "let",
+                    "name": "extBstr",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "trait-method",
+                        "traitRef": "bstr:ByteSlice",
+                        "selfType": {
+                          "tag": "nominal",
+                          "ref": "machine:ByteSlice"
+                        },
+                        "method": "as_bstr"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "local:CandidateExtension"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "self"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrow"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "extBstr"
+                        },
+                        {
+                          "op": "lambda",
+                          "typeParams": [
+                            {
+                              "name": "read",
+                              "kind": "Region"
+                            }
+                          ],
+                          "params": [
+                            {
+                              "name": "bytesView"
+                            }
+                          ],
+                          "callMode": "exclusive",
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "debugBuilder"
+                              },
+                              {
+                                "op": "lambda",
+                                "typeParams": [
+                                  {
+                                    "name": "write",
+                                    "kind": "Region"
+                                  }
+                                ],
+                                "params": [
+                                  {
+                                    "name": "builder"
+                                  }
+                                ],
+                                "callMode": "exclusive",
+                                "body": {
+                                  "op": "exec:block",
+                                  "statements": [
+                                    {
+                                      "op": "eval",
+                                      "value": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "format:DebugField"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "builder"
+                                          },
+                                          {
+                                            "op": "literal",
+                                            "type": {
+                                              "tag": "scalar",
+                                              "name": "text"
+                                            },
+                                            "value": "ext"
+                                          },
+                                          {
+                                            "op": "var",
+                                            "name": "bytesView"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ],
+                                  "result": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithBorrowMut"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "debugBuilder"
+                    },
+                    {
+                      "op": "lambda",
+                      "typeParams": [
+                        {
+                          "name": "write",
+                          "kind": "Region"
+                        }
+                      ],
+                      "params": [
+                        {
+                          "name": "builder"
+                        }
+                      ],
+                      "callMode": "exclusive",
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "format:DebugFinish"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "builder"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": [
+    "Candidate",
+    "CandidateNew",
+    "CandidateFromBytes",
+    "CandidateClone",
+    "CandidatePath",
+    "CandidateBasename",
+    "CandidateExtension",
+    "CandidatePathPrefix",
+    "CandidatePathSuffix",
+    "CloneForCandidate",
+    "DebugForCandidate"
+  ],
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  }
+}

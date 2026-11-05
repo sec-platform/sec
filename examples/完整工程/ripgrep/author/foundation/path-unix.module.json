@@ -1,0 +1,28 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:path_unix",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_path_unix"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "OsStrAsBytes": {
+      "import": "native",
+      "export": "os_str_as_bytes"
+    },
+    "OsStrFromBytes": {
+      "import": "native",
+      "export": "os_str_from_bytes"
+    },
+    "OsStringFromBytes": {
+      "import": "native",
+      "export": "os_string_from_bytes"
+    },
+    "OsStringIntoBytes": {
+      "import": "native",
+      "export": "os_string_into_bytes"
+    }
+  }
+}

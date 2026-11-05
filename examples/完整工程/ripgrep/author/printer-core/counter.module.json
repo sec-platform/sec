@@ -1,0 +1,3820 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:printer:counter",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "io": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:io"
+    },
+    "termcolor": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:termcolor"
+    },
+    "format": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:format"
+    }
+  },
+  "definitions": {
+    "CounterWriter": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "writer": {
+              "type": {
+                "tag": "param",
+                "name": "W"
+              }
+            },
+            "count": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            },
+            "totalCount": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            }
+          },
+          "open": false
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ]
+          }
+        ],
+        "opaque": true
+      }
+    },
+    "New": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "writer",
+            "type": {
+              "tag": "param",
+              "name": "W"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:CounterWriter"
+          },
+          "arguments": [
+            {
+              "tag": "param",
+              "name": "W"
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "io:Write",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          }
+        ],
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "writer",
+              "value": {
+                "op": "var",
+                "name": "writer"
+              }
+            },
+            {
+              "name": "count",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            },
+            {
+              "name": "totalCount",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Count": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "count"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "TotalCount": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:U64Add"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ReadCopy"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:BorrowField"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "local:CounterWriter"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "param",
+                          "name": "W"
+                        }
+                      ]
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "totalCount"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ReadCopy"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:BorrowField"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "local:CounterWriter"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "param",
+                          "name": "W"
+                        }
+                      ]
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "count"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "ResetCount": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "let",
+              "name": "total",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithFieldBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "fieldRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "slot",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:U64"
+                            },
+                            {
+                              "region": {
+                                "parameter": "fieldRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:ReadCopyMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "local:CounterWriter"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      }
+                    ]
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "totalCount"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  },
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "effectRow": {
+                      "members": [
+                        {
+                          "class": "state-read"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "let",
+              "name": "current",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithFieldBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "fieldRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "slot",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:U64"
+                            },
+                            {
+                              "region": {
+                                "parameter": "fieldRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:ReadCopyMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "local:CounterWriter"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      }
+                    ]
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "count"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  },
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "effectRow": {
+                      "members": [
+                        {
+                          "class": "state-read"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "let",
+              "name": "updated",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "total"
+                  },
+                  {
+                    "op": "var",
+                    "name": "current"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithFieldBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "fieldRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "slot",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:U64"
+                            },
+                            {
+                              "region": {
+                                "parameter": "fieldRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "local:CounterWriter"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      }
+                    ]
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "totalCount"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  },
+                  {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  {
+                    "effectRow": {
+                      "members": [
+                        {
+                          "class": "state-write"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithFieldBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "fieldRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "slot",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:U64"
+                            },
+                            {
+                              "region": {
+                                "parameter": "fieldRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "symbol",
+                          "ref": "machine:U64Zero"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "local:CounterWriter"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      }
+                    ]
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "count"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  },
+                  {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  {
+                    "effectRow": {
+                      "members": [
+                        {
+                          "class": "state-write"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "GetMut": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:BorrowMut"
+          },
+          "arguments": [
+            {
+              "tag": "param",
+              "name": "W"
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:BorrowFieldMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "writer"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "IntoInner": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "param",
+          "name": "W"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ]
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ConsumeField"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "writer"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Write": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "buffer",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "s"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "machine:Usize"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "io:Write",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "s",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithFieldBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "writerRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "slot",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "param",
+                          "name": "W"
+                        },
+                        {
+                          "region": {
+                            "parameter": "writerRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "trait-method",
+                    "traitRef": "io:Write",
+                    "selfType": {"tag": "param", "name": "W"},
+                    "method": "write"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "slot"
+                    },
+                    {
+                      "op": "var",
+                      "name": "buffer"
+                    }
+                  ]
+                }
+              }
+            ],
+            "semanticArguments": [
+              {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "local:CounterWriter"
+                },
+                "arguments": [
+                  {
+                    "tag": "param",
+                    "name": "W"
+                  }
+                ]
+              },
+              {
+                "value": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "value": "writer"
+                }
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              },
+              {
+                "tag": "result",
+                "ok": {
+                  "tag": "nominal",
+                  "ref": "machine:Usize"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              {
+                "effectRow": {
+                  "members": [
+                    {
+                      "class": "state-read"
+                    },
+                    {
+                      "class": "state-write"
+                    },
+                    {
+                      "class": "external"
+                    },
+                    {
+                      "class": "time"
+                    },
+                    {
+                      "class": "random"
+                    },
+                    {
+                      "class": "spawn"
+                    },
+                    {
+                      "class": "await"
+                    },
+                    {
+                      "class": "io"
+                    },
+                    {
+                      "class": "alloc"
+                    },
+                    {
+                      "class": "unsafe"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "Err",
+                "payload": {
+                  "op": "var",
+                  "name": "error"
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "written",
+              "body": {
+                "op": "do",
+                "steps": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:WithFieldBorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      },
+                      {
+                        "op": "lambda",
+                        "typeParams": [
+                          {
+                            "name": "fieldRegion",
+                            "kind": "Region"
+                          }
+                        ],
+                        "params": [
+                          {
+                            "name": "slot",
+                            "type": {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "machine:BorrowMut"
+                              },
+                              "arguments": [
+                                {
+                                  "tag": "nominal",
+                                  "ref": "machine:U64"
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "fieldRegion"
+                                  }
+                                }
+                              ]
+                            },
+                            "mode": "inout"
+                          }
+                        ],
+                        "parameterContracts": [
+                          {
+                            "position": 0,
+                            "retention": "noescape"
+                          }
+                        ],
+                        "body": {
+                          "op": "exec:block",
+                          "statements": [
+                            {
+                              "op": "let",
+                              "name": "updated",
+                              "value": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:U64Add"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "machine:ReadCopyMut"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "slot"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "machine:UsizeAsU64"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "written"
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "op": "eval",
+                              "value": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:WriteValue"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "slot"
+                                  },
+                                  {
+                                    "op": "var",
+                                    "name": "updated"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "count"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      },
+                      {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      {
+                        "effectRow": {
+                          "members": [
+                            {
+                              "class": "state-read"
+                            },
+                            {
+                              "class": "state-write"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "result": {
+                  "op": "variant",
+                  "constructor": "Ok",
+                  "payload": {
+                    "op": "var",
+                    "name": "written"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Flush": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "io:Write",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "writerRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      },
+                      {
+                        "region": {
+                          "parameter": "writerRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "trait-method",
+                  "traitRef": "io:Write",
+                  "selfType": {"tag": "param", "name": "W"},
+                  "method": "flush"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "slot"
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "writer"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "result",
+              "ok": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "error": {
+                "tag": "nominal",
+                "ref": "machine:IOError"
+              }
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  },
+                  {
+                    "class": "external"
+                  },
+                  {
+                    "class": "time"
+                  },
+                  {
+                    "class": "random"
+                  },
+                  {
+                    "class": "spawn"
+                  },
+                  {
+                    "class": "await"
+                  },
+                  {
+                    "class": "io"
+                  },
+                  {
+                    "class": "alloc"
+                  },
+                  {
+                    "class": "unsafe"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "SupportsColor": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "termcolor:WriteColor",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "trait-method",
+            "traitRef": "termcolor:WriteColor",
+            "selfType": {
+              "tag": "param",
+              "name": "W"
+            },
+            "method": "supports_color"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "writer"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "SupportsHyperlinks": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "termcolor:WriteColor",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "trait-method",
+            "traitRef": "termcolor:WriteColor",
+            "selfType": {
+              "tag": "param",
+              "name": "W"
+            },
+            "method": "supports_hyperlinks"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "writer"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "IsSynchronous": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "termcolor:WriteColor",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "trait-method",
+            "traitRef": "termcolor:WriteColor",
+            "selfType": {
+              "tag": "param",
+              "name": "W"
+            },
+            "method": "is_synchronous"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "writer"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "SetColor": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "spec",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "termcolor:ColorSpec"
+                },
+                {
+                  "region": {
+                    "parameter": "s"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "termcolor:WriteColor",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "s",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "writerRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      },
+                      {
+                        "region": {
+                          "parameter": "writerRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "trait-method",
+                  "traitRef": "termcolor:WriteColor",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  },
+                  "method": "set_color"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "slot"
+                  },
+                  {
+                    "op": "var",
+                    "name": "spec"
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "writer"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "result",
+              "ok": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "error": {
+                "tag": "nominal",
+                "ref": "machine:IOError"
+              }
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  },
+                  {
+                    "class": "external"
+                  },
+                  {
+                    "class": "time"
+                  },
+                  {
+                    "class": "random"
+                  },
+                  {
+                    "class": "spawn"
+                  },
+                  {
+                    "class": "await"
+                  },
+                  {
+                    "class": "io"
+                  },
+                  {
+                    "class": "alloc"
+                  },
+                  {
+                    "class": "unsafe"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "SetHyperlink": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "spec",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "termcolor:HyperlinkSpec"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "s"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "termcolor:WriteColor",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "s",
+            "kind": "Region"
+          },
+          {
+            "name": "data",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "writerRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      },
+                      {
+                        "region": {
+                          "parameter": "writerRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "trait-method",
+                  "traitRef": "termcolor:WriteColor",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  },
+                  "method": "set_hyperlink"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "slot"
+                  },
+                  {
+                    "op": "var",
+                    "name": "spec"
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "writer"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "result",
+              "ok": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "error": {
+                "tag": "nominal",
+                "ref": "machine:IOError"
+              }
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  },
+                  {
+                    "class": "external"
+                  },
+                  {
+                    "class": "time"
+                  },
+                  {
+                    "class": "random"
+                  },
+                  {
+                    "class": "spawn"
+                  },
+                  {
+                    "class": "await"
+                  },
+                  {
+                    "class": "io"
+                  },
+                  {
+                    "class": "alloc"
+                  },
+                  {
+                    "class": "unsafe"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Reset": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "scalar",
+            "name": "unit"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "machine:IOError"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "termcolor:WriteColor",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "writerRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "W"
+                      },
+                      {
+                        "region": {
+                          "parameter": "writerRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "trait-method",
+                  "traitRef": "termcolor:WriteColor",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  },
+                  "method": "reset"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "slot"
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "local:CounterWriter"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "W"
+                }
+              ]
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "writer"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "result",
+              "ok": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "error": {
+                "tag": "nominal",
+                "ref": "machine:IOError"
+              }
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  },
+                  {
+                    "class": "external"
+                  },
+                  {
+                    "class": "time"
+                  },
+                  {
+                    "class": "random"
+                  },
+                  {
+                    "class": "spawn"
+                  },
+                  {
+                    "class": "await"
+                  },
+                  {
+                    "class": "io"
+                  },
+                  {
+                    "class": "alloc"
+                  },
+                  {
+                    "class": "unsafe"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Clone": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:CounterWriter"
+          },
+          "arguments": [
+            {
+              "tag": "param",
+              "name": "W"
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "machine:Clone",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "writer",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "trait-method",
+                  "traitRef": "machine:Clone",
+                  "selfType": {
+                    "tag": "param",
+                    "name": "W"
+                  },
+                  "method": "clone"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "writer"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "count",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:Count"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "totalCount",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "local:CounterWriter"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "param",
+                            "name": "W"
+                          }
+                        ]
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "totalCount"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Debug": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:CounterWriter"
+                  },
+                  "arguments": [
+                    {
+                      "tag": "param",
+                      "name": "W"
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "typeParams": [
+          {
+            "name": "W",
+            "kind": "Type",
+            "constraintRefs": [
+              "machine:Sized"
+            ],
+            "traitBounds": [
+              {
+                "traitRef": "format:Debug",
+                "selfType": {
+                  "tag": "param",
+                  "name": "W"
+                }
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "data",
+            "kind": "Region"
+          },
+          {
+            "name": "f",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "CounterWriter"
+                  }
+                ]
+              },
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "format:DebugStructBuilder"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "f"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "wtr"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "local:CounterWriter"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "param",
+                                        "name": "W"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "writer"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "count"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "local:CounterWriter"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "param",
+                                        "name": "W"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "count"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "total_count"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "local:CounterWriter"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "tag": "param",
+                                        "name": "W"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "totalCount"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "builder"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "builderRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "builderPlace",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugStructBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "region": {
+                            "parameter": "builderRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "format:DebugFinish"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "builderPlace"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "CounterWriter": {
+      "definitionId": "CounterWriter"
+    },
+    "New": {
+      "definitionId": "New"
+    },
+    "Count": {
+      "definitionId": "Count"
+    },
+    "TotalCount": {
+      "definitionId": "TotalCount"
+    },
+    "ResetCount": {
+      "definitionId": "ResetCount"
+    },
+    "GetMut": {
+      "definitionId": "GetMut"
+    },
+    "IntoInner": {
+      "definitionId": "IntoInner"
+    },
+    "Write": {
+      "definitionId": "Write"
+    },
+    "Flush": {
+      "definitionId": "Flush"
+    },
+    "SupportsColor": {
+      "definitionId": "SupportsColor"
+    },
+    "SupportsHyperlinks": {
+      "definitionId": "SupportsHyperlinks"
+    },
+    "IsSynchronous": {
+      "definitionId": "IsSynchronous"
+    },
+    "SetColor": {
+      "definitionId": "SetColor"
+    },
+    "SetHyperlink": {
+      "definitionId": "SetHyperlink"
+    },
+    "Reset": {
+      "definitionId": "Reset"
+    },
+    "Clone": {
+      "definitionId": "Clone"
+    },
+    "Debug": {
+      "definitionId": "Debug"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourcePath": "crates/printer/src/counter.rs",
+    "qualification": "All counting and writer delegation decisions, Clone and Debug field composition are actual Gift bodies. Generic primitive/trait declarations and final native API witness integration remain explicit obligations.",
+    "mutableProjection": "Only GetMut uses BorrowFieldMut and consumes the parent exclusive borrow token for the returned loan. Internal field mutation uses WithFieldBorrowMut with a fresh short callback Region."
+  }
+}

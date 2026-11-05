@@ -1,0 +1,1088 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_machine",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "Usize": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Usize",
+      "role": "type"
+    },
+    "U32": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "U32",
+      "role": "type"
+    },
+    "U64": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "U64",
+      "role": "type"
+    },
+    "Byte": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Byte",
+      "role": "type"
+    },
+    "I32": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "I32",
+      "role": "type"
+    },
+    "F64": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "F64",
+      "role": "type"
+    },
+    "Char": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Char",
+      "role": "type"
+    },
+    "Str": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Str",
+      "role": "type"
+    },
+    "Text": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Text",
+      "role": "type"
+    },
+    "ByteSlice": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "ByteSlice",
+      "role": "type"
+    },
+    "ByteVector": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "ByteVector",
+      "role": "type"
+    },
+    "ByteArray": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "ByteArray",
+      "role": "type"
+    },
+    "Borrow": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Borrow",
+      "role": "type"
+    },
+    "BorrowMut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BorrowMut",
+      "role": "type"
+    },
+    "CowBytes": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "CowBytes",
+      "role": "type"
+    },
+    "CowStr": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "CowStr",
+      "role": "type"
+    },
+    "Vec": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Vec",
+      "role": "type"
+    },
+    "Vector": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Vector",
+      "role": "type"
+    },
+    "VectorIter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "VectorIter",
+      "role": "type"
+    },
+    "VectorIterRev": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "VectorIterRev",
+      "role": "type"
+    },
+    "HashMap": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "HashMap",
+      "role": "type"
+    },
+    "Formatter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Formatter",
+      "role": "type"
+    },
+    "FormatResult": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "FormatResult",
+      "role": "type"
+    },
+    "IOError": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "IOError",
+      "role": "type"
+    },
+    "ParseIntError": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "ParseIntError",
+      "role": "type"
+    },
+    "TryFromIntError": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "TryFromIntError",
+      "role": "type"
+    },
+    "Utf8Error": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Utf8Error",
+      "role": "type"
+    },
+    "Display": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Display",
+      "role": "trait"
+    },
+    "Sized": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Sized",
+      "role": "trait"
+    },
+    "USIZE_ZERO": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "USIZE_ZERO",
+      "role": "constant"
+    },
+    "USIZE_ONE": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "USIZE_ONE",
+      "role": "constant"
+    },
+    "U64_ZERO": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "U64_ZERO",
+      "role": "constant"
+    },
+    "BYTE_ZERO": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BYTE_ZERO",
+      "role": "constant"
+    },
+    "BYTE_ONE": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BYTE_ONE",
+      "role": "constant"
+    },
+    "BYTE_TWO": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BYTE_TWO",
+      "role": "constant"
+    },
+    "I32_ZERO": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "I32_ZERO",
+      "role": "constant"
+    },
+    "I32_ONE": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "I32_ONE",
+      "role": "constant"
+    },
+    "F64_ONE_BILLION": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "F64_ONE_BILLION",
+      "role": "constant"
+    },
+    "read_copy": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "read_copy",
+      "role": "callable"
+    },
+    "read_copy_mut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "read_copy_mut",
+      "role": "callable"
+    },
+    "write_value": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "write_value",
+      "role": "callable"
+    },
+    "clone_value": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "clone_value",
+      "role": "callable"
+    },
+    "with_borrow": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "with_borrow",
+      "role": "callable"
+    },
+    "with_borrow_mut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "with_borrow_mut",
+      "role": "callable"
+    },
+    "with_shared_borrow": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "with_shared_borrow",
+      "role": "callable"
+    },
+    "borrow_shared": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "borrow_shared",
+      "role": "callable"
+    },
+    "usize_from_byte": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_from_byte",
+      "role": "callable"
+    },
+    "usize_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_equal",
+      "role": "callable"
+    },
+    "usize_less_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_less_equal",
+      "role": "callable"
+    },
+    "usize_less": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_less",
+      "role": "callable"
+    },
+    "usize_add": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_add",
+      "role": "callable"
+    },
+    "usize_subtract": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_subtract",
+      "role": "callable"
+    },
+    "usize_checked_add": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_checked_add",
+      "role": "callable"
+    },
+    "usize_decimal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_decimal",
+      "role": "callable"
+    },
+    "usize_as_u64": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_as_u64",
+      "role": "callable"
+    },
+    "byte_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_equal",
+      "role": "callable"
+    },
+    "byte_greater": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_greater",
+      "role": "callable"
+    },
+    "byte_divide": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_divide",
+      "role": "callable"
+    },
+    "byte_remainder": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_remainder",
+      "role": "callable"
+    },
+    "byte_as_scalar": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_as_scalar",
+      "role": "callable"
+    },
+    "char_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "char_equal",
+      "role": "callable"
+    },
+    "char_is_ascii": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "char_is_ascii",
+      "role": "callable"
+    },
+    "ascii_char_to_byte": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "ascii_char_to_byte",
+      "role": "callable"
+    },
+    "char_from_u32": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "char_from_u32",
+      "role": "callable"
+    },
+    "word_and": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "word_and",
+      "role": "callable"
+    },
+    "word_or": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "word_or",
+      "role": "callable"
+    },
+    "word_not": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "word_not",
+      "role": "callable"
+    },
+    "word_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "word_equal",
+      "role": "callable"
+    },
+    "word_shift_left": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "word_shift_left",
+      "role": "callable"
+    },
+    "u64_from_byte": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_from_byte",
+      "role": "callable"
+    },
+    "u64_as_byte": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_as_byte",
+      "role": "callable"
+    },
+    "u64_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_equal",
+      "role": "callable"
+    },
+    "u64_greater": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_greater",
+      "role": "callable"
+    },
+    "u64_add": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_add",
+      "role": "callable"
+    },
+    "u64_divide": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_divide",
+      "role": "callable"
+    },
+    "u64_remainder": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_remainder",
+      "role": "callable"
+    },
+    "u64_decimal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_decimal",
+      "role": "callable"
+    },
+    "u32_as_usize": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u32_as_usize",
+      "role": "callable"
+    },
+    "u32_try_from_usize": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u32_try_from_usize",
+      "role": "callable"
+    },
+    "i32_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "i32_equal",
+      "role": "callable"
+    },
+    "i32_add": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "i32_add",
+      "role": "callable"
+    },
+    "i32_decimal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "i32_decimal",
+      "role": "callable"
+    },
+    "f64_from_u32": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "f64_from_u32",
+      "role": "callable"
+    },
+    "f64_from_u64": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "f64_from_u64",
+      "role": "callable"
+    },
+    "f64_add": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "f64_add",
+      "role": "callable"
+    },
+    "f64_divide": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "f64_divide",
+      "role": "callable"
+    },
+    "f64_greater_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "f64_greater_equal",
+      "role": "callable"
+    },
+    "f64_from_be_bytes": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "f64_from_be_bytes",
+      "role": "callable"
+    },
+    "bool_equal": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "bool_equal",
+      "role": "callable"
+    },
+    "byte_slice_length": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_length",
+      "role": "callable"
+    },
+    "byte_slice_is_empty": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_is_empty",
+      "role": "callable"
+    },
+    "byte_slice_first": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_first",
+      "role": "callable"
+    },
+    "byte_slice_get": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_get",
+      "role": "callable"
+    },
+    "byte_slice_index": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_index",
+      "role": "callable"
+    },
+    "byte_slice_last": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_last",
+      "role": "callable"
+    },
+    "byte_slice_range": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_range",
+      "role": "callable"
+    },
+    "byte_slice_range_mut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_range_mut",
+      "role": "callable"
+    },
+    "byte_singleton_slice": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_singleton_slice",
+      "role": "callable"
+    },
+    "byte_slice_to_vector": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_to_vector",
+      "role": "callable"
+    },
+    "byte_slice_equals_ascii": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_slice_equals_ascii",
+      "role": "callable"
+    },
+    "byte_vector_extend": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_extend",
+      "role": "callable"
+    },
+    "byte_vector_push": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_push",
+      "role": "callable"
+    },
+    "byte_vector_set": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_set",
+      "role": "callable"
+    },
+    "byte_vector_as_slice": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_as_slice",
+      "role": "callable"
+    },
+    "byte_array_fill": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_array_fill",
+      "role": "callable"
+    },
+    "byte_array_set": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_array_set",
+      "role": "callable"
+    },
+    "byte_array_as_slice": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_array_as_slice",
+      "role": "callable"
+    },
+    "cow_bytes_from_borrowed": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_from_borrowed",
+      "role": "callable"
+    },
+    "cow_bytes_from_owned": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_from_owned",
+      "role": "callable"
+    },
+    "cow_bytes_empty_borrowed": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_empty_borrowed",
+      "role": "callable"
+    },
+    "cow_bytes_borrowed_view": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_borrowed_view",
+      "role": "callable"
+    },
+    "cow_bytes_view": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_view",
+      "role": "callable"
+    },
+    "cow_bytes_to_mut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_to_mut",
+      "role": "callable"
+    },
+    "cow_bytes_clone": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_bytes_clone",
+      "role": "callable"
+    },
+    "vector_new": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_new",
+      "role": "callable"
+    },
+    "vector_push": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_push",
+      "role": "callable"
+    },
+    "vector_len": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_len",
+      "role": "callable"
+    },
+    "vector_get": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_get",
+      "role": "callable"
+    },
+    "vector_index": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_index",
+      "role": "callable"
+    },
+    "vector_remove": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_remove",
+      "role": "callable"
+    },
+    "vector_pop": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_pop",
+      "role": "callable"
+    },
+    "vector_iter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_iter",
+      "role": "callable"
+    },
+    "vector_iter_rev": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_iter_rev",
+      "role": "callable"
+    },
+    "vector_iter_next": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_iter_next",
+      "role": "callable"
+    },
+    "vector_iter_rev_next": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_iter_rev_next",
+      "role": "callable"
+    },
+    "option_borrow": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "option_borrow",
+      "role": "callable"
+    },
+    "text_as_str": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_as_str",
+      "role": "callable"
+    },
+    "str_to_owned": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_to_owned",
+      "role": "callable"
+    },
+    "text_clone": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_clone",
+      "role": "callable"
+    },
+    "cow_str_as_str": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "cow_str_as_str",
+      "role": "callable"
+    },
+    "str_to_scalars": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_to_scalars",
+      "role": "callable"
+    },
+    "str_trim_end": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_trim_end",
+      "role": "callable"
+    },
+    "str_starts_with": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_starts_with",
+      "role": "callable"
+    },
+    "str_ends_with": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_ends_with",
+      "role": "callable"
+    },
+    "str_contains": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_contains",
+      "role": "callable"
+    },
+    "str_equal_text": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_equal_text",
+      "role": "callable"
+    },
+    "str_find": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_find",
+      "role": "callable"
+    },
+    "str_drop_first_scalar": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_drop_first_scalar",
+      "role": "callable"
+    },
+    "str_drop_last_scalar": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_drop_last_scalar",
+      "role": "callable"
+    },
+    "text_starts_with": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_starts_with",
+      "role": "callable"
+    },
+    "text_ends_with": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_ends_with",
+      "role": "callable"
+    },
+    "text_replace": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_replace",
+      "role": "callable"
+    },
+    "text_trim_start_matches": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_trim_start_matches",
+      "role": "callable"
+    },
+    "text_trim_end_unicode_whitespace": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_trim_end_unicode_whitespace",
+      "role": "callable"
+    },
+    "text_utf8_bytes": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_utf8_bytes",
+      "role": "callable"
+    },
+    "str_range": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_range",
+      "role": "callable"
+    },
+    "str_from_utf8": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_from_utf8",
+      "role": "callable"
+    },
+    "utf8_error_valid_up_to": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "utf8_error_valid_up_to",
+      "role": "callable"
+    },
+    "utf8_error_debug": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "utf8_error_debug",
+      "role": "callable"
+    },
+    "parse_u32": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "parse_u32",
+      "role": "callable"
+    },
+    "char_display": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "char_display",
+      "role": "callable"
+    },
+    "char_debug": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "char_debug",
+      "role": "callable"
+    },
+    "text_debug": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_debug",
+      "role": "callable"
+    },
+    "panic": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "panic",
+      "role": "callable"
+    },
+    "Box": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Box",
+      "role": "type"
+    },
+    "Pair": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Pair",
+      "role": "type"
+    },
+    "VectorIntoIter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "VectorIntoIter",
+      "role": "type"
+    },
+    "StrChars": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "StrChars",
+      "role": "type"
+    },
+    "HashMapIntoIter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "HashMapIntoIter",
+      "role": "type"
+    },
+    "BuildHasherDefault": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BuildHasherDefault",
+      "role": "type"
+    },
+    "Peekable": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Peekable",
+      "role": "type"
+    },
+    "FromUtf8Error": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "FromUtf8Error",
+      "role": "type"
+    },
+    "AsRef": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "AsRef",
+      "role": "trait"
+    },
+    "BorrowKey": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BorrowKey",
+      "role": "trait"
+    },
+    "BuildHasher": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "BuildHasher",
+      "role": "trait"
+    },
+    "Clone": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Clone",
+      "role": "trait"
+    },
+    "Copy": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Copy",
+      "role": "trait"
+    },
+    "Debug": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Debug",
+      "role": "trait"
+    },
+    "Default": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Default",
+      "role": "trait"
+    },
+    "Eq": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Eq",
+      "role": "trait"
+    },
+    "Hash": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Hash",
+      "role": "trait"
+    },
+    "Hasher": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Hasher",
+      "role": "trait"
+    },
+    "IntoIterator": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "IntoIterator",
+      "role": "trait"
+    },
+    "Iterator": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Iterator",
+      "role": "trait"
+    },
+    "PartialEq": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "PartialEq",
+      "role": "trait"
+    },
+    "box_new": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "box_new",
+      "role": "callable"
+    },
+    "box_borrow": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "box_borrow",
+      "role": "callable"
+    },
+    "box_into_inner": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "box_into_inner",
+      "role": "callable"
+    },
+    "take_value": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "take_value",
+      "role": "callable"
+    },
+    "replace_value": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "replace_value",
+      "role": "callable"
+    },
+    "u64_xor": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_xor",
+      "role": "callable"
+    },
+    "u64_wrapping_multiply": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "u64_wrapping_multiply",
+      "role": "callable"
+    },
+    "byte_vector_new": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_new",
+      "role": "callable"
+    },
+    "byte_vector_clone": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_clone",
+      "role": "callable"
+    },
+    "byte_vector_into_text": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "byte_vector_into_text",
+      "role": "callable"
+    },
+    "str_byte_length": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_byte_length",
+      "role": "callable"
+    },
+    "vector_clear": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_clear",
+      "role": "callable"
+    },
+    "vector_into_iter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "vector_into_iter",
+      "role": "callable"
+    },
+    "iterator_next": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "iterator_next",
+      "role": "callable"
+    },
+    "into_iterator": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "into_iterator",
+      "role": "callable"
+    },
+    "iterator_peekable": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "iterator_peekable",
+      "role": "callable"
+    },
+    "iterator_peek": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "iterator_peek",
+      "role": "callable"
+    },
+    "usize_vector_extend": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_vector_extend",
+      "role": "callable"
+    },
+    "usize_vector_sort": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_vector_sort",
+      "role": "callable"
+    },
+    "usize_vector_sort_unstable": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_vector_sort_unstable",
+      "role": "callable"
+    },
+    "usize_vector_dedup": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "usize_vector_dedup",
+      "role": "callable"
+    },
+    "build_hasher_default_new": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "build_hasher_default_new",
+      "role": "callable"
+    },
+    "hash_map_with_hasher": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_with_hasher",
+      "role": "callable"
+    },
+    "hash_map_entry_or_insert": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_entry_or_insert",
+      "role": "callable"
+    },
+    "hash_map_get": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_get",
+      "role": "callable"
+    },
+    "hash_map_get_mut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_get_mut",
+      "role": "callable"
+    },
+    "hash_map_insert": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_insert",
+      "role": "callable"
+    },
+    "hash_map_contains_key": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_contains_key",
+      "role": "callable"
+    },
+    "hash_map_length": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_length",
+      "role": "callable"
+    },
+    "hash_map_into_iter": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "hash_map_into_iter",
+      "role": "callable"
+    },
+    "str_trim_start_matches": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_trim_start_matches",
+      "role": "callable"
+    },
+    "str_replace": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "str_replace",
+      "role": "callable"
+    },
+    "text_new": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_new",
+      "role": "callable"
+    },
+    "text_push_str": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_push_str",
+      "role": "callable"
+    },
+    "text_vector_join": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "text_vector_join",
+      "role": "callable"
+    },
+    "Tuple1": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Tuple1",
+      "role": "type"
+    },
+    "Fn": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Fn",
+      "role": "trait"
+    },
+    "FnMut": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "FnMut",
+      "role": "trait"
+    },
+    "FnOnce": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "FnOnce",
+      "role": "trait"
+    },
+    "Add": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "Add",
+      "role": "trait"
+    },
+    "AddAssign": {
+      "sourcePath": "native-support/machine.rs",
+      "nativeExport": "AddAssign",
+      "role": "trait"
+    }
+  }
+}

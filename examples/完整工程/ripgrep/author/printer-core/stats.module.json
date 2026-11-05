@@ -1,0 +1,5867 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:printer:stats",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "time": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:time"
+    },
+    "format": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:format"
+    },
+    "duration": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:printer:nice-duration"
+    }
+  },
+  "definitions": {
+    "Stats": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "elapsed": {
+              "type": {
+                "tag": "nominal",
+                "ref": "duration:NiceDuration"
+              }
+            },
+            "searches": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            },
+            "searchesWithMatch": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            },
+            "bytesSearched": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            },
+            "bytesPrinted": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            },
+            "matchedLines": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            },
+            "matches": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "Default": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Stats"
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "elapsed",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Default"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "name": "searches",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            },
+            {
+              "name": "searchesWithMatch",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            },
+            {
+              "name": "bytesSearched",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            },
+            {
+              "name": "bytesPrinted",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            },
+            {
+              "name": "matchedLines",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            },
+            {
+              "name": "matches",
+              "value": {
+                "op": "symbol",
+                "ref": "machine:U64Zero"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "New": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Stats"
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "local:Default"
+          },
+          "arguments": []
+        }
+      }
+    },
+    "Clone": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Stats"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "elapsed",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Clone"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "elapsed"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "searches"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searchesWithMatch",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "searchesWithMatch"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesSearched",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "bytesSearched"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesPrinted",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "bytesPrinted"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matchedLines",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "matchedLines"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:Stats"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "matches"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "r"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Elapsed": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "time:Duration"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "duration:Get"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "elapsed"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddElapsed": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "time:Duration"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "duration:NiceDuration"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "duration:New"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "time:DurationAdd"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "duration:IntoDuration"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:ReadCopyMut"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "slot"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "var",
+                              "name": "value"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "elapsed"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Searches": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "searches"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddSearches": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:U64"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Add"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ReadCopyMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "slot"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "var",
+                          "name": "value"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "searches"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "SearchesWithMatch": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "searchesWithMatch"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddSearchesWithMatch": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:U64"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Add"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ReadCopyMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "slot"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "var",
+                          "name": "value"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "searchesWithMatch"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "BytesSearched": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "bytesSearched"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddBytesSearched": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:U64"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Add"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ReadCopyMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "slot"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "var",
+                          "name": "value"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "bytesSearched"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "BytesPrinted": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "bytesPrinted"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddBytesPrinted": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:U64"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Add"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ReadCopyMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "slot"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "var",
+                          "name": "value"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "bytesPrinted"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "MatchedLines": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "matchedLines"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddMatchedLines": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:U64"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Add"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ReadCopyMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "slot"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "var",
+                          "name": "value"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "matchedLines"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Matches": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "matches"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddMatches": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithFieldBorrowMut"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "self"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "fieldRegion",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:U64"
+                      },
+                      {
+                        "region": {
+                          "parameter": "fieldRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "parameterContracts": [
+                {
+                  "position": 0,
+                  "retention": "noescape"
+                }
+              ],
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "updated",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Add"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ReadCopyMut"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "slot"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "var",
+                          "name": "value"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "updated"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "semanticArguments": [
+            {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            {
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "matches"
+              }
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            },
+            {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            {
+              "effectRow": {
+                "members": [
+                  {
+                    "class": "state-read"
+                  },
+                  {
+                    "class": "state-write"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddRef": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            "mode": "move"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Stats"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "elapsed",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "elapsed"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "elapsed"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "searches"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "searches"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searchesWithMatch",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "searchesWithMatch"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "searchesWithMatch"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesSearched",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "bytesSearched"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "bytesSearched"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesPrinted",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "bytesPrinted"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "bytesPrinted"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matchedLines",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "matchedLines"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "matchedLines"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "matches"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ReadCopy"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:BorrowField"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ],
+                        "semanticArguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:Stats"
+                          },
+                          {
+                            "value": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "matches"
+                            }
+                          },
+                          {
+                            "region": {
+                              "parameter": "r"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddOwned": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            "mode": "move"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Stats"
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "local:AddValue"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "left"
+            },
+            {
+              "op": "var",
+              "name": "right"
+            }
+          ]
+        }
+      }
+    },
+    "AddValue": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:Stats"
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "elapsed",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "duration:Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "elapsed"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "elapsed"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "searches"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "searches"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searchesWithMatch",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "searchesWithMatch"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "searchesWithMatch"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesSearched",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "bytesSearched"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "bytesSearched"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesPrinted",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "bytesPrinted"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "bytesPrinted"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matchedLines",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "matchedLines"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "matchedLines"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Add"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "left"
+                    },
+                    "name": "matches"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "matches"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "AddAssignRef": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "s"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "s",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddElapsed"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:Elapsed"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddSearches"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:Searches"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddSearchesWithMatch"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:SearchesWithMatch"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddBytesSearched"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:BytesSearched"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddBytesPrinted"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:BytesPrinted"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddMatchedLines"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:MatchedLines"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddMatches"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:Matches"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "AddAssignOwned": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "nominal",
+              "ref": "local:Stats"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddElapsed"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "duration:IntoDuration"
+                    },
+                    "arguments": [
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "right"
+                        },
+                        "name": "elapsed"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddSearches"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "searches"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddSearchesWithMatch"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "searchesWithMatch"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddBytesSearched"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "bytesSearched"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddBytesPrinted"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "bytesPrinted"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddMatchedLines"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "matchedLines"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:AddMatches"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "right"
+                    },
+                    "name": "matches"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Equal": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "l"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "typeParams": [
+          {
+            "name": "l",
+            "kind": "Region"
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "time:DurationEqual"
+            },
+            "arguments": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:Elapsed"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "left"
+                  }
+                ]
+              },
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:Elapsed"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "right"
+                  }
+                ]
+              }
+            ]
+          },
+          "then": {
+            "op": "if",
+            "condition": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:U64Equal"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:Searches"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "left"
+                    }
+                  ]
+                },
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:Searches"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "right"
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:U64Equal"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:SearchesWithMatch"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "left"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:SearchesWithMatch"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "right"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:U64Equal"
+                  },
+                  "arguments": [
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:BytesSearched"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "left"
+                        }
+                      ]
+                    },
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:BytesSearched"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "right"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "if",
+                  "condition": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:U64Equal"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "local:BytesPrinted"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "left"
+                          }
+                        ]
+                      },
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "local:BytesPrinted"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "right"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "then": {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Equal"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "local:MatchedLines"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "left"
+                            }
+                          ]
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "local:MatchedLines"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "right"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "then": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:U64Equal"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "local:Matches"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "left"
+                              }
+                            ]
+                          },
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "local:Matches"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "right"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "then": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "bool"
+                        },
+                        "value": true
+                      },
+                      "otherwise": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "bool"
+                        },
+                        "value": false
+                      }
+                    },
+                    "otherwise": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "bool"
+                      },
+                      "value": false
+                    }
+                  },
+                  "otherwise": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": false
+                  }
+                },
+                "otherwise": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  },
+                  "value": false
+                }
+              },
+              "otherwise": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            "otherwise": {
+              "op": "literal",
+              "type": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "value": false
+            }
+          },
+          "otherwise": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "value": false
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "Debug": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "data",
+            "kind": "Region"
+          },
+          {
+            "name": "f",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "Stats"
+                  }
+                ]
+              },
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "format:DebugStructBuilder"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "f"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "elapsed"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "elapsed"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "searches"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "searches"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "searches_with_match"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "searchesWithMatch"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "bytes_searched"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "bytesSearched"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "bytes_printed"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "bytesPrinted"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "matched_lines"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "matchedLines"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "matches"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Stats"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "matches"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "builder"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "builderRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "builderPlace",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugStructBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "region": {
+                            "parameter": "builderRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "format:DebugFinish"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "builderPlace"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "BorrowFields": {
+      "kind": "core:function",
+      "body": {
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:Stats"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "record",
+          "fields": {
+            "elapsed": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "duration:NiceDuration"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            "searches": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            "searchesWithMatch": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            "bytesSearched": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            "bytesPrinted": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            "matchedLines": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            "matches": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:U64"
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "open": false
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "elapsed",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "elapsed"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "searches"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "searchesWithMatch",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "searchesWithMatch"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesSearched",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "bytesSearched"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "bytesPrinted",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "bytesPrinted"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matchedLines",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "matchedLines"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "matches",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:BorrowField"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:Stats"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "matches"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "exports": {
+    "Stats": {
+      "definitionId": "Stats"
+    },
+    "Default": {
+      "definitionId": "Default"
+    },
+    "New": {
+      "definitionId": "New"
+    },
+    "Clone": {
+      "definitionId": "Clone"
+    },
+    "Elapsed": {
+      "definitionId": "Elapsed"
+    },
+    "AddElapsed": {
+      "definitionId": "AddElapsed"
+    },
+    "Searches": {
+      "definitionId": "Searches"
+    },
+    "AddSearches": {
+      "definitionId": "AddSearches"
+    },
+    "SearchesWithMatch": {
+      "definitionId": "SearchesWithMatch"
+    },
+    "AddSearchesWithMatch": {
+      "definitionId": "AddSearchesWithMatch"
+    },
+    "BytesSearched": {
+      "definitionId": "BytesSearched"
+    },
+    "AddBytesSearched": {
+      "definitionId": "AddBytesSearched"
+    },
+    "BytesPrinted": {
+      "definitionId": "BytesPrinted"
+    },
+    "AddBytesPrinted": {
+      "definitionId": "AddBytesPrinted"
+    },
+    "MatchedLines": {
+      "definitionId": "MatchedLines"
+    },
+    "AddMatchedLines": {
+      "definitionId": "AddMatchedLines"
+    },
+    "Matches": {
+      "definitionId": "Matches"
+    },
+    "AddMatches": {
+      "definitionId": "AddMatches"
+    },
+    "AddRef": {
+      "definitionId": "AddRef"
+    },
+    "AddOwned": {
+      "definitionId": "AddOwned"
+    },
+    "AddAssignRef": {
+      "definitionId": "AddAssignRef"
+    },
+    "AddAssignOwned": {
+      "definitionId": "AddAssignOwned"
+    },
+    "Equal": {
+      "definitionId": "Equal"
+    },
+    "Debug": {
+      "definitionId": "Debug"
+    },
+    "BorrowFields": {
+      "definitionId": "BorrowFields"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourceRegions": [
+      "crates/printer/src/stats.rs:1-175"
+    ],
+    "qualification": "Actual Gift algorithm bodies. Imported primitive/trait declarations and exact Target bindings remain engineering obligations; no production or full-crate equivalence claim.",
+    "effects": "Omitted function effects request derivation from real bound callees; omission is not an empty effect or operation grant.",
+    "borrowedFields": "BorrowFields is an internal author-linkage helper; Target must retain its field references and original crate/private API visibility. It introduces no serde dependency and does not make Stats Copy."
+  }
+}

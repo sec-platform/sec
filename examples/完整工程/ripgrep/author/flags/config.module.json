@@ -1,0 +1,1953 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "ripgrep:core:flags:config",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:path"
+    },
+    "text": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:text"
+    },
+    "io": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:io"
+    },
+    "env": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:env"
+    },
+    "collections": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:collections"
+    },
+    "bstr": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:bstr"
+    },
+    "anyhow": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:anyhow"
+    },
+    "log": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:log"
+    },
+    "messages": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:core:messages"
+    }
+  },
+  "definitions": {
+    "Parsed": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "open": false,
+          "fields": {
+            "args": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Vector"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "path:OsString"
+                  }
+                ]
+              }
+            },
+            "errors": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Vector"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "anyhow:Error"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "opaque": true
+      }
+    },
+    "ReverseInto": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "rest",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "param",
+                "name": "T"
+              },
+              "ordered": true
+            },
+            "mode": "move"
+          },
+          {
+            "name": "result",
+            "type": {
+              "tag": "sequence",
+              "item": {
+                "tag": "param",
+                "name": "T"
+              },
+              "ordered": true
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "param",
+            "name": "T"
+          },
+          "ordered": true
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:SeqUncons"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "rest"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "empty",
+              "body": {
+                "op": "var",
+                "name": "result"
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "p",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:ReverseInto"
+                },
+                "arguments": [
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "p"
+                    },
+                    "name": "tail"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "std:SeqPrepend"
+                    },
+                    "arguments": [
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "p"
+                        },
+                        "name": "head"
+                      },
+                      {
+                        "op": "var",
+                        "name": "result"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "T"
+          }
+        ],
+        "effects": [],
+        "termination": "total"
+      }
+    },
+    "ParseReader": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "reader",
+            "type": {
+              "tag": "param",
+              "name": "R"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "local:Parsed"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "buffered",
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "io:BufReader"
+                },
+                "arguments": [
+                  {
+                    "tag": "param",
+                    "name": "R"
+                  }
+                ]
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "io:BufReaderNew"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "reader"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "var",
+              "name": "args",
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Vector"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "path:OsString"
+                  }
+                ]
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:VectorNew"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "op": "var",
+              "name": "errors",
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Vector"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "anyhow:Error"
+                  }
+                ]
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:VectorNew"
+                },
+                "arguments": []
+              }
+            },
+            {
+              "op": "var",
+              "name": "lineNumber",
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:I32"
+              },
+              "value": {
+                "op": "symbol",
+                "ref": "machine:I32Zero"
+              }
+            },
+            {
+              "op": "let",
+              "name": "readResult",
+              "type": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "machine:IOError"
+                }
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "bstr:ForByteLineWithTerminator"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "buffered"
+                  },
+                  {
+                    "op": "lambda",
+                    "params": [
+                      {
+                        "name": "line",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:Borrow"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:ByteSlice"
+                            },
+                            {
+                              "region": {
+                                "parameter": "line"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "borrow"
+                      }
+                    ],
+                    "typeParams": [
+                      {
+                        "name": "line",
+                        "kind": "Region",
+                        "binding": "argument"
+                      }
+                    ],
+                    "callMode": "exclusive",
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "set",
+                          "name": "lineNumber",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:I32Add"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "lineNumber"
+                              },
+                              {
+                                "op": "symbol",
+                                "ref": "machine:I32One"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "op": "let",
+                          "name": "trimmed",
+                          "type": {
+                            "tag": "apply",
+                            "constructor": {
+                              "decl": "machine:Borrow"
+                            },
+                            "arguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "machine:ByteSlice"
+                              },
+                              {
+                                "region": {
+                                  "parameter": "line"
+                                }
+                              }
+                            ]
+                          },
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "bstr:Trim"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "line"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "if",
+                            "condition": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:ByteSliceIsEmpty"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "trimmed"
+                                }
+                              ]
+                            },
+                            "then": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "unit"
+                              },
+                              "value": null
+                            },
+                            "otherwise": {
+                              "op": "if",
+                              "condition": {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:ByteEqual"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "machine:ByteSliceFirst"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "var",
+                                        "name": "trimmed"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "uint",
+                                      "bits": 8,
+                                      "overflow": "checked"
+                                    },
+                                    "value": "35"
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "unit"
+                                },
+                                "value": null
+                              },
+                              "otherwise": {
+                                "op": "match",
+                                "value": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "bstr:ToOsStr"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "trimmed"
+                                    }
+                                  ]
+                                },
+                                "cases": [
+                                  {
+                                    "constructor": "Ok",
+                                    "binding": "os",
+                                    "body": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:WithBorrowMut"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "args"
+                                        },
+                                        {
+                                          "op": "lambda",
+                                          "typeParams": [
+                                            {
+                                              "name": "loan",
+                                              "kind": "Region",
+                                              "binding": "argument"
+                                            }
+                                          ],
+                                          "params": [
+                                            {
+                                              "name": "items"
+                                            }
+                                          ],
+                                          "callMode": "consume",
+                                          "parameterContracts": [
+                                            {
+                                              "position": 0,
+                                              "retention": "noescape"
+                                            }
+                                          ],
+                                          "body": {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:VectorPush"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "items"
+                                              },
+                                              {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "path:OsStrToOwned"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "var",
+                                                    "name": "os"
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "constructor": "Err",
+                                    "binding": "error",
+                                    "body": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:WithBorrowMut"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "errors"
+                                        },
+                                        {
+                                          "op": "lambda",
+                                          "typeParams": [
+                                            {
+                                              "name": "loan",
+                                              "kind": "Region",
+                                              "binding": "argument"
+                                            }
+                                          ],
+                                          "params": [
+                                            {
+                                              "name": "items"
+                                            }
+                                          ],
+                                          "callMode": "consume",
+                                          "parameterContracts": [
+                                            {
+                                              "position": 0,
+                                              "retention": "noescape"
+                                            }
+                                          ],
+                                          "body": {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:VectorPush"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "var",
+                                                "name": "items"
+                                              },
+                                              {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "anyhow:Message"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "call",
+                                                    "callee": {
+                                                      "op": "symbol",
+                                                      "ref": "std:TextConcat"
+                                                    },
+                                                    "arguments": [
+                                                      {
+                                                        "op": "call",
+                                                        "callee": {
+                                                          "op": "symbol",
+                                                          "ref": "std:TextConcat"
+                                                        },
+                                                        "arguments": [
+                                                          {
+                                                            "op": "call",
+                                                            "callee": {
+                                                              "op": "symbol",
+                                                              "ref": "machine:I32Decimal"
+                                                            },
+                                                            "arguments": [
+                                                              {
+                                                                "op": "var",
+                                                                "name": "lineNumber"
+                                                              }
+                                                            ]
+                                                          },
+                                                          {
+                                                            "op": "literal",
+                                                            "type": {
+                                                              "tag": "scalar",
+                                                              "name": "text"
+                                                            },
+                                                            "value": ": "
+                                                          }
+                                                        ]
+                                                      },
+                                                      {
+                                                        "op": "call",
+                                                        "callee": {
+                                                          "op": "symbol",
+                                                          "ref": "bstr:Utf8ErrorDisplay"
+                                                        },
+                                                        "arguments": [
+                                                          {
+                                                            "op": "var",
+                                                            "name": "error"
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "result": {
+                        "op": "variant",
+                        "constructor": "Ok",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "bool"
+                          },
+                          "value": true
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "match",
+            "value": {
+              "op": "var",
+              "name": "readResult"
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "anyhow:FromIoError"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "error"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "done",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Ok",
+                  "payload": {
+                    "op": "record",
+                    "fields": [
+                      {
+                        "name": "args",
+                        "value": {
+                          "op": "var",
+                          "name": "args"
+                        }
+                      },
+                      {
+                        "name": "errors",
+                        "value": {
+                          "op": "var",
+                          "name": "errors"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "typeParams": [
+          {
+            "name": "R",
+            "constraintRefs": [
+              "io:Read"
+            ]
+          }
+        ],
+        "termination": "partial"
+      }
+    },
+    "Parse": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "pathValue",
+            "type": {
+              "tag": "param",
+              "name": "P"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "result",
+          "ok": {
+            "tag": "nominal",
+            "ref": "local:Parsed"
+          },
+          "error": {
+            "tag": "nominal",
+            "ref": "anyhow:Error"
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "path",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:AsRefPath"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "pathValue"
+              }
+            ]
+          },
+          "body": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "io:FileOpen"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "Err",
+                "binding": "error",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Err",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "anyhow:Message"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "std:TextConcat"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "std:TextConcat"
+                            },
+                            "arguments": [
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "path:Display"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "path"
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": ": "
+                              }
+                            ]
+                          },
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "io:ErrorDisplay"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "error"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "constructor": "Ok",
+                "binding": "file",
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "local:ParseReader"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "file"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "typeParams": [
+          {
+            "name": "P",
+            "constraintRefs": [
+              "path:AsRefPathConstraint"
+            ]
+          }
+        ],
+        "termination": "partial"
+      }
+    },
+    "EmitErrors": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "nominal",
+              "ref": "path:PathBuf"
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "errors",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Vector"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              ]
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "iterator",
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:VectorIntoIter"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "anyhow:Error"
+                  }
+                ]
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:VectorIntoIterStart"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "errors"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "while",
+              "condition": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "let",
+                    "name": "next",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "iterator"
+                        },
+                        {
+                          "op": "lambda",
+                          "typeParams": [
+                            {
+                              "name": "loan",
+                              "kind": "Region",
+                              "binding": "argument"
+                            }
+                          ],
+                          "params": [
+                            {
+                              "name": "iteratorLoan"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:IteratorNext"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "iteratorLoan"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "match",
+                      "value": {
+                        "op": "var",
+                        "name": "next"
+                      },
+                      "cases": [
+                        {
+                          "constructor": "None",
+                          "binding": "empty",
+                          "body": {
+                            "op": "exec:block",
+                            "statements": [
+                              {
+                                "op": "break"
+                              }
+                            ],
+                            "result": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "unit"
+                              },
+                              "value": null
+                            }
+                          }
+                        },
+                        {
+                          "constructor": "Some",
+                          "binding": "error",
+                          "body": {
+                            "op": "if",
+                            "condition": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "messages:Messages"
+                              },
+                              "arguments": []
+                            },
+                            "then": {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "messages:EprintlnTextLocked"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "std:TextConcat"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "std:TextConcat"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "path:Display"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "path:AsRefPath"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "var",
+                                                  "name": "path"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "text"
+                                          },
+                                          "value": ":"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "anyhow:Display"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "var",
+                                          "name": "error"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            "otherwise": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "unit"
+                              },
+                              "value": null
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          ],
+          "result": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        },
+        "termination": "partial"
+      }
+    },
+    "LoadAtPath": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "nominal",
+              "ref": "path:PathBuf"
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "nominal",
+            "ref": "path:OsString"
+          },
+          "ordered": true
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:Parse"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "do",
+                "steps": [
+                  {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "messages:Messages"
+                      },
+                      "arguments": []
+                    },
+                    "then": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "messages:EprintlnTextLocked"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "std:TextConcat"
+                          },
+                          "arguments": [
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "text"
+                              },
+                              "value": "failed to read the file specified in RIPGREP_CONFIG_PATH: "
+                            },
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "anyhow:Display"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "var",
+                                  "name": "error"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "otherwise": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "sequence",
+                  "items": []
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "parsed",
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "var",
+                    "name": "parsedOwner",
+                    "type": {
+                      "tag": "nominal",
+                      "ref": "local:Parsed"
+                    },
+                    "value": {
+                      "op": "var",
+                      "name": "parsed"
+                    }
+                  },
+                  {
+                    "op": "let",
+                    "name": "errors",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:Vector"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "anyhow:Error"
+                        }
+                      ]
+                    },
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "parsedOwner"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "whole",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:Parsed"
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "wholeRegion"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "typeParams": [
+                            {
+                              "name": "wholeRegion",
+                              "kind": "Region",
+                              "binding": "argument"
+                            }
+                          ],
+                          "callMode": "consume",
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithFieldBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "whole"
+                              },
+                              {
+                                "op": "lambda",
+                                "params": [
+                                  {
+                                    "name": "slot",
+                                    "type": {
+                                      "tag": "apply",
+                                      "constructor": {
+                                        "decl": "machine:BorrowMut"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "tag": "apply",
+                                          "constructor": {
+                                            "decl": "machine:Vector"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "tag": "nominal",
+                                              "ref": "anyhow:Error"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "region": {
+                                            "parameter": "fieldRegion"
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    "mode": "inout"
+                                  }
+                                ],
+                                "typeParams": [
+                                  {
+                                    "name": "fieldRegion",
+                                    "kind": "Region",
+                                    "binding": "argument"
+                                  }
+                                ],
+                                "callMode": "consume",
+                                "parameterContracts": [
+                                  {
+                                    "position": 0,
+                                    "retention": "noescape"
+                                  }
+                                ],
+                                "body": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:TakeValue"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "slot"
+                                    }
+                                  ]
+                                }
+                              }
+                            ],
+                            "semanticArguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "local:Parsed"
+                              },
+                              {
+                                "value": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "text"
+                                  },
+                                  "value": "errors"
+                                }
+                              },
+                              {
+                                "region": {
+                                  "parameter": "wholeRegion"
+                                }
+                              },
+                              {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:Vector"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "anyhow:Error"
+                                  }
+                                ]
+                              },
+                              {
+                                "effectRow": {
+                                  "members": [
+                                    {
+                                      "class": "state-read"
+                                    },
+                                    {
+                                      "class": "state-write"
+                                    },
+                                    {
+                                      "class": "external"
+                                    },
+                                    {
+                                      "class": "time"
+                                    },
+                                    {
+                                      "class": "random"
+                                    },
+                                    {
+                                      "class": "spawn"
+                                    },
+                                    {
+                                      "class": "await"
+                                    },
+                                    {
+                                      "class": "io"
+                                    },
+                                    {
+                                      "class": "alloc"
+                                    },
+                                    {
+                                      "class": "unsafe"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:EmitErrors"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "path"
+                        },
+                        {
+                          "op": "var",
+                          "name": "errors"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "log:DebugEnabled"
+                        },
+                        "arguments": []
+                      },
+                      "then": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "log:DebugText"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "std:TextConcat"
+                            },
+                            "arguments": [
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "std:TextConcat"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "call",
+                                    "callee": {
+                                      "op": "symbol",
+                                      "ref": "path:Display"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "path:AsRefPath"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "path"
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "text"
+                                    },
+                                    "value": ": arguments loaded from config file: "
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:WithBorrow"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "parsedOwner"
+                                  },
+                                  {
+                                    "op": "lambda",
+                                    "params": [
+                                      {
+                                        "name": "whole",
+                                        "type": {
+                                          "tag": "apply",
+                                          "constructor": {
+                                            "decl": "machine:Borrow"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "tag": "nominal",
+                                              "ref": "local:Parsed"
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "read"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "mode": "borrow"
+                                      }
+                                    ],
+                                    "typeParams": [
+                                      {
+                                        "name": "read",
+                                        "kind": "Region",
+                                        "binding": "argument"
+                                      }
+                                    ],
+                                    "callMode": "consume",
+                                    "parameterContracts": [
+                                      {
+                                        "position": 0,
+                                        "retention": "noescape"
+                                      }
+                                    ],
+                                    "body": {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "path:OsStringSequenceDebug"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:BorrowField"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "var",
+                                              "name": "whole"
+                                            }
+                                          ],
+                                          "semanticArguments": [
+                                            {
+                                              "tag": "nominal",
+                                              "ref": "local:Parsed"
+                                            },
+                                            {
+                                              "value": {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "text"
+                                                },
+                                                "value": "args"
+                                              }
+                                            },
+                                            {
+                                              "region": {
+                                                "parameter": "read"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "otherwise": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        "value": null
+                      }
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ConsumeField"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "parsedOwner"
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:Parsed"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "args"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "termination": "partial"
+      }
+    },
+    "Args": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [],
+        "returns": {
+          "tag": "sequence",
+          "item": {
+            "tag": "nominal",
+            "ref": "path:OsString"
+          },
+          "ordered": true
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "env:VarOs"
+            },
+            "arguments": [
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "RIPGREP_CONFIG_PATH"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "absent",
+              "body": {
+                "op": "do",
+                "steps": [
+                  {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "log:DebugEnabled"
+                      },
+                      "arguments": []
+                    },
+                    "then": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "log:DebugText"
+                      },
+                      "arguments": [
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "RIPGREP_CONFIG_PATH environment variable is not set, therefore not reading any config file"
+                        }
+                      ]
+                    },
+                    "otherwise": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "unit"
+                      },
+                      "value": null
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "sequence",
+                  "items": []
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "configPath",
+              "body": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "path:OsStringIsEmpty"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "configPath"
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "sequence",
+                  "items": []
+                },
+                "otherwise": {
+                  "op": "let",
+                  "name": "path",
+                  "value": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "path:PathBufFromOsString"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "configPath"
+                      }
+                    ]
+                  },
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:LoadAtPath"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "path"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "termination": "partial"
+      }
+    }
+  },
+  "exports": {
+    "ParseReader": {
+      "definitionId": "ParseReader"
+    },
+    "Parse": {
+      "definitionId": "Parse"
+    },
+    "Args": {
+      "definitionId": "Args"
+    },
+    "Parsed": {
+      "definitionId": "Parsed"
+    }
+  }
+}

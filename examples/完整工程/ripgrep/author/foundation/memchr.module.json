@@ -1,0 +1,20 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:external:memchr",
+  "imports": {
+    "native": {
+      "locked": "rust:dependency:memchr"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Memchr": {
+      "import": "native",
+      "export": "memchr"
+    },
+    "Memrchr": {
+      "import": "native",
+      "export": "memrchr"
+    }
+  }
+}

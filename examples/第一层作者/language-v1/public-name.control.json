@@ -1,0 +1,17 @@
+{
+  "schema": "gift.control-file/design-converged",
+  "projectId": "example:language-v1",
+  "fileId": "control:product-entry-name",
+  "records": [
+    {
+      "scopeRef": {
+        "kind": "product-root",
+        "rootRef": {"rootId": "product"}
+      },
+      "target": "library",
+      "controlRef": "target.public-name",
+      "mode": "require",
+      "value": "createTools"
+    }
+  ]
+}

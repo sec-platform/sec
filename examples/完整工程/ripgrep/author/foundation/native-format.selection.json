@@ -1,0 +1,118 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:foundation:native_format",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "DebugStruct": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "DebugStruct",
+      "role": "type"
+    },
+    "DebugTuple": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "DebugTuple",
+      "role": "type"
+    },
+    "DebugList": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "DebugList",
+      "role": "type"
+    },
+    "Formatter": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "Formatter",
+      "role": "type"
+    },
+    "FormatResult": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "FormatResult",
+      "role": "type"
+    },
+    "debug_struct_field": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_struct_field",
+      "role": "callable"
+    },
+    "debug_struct_finish": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_struct_finish",
+      "role": "callable"
+    },
+    "write_text": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "write_text",
+      "role": "callable"
+    },
+    "write_usize": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "write_usize",
+      "role": "callable"
+    },
+    "write_display": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "write_display",
+      "role": "callable"
+    },
+    "display_fmt": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "display_fmt",
+      "role": "callable"
+    },
+    "display_to_text": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "display_to_text",
+      "role": "callable"
+    },
+    "write_f64_fixed": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "write_f64_fixed",
+      "role": "callable"
+    },
+    "f64_fixed_to_text": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "f64_fixed_to_text",
+      "role": "callable"
+    },
+    "debug_struct": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_struct",
+      "role": "callable"
+    },
+    "debug_tuple": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_tuple",
+      "role": "callable"
+    },
+    "debug_tuple_field": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_tuple_field",
+      "role": "callable"
+    },
+    "debug_tuple_finish": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_tuple_finish",
+      "role": "callable"
+    },
+    "debug_list": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_list",
+      "role": "callable"
+    },
+    "debug_list_entry": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_list_entry",
+      "role": "callable"
+    },
+    "debug_list_entries": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_list_entries",
+      "role": "callable"
+    },
+    "debug_list_finish": {
+      "sourcePath": "native-support/format.rs",
+      "nativeExport": "debug_list_finish",
+      "role": "callable"
+    }
+  }
+}

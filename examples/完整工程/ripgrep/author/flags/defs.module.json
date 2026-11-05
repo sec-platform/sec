@@ -1,0 +1,1018 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:core:flags:defs",
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  },
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "statics": {
+      "workspace": "ripgrep:foundation:static"
+    },
+    "parse": {
+      "workspace": "ripgrep:core:flags:parse"
+    },
+    "lowargs": {
+      "workspace": "ripgrep:core:flags:lowargs"
+    },
+    "anyhow": {
+      "workspace": "ripgrep:external:anyhow"
+    }
+  },
+  "definitions": {
+    "Flag": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "trait",
+          "selfParameter": {
+            "name": "Self"
+          },
+          "superTraits": [
+            {
+              "traitRef": "machine:Debug",
+              "selfType": {
+                "tag": "param",
+                "name": "Self"
+              }
+            },
+            {
+              "traitRef": "machine:Send",
+              "selfType": {
+                "tag": "param",
+                "name": "Self"
+              }
+            },
+            {
+              "traitRef": "machine:Sync",
+              "selfType": {
+                "tag": "param",
+                "name": "Self"
+              }
+            },
+            {
+              "traitRef": "machine:UnwindSafe",
+              "selfType": {
+                "tag": "param",
+                "name": "Self"
+              }
+            },
+            {
+              "traitRef": "machine:RefUnwindSafe",
+              "selfType": {
+                "tag": "param",
+                "name": "Self"
+              }
+            }
+          ],
+          "associatedTypes": {},
+          "methods": {
+            "is_switch": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "bool"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial"
+            },
+            "name_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "machine:Byte"
+                }
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial",
+              "defaultBody": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            "name_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial"
+            },
+            "aliases": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:StrSlice"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial",
+              "defaultBody": {
+                "op": "symbol",
+                "ref": "statics:EmptyStrSlice"
+              }
+            },
+            "name_negated": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial",
+              "defaultBody": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            "doc_variable": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "option",
+                "inner": {
+                  "tag": "nominal",
+                  "ref": "statics:Str"
+                }
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial",
+              "defaultBody": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            "doc_category": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:Category"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial"
+            },
+            "doc_short": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial"
+            },
+            "doc_long": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:Str"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial"
+            },
+            "doc_choices": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "statics:StrSlice"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial",
+              "defaultBody": {
+                "op": "symbol",
+                "ref": "statics:EmptyStrSlice"
+              }
+            },
+            "completion_type": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "parse:CompletionType"
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial",
+              "defaultBody": {
+                "op": "variant",
+                "constructor": "Other",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            "update": {
+              "typeParams": [
+                {
+                  "name": "selfRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "argRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self",
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "Self"
+                      },
+                      {
+                        "region": {
+                          "parameter": "selfRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                },
+                {
+                  "name": "value",
+                  "type": {
+                    "tag": "nominal",
+                    "ref": "parse:FlagValue"
+                  },
+                  "mode": "move"
+                },
+                {
+                  "name": "args",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "lowargs:LowArgs"
+                      },
+                      {
+                        "region": {
+                          "parameter": "argRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                }
+              ],
+              "returns": {
+                "tag": "result",
+                "ok": {
+                  "tag": "scalar",
+                  "name": "unit"
+                },
+                "error": {
+                  "tag": "nominal",
+                  "ref": "anyhow:Error"
+                }
+              },
+              "effects": [
+                {
+                  "class": "state-read"
+                },
+                {
+                  "class": "state-write"
+                },
+                {
+                  "class": "external"
+                },
+                {
+                  "class": "time"
+                },
+                {
+                  "class": "random"
+                },
+                {
+                  "class": "spawn"
+                },
+                {
+                  "class": "await"
+                },
+                {
+                  "class": "io"
+                },
+                {
+                  "class": "alloc"
+                },
+                {
+                  "class": "unsafe"
+                }
+              ],
+              "termination": "partial"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    }
+  },
+  "exports": [
+    "Flag"
+  ]
+}

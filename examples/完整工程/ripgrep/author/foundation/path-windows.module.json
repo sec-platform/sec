@@ -1,0 +1,20 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:path_windows",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_path_windows"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "OsStrEncodeWide": {
+      "import": "native",
+      "export": "os_str_encode_wide"
+    },
+    "OsStringFromWide": {
+      "import": "native",
+      "export": "os_string_from_wide"
+    }
+  }
+}

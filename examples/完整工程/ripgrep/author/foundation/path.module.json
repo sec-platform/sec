@@ -1,0 +1,152 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:path",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_path"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Path": {
+      "import": "native",
+      "export": "Path"
+    },
+    "PathBuf": {
+      "import": "native",
+      "export": "PathBuf"
+    },
+    "OsStr": {
+      "import": "native",
+      "export": "OsStr"
+    },
+    "OsString": {
+      "import": "native",
+      "export": "OsString"
+    },
+    "AsRef": {
+      "import": "native",
+      "export": "AsRef"
+    },
+    "AsRefPath": {
+      "import": "native",
+      "export": "as_ref_path"
+    },
+    "AsPath": {
+      "import": "native",
+      "export": "as_path"
+    },
+    "AsOsStr": {
+      "import": "native",
+      "export": "as_os_str"
+    },
+    "OsStringAsOsStr": {
+      "import": "native",
+      "export": "os_string_as_os_str"
+    },
+    "Parent": {
+      "import": "native",
+      "export": "parent"
+    },
+    "HasRoot": {
+      "import": "native",
+      "export": "has_root"
+    },
+    "ToPathBuf": {
+      "import": "native",
+      "export": "to_path_buf"
+    },
+    "Clone": {
+      "import": "native",
+      "export": "clone"
+    },
+    "CloneOptionalPathBuf": {
+      "import": "native",
+      "export": "clone_optional_path_buf"
+    },
+    "Equal": {
+      "import": "native",
+      "export": "equal"
+    },
+    "EqualText": {
+      "import": "native",
+      "export": "equal_text"
+    },
+    "IsEmpty": {
+      "import": "native",
+      "export": "is_empty"
+    },
+    "JoinText": {
+      "import": "native",
+      "export": "join_text"
+    },
+    "FromText": {
+      "import": "native",
+      "export": "from_text"
+    },
+    "FromOsString": {
+      "import": "native",
+      "export": "from_os_string"
+    },
+    "IntoOsString": {
+      "import": "native",
+      "export": "into_os_string"
+    },
+    "ToUtf8": {
+      "import": "native",
+      "export": "to_utf8"
+    },
+    "OsStrToStr": {
+      "import": "native",
+      "export": "os_str_to_str"
+    },
+    "OsStrToOwned": {
+      "import": "native",
+      "export": "os_str_to_owned"
+    },
+    "OsStringIsEmpty": {
+      "import": "native",
+      "export": "os_string_is_empty"
+    },
+    "OsStringVectorDebug": {
+      "import": "native",
+      "export": "os_string_vector_debug"
+    },
+    "OsStrToStringLossy": {
+      "import": "native",
+      "export": "os_str_to_string_lossy"
+    },
+    "ToStringLossyOwned": {
+      "import": "native",
+      "export": "to_string_lossy_owned"
+    },
+    "Display": {
+      "import": "native",
+      "export": "display"
+    },
+    "PathAsBytesLossy": {
+      "import": "native",
+      "export": "path_as_bytes_lossy"
+    },
+    "IsUnixTarget": {
+      "import": "native",
+      "export": "is_unix_target"
+    },
+    "IsSeparatorScalar": {
+      "import": "native",
+      "export": "is_separator_scalar"
+    },
+    "PathBufFromOsString": {
+      "import": "native",
+      "export": "from_os_string"
+    },
+    "IsFile": {
+      "import": "native",
+      "export": "is_file"
+    },
+    "PathFromStr": {
+      "import": "native",
+      "export": "path_from_str"
+    }
+  }
+}

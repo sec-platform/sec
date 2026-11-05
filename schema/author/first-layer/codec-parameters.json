@@ -513,7 +513,20 @@
                       "$ref": "#/$defs/StaticValueActual"
                     },
                     {
-                      "$ref": "urn:gift:design-schema:first-layer-requirement-actuals#/$defs/StaticParameterActual"
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "source",
+                        "parameter"
+                      ],
+                      "properties": {
+                        "source": {
+                          "const": "parameter"
+                        },
+                        "parameter": {
+                          "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                        }
+                      }
                     }
                   ]
                 },
@@ -1042,382 +1055,41 @@
           }
         },
         {
-          "pointer": "/$defs/RequirementLink/properties/roleBindings/additionalProperties",
-          "expected": {
-            "$ref": "#/$defs/BusinessRoleActual"
-          },
-          "replacement": {
-            "$ref": "urn:gift:design-schema:first-layer-requirement-actuals#/$defs/RequirementActual"
-          }
-        },
-        {
-          "pointer": "/$defs/Definition/oneOf/17/properties/body",
+          "pointer": "/$defs/RequirementLink",
           "expected": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "terms",
-              "measurementAuthorityRef",
-              "comparisonPolicy"
+              "ref"
             ],
             "properties": {
-              "terms": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/QualityTerm"
-                },
-                "minItems": 1
-              },
-              "measurementAuthorityRef": {
+              "ref": {
                 "$ref": "#/$defs/Ref"
               },
-              "comparisonPolicy": {
+              "strength": {
                 "enum": [
-                  "pareto",
-                  "lexicographic",
-                  "weighted-explicit",
-                  "feasibility-only"
+                  "hard",
+                  "soft"
                 ]
               },
-              "contextRoles": {
+              "scopeRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "roleBindings": {
                 "type": "object",
                 "propertyNames": {
                   "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
                 },
                 "additionalProperties": {
-                  "$ref": "#/$defs/ContextRole"
+                  "$ref": "#/$defs/BusinessRoleActual"
                 },
-                "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
+                "description": "Optional explicit role occurrence bindings. Existing goal-scoped exact actor/object bindings remain untouched; conflicting overrides must be rejected by semantic qualification."
               }
-            },
-            "allOf": [
-              {
-                "if": {
-                  "properties": {
-                    "comparisonPolicy": {
-                      "const": "weighted-explicit"
-                    }
-                  },
-                  "required": [
-                    "comparisonPolicy"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "terms": {
-                      "contains": {
-                        "properties": {
-                          "strength": {
-                            "const": "soft"
-                          }
-                        },
-                        "required": [
-                          "strength"
-                        ]
-                      },
-                      "minContains": 1,
-                      "items": {
-                        "if": {
-                          "properties": {
-                            "strength": {
-                              "const": "soft"
-                            }
-                          },
-                          "required": [
-                            "strength"
-                          ]
-                        },
-                        "then": {
-                          "required": [
-                            "termId",
-                            "weightDecimal",
-                            "scoreRef"
-                          ],
-                          "not": {
-                            "required": [
-                              "priority"
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "comparisonPolicy": {
-                      "const": "lexicographic"
-                    }
-                  },
-                  "required": [
-                    "comparisonPolicy"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "terms": {
-                      "contains": {
-                        "properties": {
-                          "strength": {
-                            "const": "soft"
-                          }
-                        },
-                        "required": [
-                          "strength"
-                        ]
-                      },
-                      "minContains": 1,
-                      "items": {
-                        "if": {
-                          "properties": {
-                            "strength": {
-                              "const": "soft"
-                            }
-                          },
-                          "required": [
-                            "strength"
-                          ]
-                        },
-                        "then": {
-                          "required": [
-                            "termId",
-                            "priority"
-                          ],
-                          "not": {
-                            "required": [
-                              "weightDecimal"
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "comparisonPolicy": {
-                      "enum": [
-                        "pareto",
-                        "feasibility-only"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "comparisonPolicy"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "terms": {
-                      "items": {
-                        "not": {
-                          "anyOf": [
-                            {
-                              "required": [
-                                "weightDecimal"
-                              ]
-                            },
-                            {
-                              "required": [
-                                "priority"
-                              ]
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            ],
-            "description": "Hard threshold clauses are conjunctive feasibility gates for every policy. Weighted-explicit requires exact positive weights and qualified per-term dimensionless loss; lexicographic requires explicit stable priorities. Pareto uses qualified per-metric directions/relations, and feasibility-only issues no soft ordering claim. Missing score, ordering or coverage never becomes an implicit weight or success."
+            }
           },
           "replacement": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "terms",
-              "comparisonPolicy"
-            ],
-            "properties": {
-              "terms": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/QualityTerm"
-                },
-                "minItems": 1
-              },
-              "measurementAuthorityRef": {
-                "$ref": "#/$defs/Ref"
-              },
-              "comparisonPolicy": {
-                "enum": [
-                  "pareto",
-                  "lexicographic",
-                  "weighted-explicit",
-                  "feasibility-only"
-                ]
-              },
-              "contextRoles": {
-                "type": "object",
-                "propertyNames": {
-                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?![\\s\\S])"
-                },
-                "additionalProperties": {
-                  "$ref": "#/$defs/ContextRole"
-                },
-                "description": "Formal noncomputational context role signatures. Declarations never create or authenticate real-world objects."
-              }
-            },
-            "allOf": [
-              {
-                "if": {
-                  "properties": {
-                    "comparisonPolicy": {
-                      "const": "weighted-explicit"
-                    }
-                  },
-                  "required": [
-                    "comparisonPolicy"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "terms": {
-                      "contains": {
-                        "properties": {
-                          "strength": {
-                            "const": "soft"
-                          }
-                        },
-                        "required": [
-                          "strength"
-                        ]
-                      },
-                      "minContains": 1,
-                      "items": {
-                        "if": {
-                          "properties": {
-                            "strength": {
-                              "const": "soft"
-                            }
-                          },
-                          "required": [
-                            "strength"
-                          ]
-                        },
-                        "then": {
-                          "required": [
-                            "termId",
-                            "weightDecimal",
-                            "scoreRef"
-                          ],
-                          "not": {
-                            "required": [
-                              "priority"
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "comparisonPolicy": {
-                      "const": "lexicographic"
-                    }
-                  },
-                  "required": [
-                    "comparisonPolicy"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "terms": {
-                      "contains": {
-                        "properties": {
-                          "strength": {
-                            "const": "soft"
-                          }
-                        },
-                        "required": [
-                          "strength"
-                        ]
-                      },
-                      "minContains": 1,
-                      "items": {
-                        "if": {
-                          "properties": {
-                            "strength": {
-                              "const": "soft"
-                            }
-                          },
-                          "required": [
-                            "strength"
-                          ]
-                        },
-                        "then": {
-                          "required": [
-                            "termId",
-                            "priority"
-                          ],
-                          "not": {
-                            "required": [
-                              "weightDecimal"
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "comparisonPolicy": {
-                      "enum": [
-                        "pareto",
-                        "feasibility-only"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "comparisonPolicy"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "terms": {
-                      "items": {
-                        "not": {
-                          "anyOf": [
-                            {
-                              "required": [
-                                "weightDecimal"
-                              ]
-                            },
-                            {
-                              "required": [
-                                "priority"
-                              ]
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            ],
-            "description": "Hard threshold clauses are conjunctive feasibility gates for every policy. Weighted-explicit requires exact positive weights and qualified per-term dimensionless loss; lexicographic requires explicit stable priorities. Pareto uses qualified per-metric directions/relations, and feasibility-only issues no soft ordering claim. Missing score, ordering or coverage never becomes an implicit weight or success. Candidate omission of measurementAuthorityRef is qualified only for complete mathematical measurements and their dependency closure; it never waives external observation/source authority or Method/Assurance obligations."
+            "$ref": "urn:gift:design-schema:call-bound-requirement#/$defs/RequirementLink"
           }
         }
       ]
@@ -1723,6 +1395,24 @@
         },
         {
           "pointer": "/$defs/clause/oneOf/2/properties/scopeRef",
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replacement": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
+              }
+            ]
+          }
+        },
+        {
+          "pointer": "/$defs/clause/oneOf/3/properties/qualityRef",
           "expected": {
             "type": "string",
             "minLength": 1
@@ -2297,86 +1987,6 @@
               }
             ]
           }
-        },
-        {
-          "pointer": "/$defs/clause/oneOf/3",
-          "expected": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "modality",
-              "qualityRef",
-              "direction"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "modality": {
-                "const": "prefer"
-              },
-              "qualityRef": {
-                "type": "string",
-                "minLength": 1
-              },
-              "direction": {
-                "enum": [
-                  "minimize",
-                  "maximize"
-                ]
-              }
-            }
-          },
-          "replacement": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "modality",
-              "qualityRef",
-              "direction"
-            ],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1
-              },
-              "modality": {
-                "const": "prefer"
-              },
-              "qualityRef": {
-                "oneOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  {
-                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"
-                  }
-                ]
-              },
-              "direction": {
-                "enum": [
-                  "minimize",
-                  "maximize"
-                ]
-              },
-              "metricArguments": {
-                "type": "object",
-                "minProperties": 1,
-                "propertyNames": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "additionalProperties": {
-                  "$ref": "urn:gift:design-schema:intent-body-1#/$defs/call/properties/arguments"
-                },
-                "description": "Each key is a stable termId in the selected Quality. Arguments bind that term measurement formal parameters in this Goal occurrence; no implicit capture or measurement result injection."
-              }
-            }
-          }
         }
       ]
     },
@@ -2622,23 +2232,110 @@
           }
         },
         {
-          "pointer": "/properties/covers/items/properties/rule/properties/export",
+          "pointer": "/properties/covers/items",
           "expected": {
-            "type": "string",
-            "minLength": 1
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rule",
+              "domainRef"
+            ],
+            "properties": {
+              "rule": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "moduleId",
+                  "export"
+                ],
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "export": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "domainRef": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "moduleId",
+                  "export"
+                ],
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "export": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
           },
           "replacement": {
-            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
-          }
-        },
-        {
-          "pointer": "/properties/covers/items/properties/domainRef/properties/export",
-          "expected": {
-            "type": "string",
-            "minLength": 1
-          },
-          "replacement": {
-            "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "domainRef"
+            ],
+            "properties": {
+              "rule": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "moduleId",
+                  "export"
+                ],
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "export": {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                  }
+                }
+              },
+              "domainRef": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "moduleId",
+                  "export"
+                ],
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "export": {
+                    "$ref": "urn:gift:design-schema:first-layer-names#/$defs/Name"
+                  }
+                }
+              },
+              "meaning": {
+                "$ref": "#/properties/covers/items/properties/rule"
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "rule"
+                ]
+              },
+              {
+                "required": [
+                  "meaning"
+                ]
+              }
+            ]
           }
         },
         {
@@ -2686,6 +2383,20 @@
       "sha256": "d80c2424bb4fd9ac37e15603b5119c8187ead31b0170088f78152db23c443388",
       "candidateId": "urn:gift:design-schema:first-layer-trait-body-converged",
       "replacements": []
+    },
+    {
+      "path": "schema/author/first-layer/record-let.schema.json",
+      "id": "urn:gift:design-schema:first-layer-record-let",
+      "sha256": "eced68aa480dbcad23980e0e793bd90eb386006b9de41f2ad1496104eefc95cc",
+      "candidateId": "urn:gift:design-schema:first-layer-record-let-converged",
+      "replacements": []
+    },
+    {
+      "path": "schema/author/first-layer/call-bound-requirement.schema.json",
+      "id": "urn:gift:design-schema:call-bound-requirement",
+      "sha256": "4a1e685f55c5409f91e93d87b421b8e006d72dc2af0b872c420d200a3c0eb3be",
+      "candidateId": "urn:gift:design-schema:call-bound-requirement-converged",
+      "replacements": []
     }
   ],
   "externals": [
@@ -2713,11 +2424,6 @@
       "path": "schema/author/first-layer/component-contracts.schema.json",
       "id": "urn:gift:design-schema:first-layer-component-contracts",
       "sha256": "77a072aaea4b96871d7f78aa1518cbefb684249b7900d73892f691250be3f88a"
-    },
-    {
-      "path": "schema/author/first-layer/requirement-actuals.schema.json",
-      "id": "urn:gift:design-schema:first-layer-requirement-actuals",
-      "sha256": "2859547bb7d69f0a7f0af9e08e775b0f695364b7f95d0a9c110ec1d5e832249d"
     }
   ],
   "extensions": [
@@ -2791,6 +2497,20 @@
       "append": [
         {
           "$ref": "urn:gift:design-schema:first-layer-trait-body#/$defs/MethodSelection"
+        },
+        {
+          "$ref": "urn:gift:design-schema:first-layer-record-let#/$defs/RecordLet"
+        }
+      ]
+    },
+    {
+      "resource": "urn:gift:design-schema:shared-semantic-structure-1",
+      "pointer": "/$defs/Expr",
+      "keyword": "oneOf",
+      "expectedSha256": "a5d3a5fef9c9ccbafff9991423cde2d635a16af7404ebb696d4c7ce332e4b3f4",
+      "append": [
+        {
+          "$ref": "urn:gift:design-schema:first-layer-record-let#/$defs/SharedRecordLet"
         }
       ]
     }

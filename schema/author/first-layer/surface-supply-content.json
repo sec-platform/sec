@@ -8,9 +8,14 @@
       "sha256": "16af9fa7980b5daf502a4075819829873d3e6c5b27f3bcfd0b99a391ec634077"
     },
     {
+      "path": "call-bound-requirement.schema.json",
+      "bytes": 2819,
+      "sha256": "4a1e685f55c5409f91e93d87b421b8e006d72dc2af0b872c420d200a3c0eb3be"
+    },
+    {
       "path": "codec-parameters.json",
-      "bytes": 35484,
-      "sha256": "a0f25f1aac48d8dcd92d3ec00b4a79c09eb9bcf5e0df4b465cc9736329974271"
+      "bytes": 40299,
+      "sha256": "a62f6e05e6c947b87eae6a4fecf893334927155fec96e3d155c9c141d6f51739"
     },
     {
       "path": "complete-types.schema.json",
@@ -21,6 +26,11 @@
       "path": "names.schema.json",
       "bytes": 3077,
       "sha256": "3cf91049891715aadeb0e9ab231ca62f89adedbb92a380f0b6bec26f5c6eb901"
+    },
+    {
+      "path": "record-let.schema.json",
+      "bytes": 2450,
+      "sha256": "eced68aa480dbcad23980e0e793bd90eb386006b9de41f2ad1496104eefc95cc"
     },
     {
       "path": "surface-consumer-signatures.json",
@@ -43,5 +53,5 @@
       "sha256": "d80c2424bb4fd9ac37e15603b5119c8187ead31b0170088f78152db23c443388"
     }
   ],
-  "digest": "sha256:5503ad5df48a7dde111cf598ebc8bd75718f6e83a4b37f389186d4046980ecb7"
+  "digest": "sha256:a8c81ccb23fae89328f912aef613392e869321ffa752772296bcb48d2e2a6454"
 }

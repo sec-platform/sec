@@ -1,0 +1,1199 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:globset:fnv",
+  "dialects": {
+    "sem": {
+      "languageId": "gift.semantic-convergence",
+      "constraint": "design-semantic-boundaries"
+    }
+  },
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    }
+  },
+  "definitions": {
+    "FnvHasher": {
+      "core:type": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "state": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "FnvDefault": {
+      "core:function": {
+        "parameters": [],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:FnvHasher"
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "state",
+              "value": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "uint",
+                  "bits": 64,
+                  "overflow": "wrapping"
+                },
+                "value": "14695981039346656037"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "FnvFinish": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:FnvHasher"
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:U64"
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ReadCopy"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BorrowField"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:FnvHasher"
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "state"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "view"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "view",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "FnvWrite": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:FnvHasher"
+                },
+                {
+                  "region": {
+                    "parameter": "stateRegion"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "bytesRegion"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "unit"
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "index",
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              },
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeFromByte"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    "value": "0"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "while",
+              "condition": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeLess"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "index"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceLength"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "bytes"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithFieldBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "self"
+                        },
+                        {
+                          "op": "lambda",
+                          "params": [
+                            {
+                              "name": "field"
+                            }
+                          ],
+                          "callMode": "exclusive",
+                          "body": {
+                            "op": "exec:block",
+                            "statements": [
+                              {
+                                "op": "eval",
+                                "value": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:WriteValue"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "field"
+                                    },
+                                    {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:U64Xor"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:ReadCopyMut"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "var",
+                                              "name": "field"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:U64FromByte"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "call",
+                                              "callee": {
+                                                "op": "symbol",
+                                                "ref": "machine:ByteSliceIndex"
+                                              },
+                                              "arguments": [
+                                                {
+                                                  "op": "var",
+                                                  "name": "bytes"
+                                                },
+                                                {
+                                                  "op": "var",
+                                                  "name": "index"
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "op": "eval",
+                                "value": {
+                                  "op": "call",
+                                  "callee": {
+                                    "op": "symbol",
+                                    "ref": "machine:WriteValue"
+                                  },
+                                  "arguments": [
+                                    {
+                                      "op": "var",
+                                      "name": "field"
+                                    },
+                                    {
+                                      "op": "call",
+                                      "callee": {
+                                        "op": "symbol",
+                                        "ref": "machine:U64WrappingMultiply"
+                                      },
+                                      "arguments": [
+                                        {
+                                          "op": "call",
+                                          "callee": {
+                                            "op": "symbol",
+                                            "ref": "machine:ReadCopyMut"
+                                          },
+                                          "arguments": [
+                                            {
+                                              "op": "var",
+                                              "name": "field"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "uint",
+                                            "bits": 64,
+                                            "overflow": "wrapping"
+                                          },
+                                          "value": "1099511628211"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              }
+                            ],
+                            "result": {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "unit"
+                              },
+                              "value": null
+                            }
+                          },
+                          "typeParams": [
+                            {
+                              "name": "child",
+                              "kind": "Region"
+                            }
+                          ]
+                        }
+                      ],
+                      "semanticArguments": [
+                        {
+                          "tag": "nominal",
+                          "ref": "local:FnvHasher"
+                        },
+                        {
+                          "value": {
+                            "op": "literal",
+                            "type": {
+                              "tag": "scalar",
+                              "name": "text"
+                            },
+                            "value": "state"
+                          }
+                        },
+                        {
+                          "region": {
+                            "parameter": "stateRegion"
+                          }
+                        },
+                        {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        {
+                          "effectRow": {
+                            "members": [
+                              {
+                                "class": "state-read"
+                              },
+                              {
+                                "class": "state-write"
+                              },
+                              {
+                                "class": "external"
+                              },
+                              {
+                                "class": "time"
+                              },
+                              {
+                                "class": "random"
+                              },
+                              {
+                                "class": "spawn"
+                              },
+                              {
+                                "class": "await"
+                              },
+                              {
+                                "class": "io"
+                              },
+                              {
+                                "class": "alloc"
+                              },
+                              {
+                                "class": "unsafe"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "set",
+                    "name": "index",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeAdd"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "index"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:UsizeFromByte"
+                          },
+                          "arguments": [
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "uint",
+                                "bits": 8,
+                                "overflow": "checked"
+                              },
+                              "value": "1"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          ],
+          "result": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "unit"
+            },
+            "value": null
+          }
+        },
+        "typeParams": [
+          {
+            "name": "stateRegion",
+            "kind": "Region"
+          },
+          {
+            "name": "bytesRegion",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "DefaultForFnvHasher": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Default",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "local:FnvHasher"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "default": {
+              "parameters": [],
+              "returns": {
+                "tag": "nominal",
+                "ref": "local:FnvHasher"
+              },
+              "body": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "state",
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "uint",
+                        "bits": 64,
+                        "overflow": "wrapping"
+                      },
+                      "value": "14695981039346656037"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "HasherForFnvHasher": {
+      "extension:definition": {
+        "dialectRef": "sem",
+        "bodySchemaRef": "urn:gift:design-schema:first-layer-trait-body",
+        "payload": {
+          "kind": "implementation",
+          "traitRef": "machine:Hasher",
+          "selfType": {
+            "tag": "nominal",
+            "ref": "local:FnvHasher"
+          },
+          "associatedTypes": {},
+          "methods": {
+            "finish": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:FnvHasher"
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "nominal",
+                "ref": "machine:U64"
+              },
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ReadCopy"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:BorrowField"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "self"
+                      }
+                    ],
+                    "semanticArguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:FnvHasher"
+                      },
+                      {
+                        "value": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "text"
+                          },
+                          "value": "state"
+                        }
+                      },
+                      {
+                        "region": {
+                          "parameter": "view"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "typeParams": [
+                {
+                  "name": "view",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            },
+            "write": {
+              "parameters": [
+                {
+                  "name": "self",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:BorrowMut"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "local:FnvHasher"
+                      },
+                      {
+                        "region": {
+                          "parameter": "stateRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "inout"
+                },
+                {
+                  "name": "bytes",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "nominal",
+                        "ref": "machine:ByteSlice"
+                      },
+                      {
+                        "region": {
+                          "parameter": "bytesRegion"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "returns": {
+                "tag": "scalar",
+                "name": "unit"
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "var",
+                    "name": "index",
+                    "type": {
+                      "tag": "nominal",
+                      "ref": "machine:Usize"
+                    },
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeFromByte"
+                      },
+                      "arguments": [
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "uint",
+                            "bits": 8,
+                            "overflow": "checked"
+                          },
+                          "value": "0"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "while",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeLess"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "index"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ByteSliceLength"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "bytes"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:WithFieldBorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "self"
+                              },
+                              {
+                                "op": "lambda",
+                                "params": [
+                                  {
+                                    "name": "field"
+                                  }
+                                ],
+                                "callMode": "exclusive",
+                                "body": {
+                                  "op": "exec:block",
+                                  "statements": [
+                                    {
+                                      "op": "eval",
+                                      "value": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "machine:WriteValue"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "field"
+                                          },
+                                          {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:U64Xor"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "machine:ReadCopyMut"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "var",
+                                                    "name": "field"
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "machine:U64FromByte"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "call",
+                                                    "callee": {
+                                                      "op": "symbol",
+                                                      "ref": "machine:ByteSliceIndex"
+                                                    },
+                                                    "arguments": [
+                                                      {
+                                                        "op": "var",
+                                                        "name": "bytes"
+                                                      },
+                                                      {
+                                                        "op": "var",
+                                                        "name": "index"
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    {
+                                      "op": "eval",
+                                      "value": {
+                                        "op": "call",
+                                        "callee": {
+                                          "op": "symbol",
+                                          "ref": "machine:WriteValue"
+                                        },
+                                        "arguments": [
+                                          {
+                                            "op": "var",
+                                            "name": "field"
+                                          },
+                                          {
+                                            "op": "call",
+                                            "callee": {
+                                              "op": "symbol",
+                                              "ref": "machine:U64WrappingMultiply"
+                                            },
+                                            "arguments": [
+                                              {
+                                                "op": "call",
+                                                "callee": {
+                                                  "op": "symbol",
+                                                  "ref": "machine:ReadCopyMut"
+                                                },
+                                                "arguments": [
+                                                  {
+                                                    "op": "var",
+                                                    "name": "field"
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "op": "literal",
+                                                "type": {
+                                                  "tag": "scalar",
+                                                  "name": "uint",
+                                                  "bits": 64,
+                                                  "overflow": "wrapping"
+                                                },
+                                                "value": "1099511628211"
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  ],
+                                  "result": {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "unit"
+                                    },
+                                    "value": null
+                                  }
+                                },
+                                "typeParams": [
+                                  {
+                                    "name": "child",
+                                    "kind": "Region"
+                                  }
+                                ]
+                              }
+                            ],
+                            "semanticArguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "local:FnvHasher"
+                              },
+                              {
+                                "value": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "text"
+                                  },
+                                  "value": "state"
+                                }
+                              },
+                              {
+                                "region": {
+                                  "parameter": "stateRegion"
+                                }
+                              },
+                              {
+                                "tag": "scalar",
+                                "name": "unit"
+                              },
+                              {
+                                "effectRow": {
+                                  "members": [
+                                    {
+                                      "class": "state-read"
+                                    },
+                                    {
+                                      "class": "state-write"
+                                    },
+                                    {
+                                      "class": "external"
+                                    },
+                                    {
+                                      "class": "time"
+                                    },
+                                    {
+                                      "class": "random"
+                                    },
+                                    {
+                                      "class": "spawn"
+                                    },
+                                    {
+                                      "class": "await"
+                                    },
+                                    {
+                                      "class": "io"
+                                    },
+                                    {
+                                      "class": "alloc"
+                                    },
+                                    {
+                                      "class": "unsafe"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "op": "set",
+                          "name": "index",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:UsizeAdd"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "index"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:UsizeFromByte"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "uint",
+                                      "bits": 8,
+                                      "overflow": "checked"
+                                    },
+                                    "value": "1"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "result": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "unit"
+                        },
+                        "value": null
+                      }
+                    }
+                  }
+                ],
+                "result": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              },
+              "typeParams": [
+                {
+                  "name": "stateRegion",
+                  "kind": "Region"
+                },
+                {
+                  "name": "bytesRegion",
+                  "kind": "Region"
+                }
+              ],
+              "receiver": "self"
+            }
+          }
+        },
+        "bindingRef": "sem:InterpretTrait"
+      }
+    },
+    "FnvHashMap": {
+      "core:type": {
+        "type": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:HashMap"
+          },
+          "arguments": [
+            {
+              "tag": "param",
+              "name": "K"
+            },
+            {
+              "tag": "param",
+              "name": "V"
+            },
+            {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BuildHasherDefault"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:FnvHasher"
+                }
+              ]
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "K",
+            "kind": "Type"
+          },
+          {
+            "name": "V",
+            "kind": "Type"
+          }
+        ]
+      }
+    },
+    "FnvByteMap": {
+      "core:type": {
+        "type": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:FnvHashMap"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteVector"
+            },
+            {
+              "tag": "param",
+              "name": "V"
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "V",
+            "kind": "Type"
+          }
+        ]
+      }
+    },
+    "FnvByteMapNew": {
+      "core:function": {
+        "parameters": [],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:FnvByteMap"
+          },
+          "arguments": [
+            {
+              "tag": "param",
+              "name": "V"
+            }
+          ]
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:HashMapWithHasher"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:BuildHasherDefaultNew"
+              },
+              "arguments": [],
+              "semanticArguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:FnvHasher"
+                }
+              ]
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "V",
+            "kind": "Type"
+          }
+        ]
+      }
+    }
+  },
+  "exports": [
+    "FnvHasher",
+    "FnvDefault",
+    "FnvFinish",
+    "FnvWrite",
+    "DefaultForFnvHasher",
+    "HasherForFnvHasher",
+    "FnvHashMap",
+    "FnvByteMap",
+    "FnvByteMapNew"
+  ]
+}

@@ -1,0 +1,501 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:common",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    },
+    "filename": {
+      "workspace": "ripgrep:ignore:pathutil:filename"
+    },
+    "strip": {
+      "workspace": "ripgrep:ignore:pathutil:strip"
+    },
+    "isfilename": {
+      "workspace": "ripgrep:ignore:pathutil:isfilename"
+    }
+  },
+  "definitions": {
+    "FileName": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "P"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "path:OsStr"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "filename:FileNamePath"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "path:AsRefPath"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "path"
+                }
+              ]
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "P",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "path:AsRef",
+                "selfType": {
+                  "tag": "param",
+                  "name": "P"
+                },
+                "traitArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "path:Path"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "StripPrefix": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "prefix",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "param",
+                  "name": "P"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "path:Path"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "strip:StripPrefixPath"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "path:AsRefPath"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "prefix"
+                }
+              ]
+            },
+            {
+              "op": "var",
+              "name": "path"
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "P",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "path:AsRef",
+                "selfType": {
+                  "tag": "param",
+                  "name": "P"
+                },
+                "traitArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "path:Path"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    },
+    "IsFileName": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "param",
+              "name": "P"
+            },
+            "mode": "move"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:WithBorrow"
+          },
+          "arguments": [
+            {
+              "op": "var",
+              "name": "path"
+            },
+            {
+              "op": "lambda",
+              "typeParams": [
+                {
+                  "name": "short",
+                  "kind": "Region"
+                }
+              ],
+              "params": [
+                {
+                  "name": "view",
+                  "type": {
+                    "tag": "apply",
+                    "constructor": {
+                      "decl": "machine:Borrow"
+                    },
+                    "arguments": [
+                      {
+                        "tag": "param",
+                        "name": "P"
+                      },
+                      {
+                        "region": {
+                          "parameter": "short"
+                        }
+                      }
+                    ]
+                  },
+                  "mode": "borrow"
+                }
+              ],
+              "callMode": "consume",
+              "body": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "isfilename:IsFileNamePath"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "path:AsRefPath"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "view"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "P",
+            "kind": "Type",
+            "traitBounds": [
+              {
+                "traitRef": "path:AsRef",
+                "selfType": {
+                  "tag": "param",
+                  "name": "P"
+                },
+                "traitArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "path:Path"
+                  }
+                ]
+              },
+              {
+                "traitRef": "machine:Sized",
+                "selfType": {
+                  "tag": "param",
+                  "name": "P"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "IsHiddenPathOnly": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:FileName"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "none",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "name",
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ByteSliceFirst"
+                  },
+                  "arguments": [
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "path:OsStrAsEncodedBytes"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "name"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "empty",
+                    "body": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "bool"
+                      },
+                      "value": false
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "first",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:ByteEqual"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "first"
+                        },
+                        {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "uint",
+                            "bits": 8,
+                            "overflow": "checked"
+                          },
+                          "value": "46"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "FileName": {
+      "definitionId": "FileName"
+    },
+    "StripPrefix": {
+      "definitionId": "StripPrefix"
+    },
+    "IsFileName": {
+      "definitionId": "IsFileName"
+    },
+    "IsHiddenPathOnly": {
+      "definitionId": "IsHiddenPathOnly"
+    }
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:isfilename",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    },
+    "memchr": {
+      "workspace": "ripgrep:external:memchr"
+    }
+  },
+  "definitions": {
+    "IsFileNamePath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "memchr:Memchr"
+            },
+            "arguments": [
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "uint",
+                  "bits": 8,
+                  "overflow": "checked"
+                },
+                "value": "47"
+              },
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "path:OsStrAsEncodedBytes"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "path:AsOsStr"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "path"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "none",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "index",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "IsFileNamePath": {
+      "definitionId": "IsFileNamePath"
+    }
+  }
+}

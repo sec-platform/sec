@@ -1,0 +1,250 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "module:ripgrep-path-selection",
+  "definitions": {
+    "RuleMatch": {
+      "core:type": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "None": {"tag": "scalar", "name": "unit"},
+          "Ignore": {"tag": "param", "name": "Source"},
+          "Whitelist": {"tag": "param", "name": "Source"}
+        }}
+      }
+    },
+    "OverrideStep": {
+      "core:type": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "CheckIgnoreFiles": {"tag": "scalar", "name": "unit"},
+          "Resolved": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}
+        }}
+      }
+    },
+    "IgnoreStep": {
+      "core:type": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "Ignored": {"tag": "param", "name": "Source"},
+          "CheckTypes": {"tag": "option", "inner": {"tag": "param", "name": "Source"}}
+        }}
+      }
+    },
+    "FirstPresent": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [
+          {"name": "first", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"},
+          {"name": "otherwise", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"}
+        ],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "first"}, "cases": [
+          {"constructor": "None", "binding": "none", "body": {"op": "var", "name": "otherwise"}},
+          {"constructor": "Ignore", "binding": "source", "body": {"op": "variant", "constructor": "Ignore", "payload": {"op": "var", "name": "source"}}},
+          {"constructor": "Whitelist", "binding": "source", "body": {"op": "variant", "constructor": "Whitelist", "payload": {"op": "var", "name": "source"}}}
+        ]}
+      }
+    },
+    "IgnoreFileWinner": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [
+          {"name": "custom", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"},
+          {"name": "ignore", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"},
+          {"name": "gitignore", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"},
+          {"name": "gitExclude", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"},
+          {"name": "gitGlobal", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"},
+          {"name": "explicit", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"}
+        ],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "call", "callee": {"op": "symbol", "ref": "local:FirstPresent"}, "arguments": [
+          {"op": "var", "name": "custom"},
+          {"op": "call", "callee": {"op": "symbol", "ref": "local:FirstPresent"}, "arguments": [
+            {"op": "var", "name": "ignore"},
+            {"op": "call", "callee": {"op": "symbol", "ref": "local:FirstPresent"}, "arguments": [
+              {"op": "var", "name": "gitignore"},
+              {"op": "call", "callee": {"op": "symbol", "ref": "local:FirstPresent"}, "arguments": [
+                {"op": "var", "name": "gitExclude"},
+                {"op": "call", "callee": {"op": "symbol", "ref": "local:FirstPresent"}, "arguments": [
+                  {"op": "var", "name": "gitGlobal"}, {"op": "var", "name": "explicit"}
+                ]}
+              ]}
+            ]}
+          ]}
+        ]}
+      }
+    },
+    "AfterOverride": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [{"name": "overrideMatch", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"}],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:OverrideStep"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "overrideMatch"}, "cases": [
+          {"constructor": "None", "binding": "none", "body": {"op": "variant", "constructor": "CheckIgnoreFiles", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Ignore", "binding": "source", "body": {"op": "variant", "constructor": "Resolved", "payload": {"op": "variant", "constructor": "Ignore", "payload": {"op": "var", "name": "source"}}}},
+          {"constructor": "Whitelist", "binding": "source", "body": {"op": "variant", "constructor": "Resolved", "payload": {"op": "variant", "constructor": "Whitelist", "payload": {"op": "var", "name": "source"}}}}
+        ]}
+      }
+    },
+    "AfterIgnoreFiles": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [{"name": "ignoreMatch", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"}],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:IgnoreStep"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "ignoreMatch"}, "cases": [
+          {"constructor": "None", "binding": "none", "body": {"op": "variant", "constructor": "CheckTypes", "payload": {"op": "variant", "constructor": "None", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}}},
+          {"constructor": "Ignore", "binding": "source", "body": {"op": "variant", "constructor": "Ignored", "payload": {"op": "var", "name": "source"}}},
+          {"constructor": "Whitelist", "binding": "source", "body": {"op": "variant", "constructor": "CheckTypes", "payload": {"op": "variant", "constructor": "Some", "payload": {"op": "var", "name": "source"}}}}
+        ]}
+      }
+    },
+    "AfterTypes": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [
+          {"name": "priorWhitelist", "type": {"tag": "option", "inner": {"tag": "param", "name": "Source"}}, "mode": "move"},
+          {"name": "typeMatch", "type": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"}
+        ],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "typeMatch"}, "cases": [
+          {"constructor": "Ignore", "binding": "source", "body": {"op": "variant", "constructor": "Ignore", "payload": {"op": "var", "name": "source"}}},
+          {"constructor": "Whitelist", "binding": "source", "body": {"op": "variant", "constructor": "Whitelist", "payload": {"op": "var", "name": "source"}}},
+          {"constructor": "None", "binding": "none", "body": {"op": "match", "value": {"op": "var", "name": "priorWhitelist"}, "cases": [
+            {"constructor": "None", "binding": "absent", "body": {"op": "variant", "constructor": "None", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+            {"constructor": "Some", "binding": "source", "body": {"op": "variant", "constructor": "Whitelist", "payload": {"op": "var", "name": "source"}}}
+          ]}}
+        ]}
+      }
+    },
+    "HiddenAfterNoMatch": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [{"name": "hiddenSource", "type": {"tag": "option", "inner": {"tag": "param", "name": "Source"}}, "mode": "move"}],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "hiddenSource"}, "cases": [
+          {"constructor": "None", "binding": "none", "body": {"op": "variant", "constructor": "None", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Some", "binding": "source", "body": {"op": "variant", "constructor": "Ignore", "payload": {"op": "var", "name": "source"}}}
+        ]}
+      }
+    },
+    "WalkEntry": {
+      "core:type": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "ExplicitRoot": {"tag": "scalar", "name": "unit"},
+          "Descendant": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}
+        }}
+      }
+    },
+    "WalkStart": {
+      "core:type": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "RootBypassesEntryChecks": {"tag": "scalar", "name": "unit"},
+          "Ignore": {"tag": "param", "name": "Source"},
+          "CheckStdout": {"tag": "apply", "constructor": {"decl": "local:RuleMatch"}, "arguments": [{"tag": "param", "name": "Source"}]}
+        }}
+      }
+    },
+    "StartWalkEntry": {
+      "core:function": {
+        "typeParams": [{"name": "Source", "kind": "Type"}],
+        "parameters": [{"name": "entry", "type": {"tag": "apply", "constructor": {"decl": "local:WalkEntry"}, "arguments": [{"tag": "param", "name": "Source"}]}, "mode": "move"}],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:WalkStart"}, "arguments": [{"tag": "param", "name": "Source"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "entry"}, "cases": [
+          {"constructor": "ExplicitRoot", "binding": "root", "body": {"op": "variant", "constructor": "RootBypassesEntryChecks", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Descendant", "binding": "matched", "body": {"op": "match", "value": {"op": "var", "name": "matched"}, "cases": [
+            {"constructor": "Ignore", "binding": "source", "body": {"op": "variant", "constructor": "Ignore", "payload": {"op": "var", "name": "source"}}},
+            {"constructor": "None", "binding": "none", "body": {"op": "variant", "constructor": "CheckStdout", "payload": {"op": "variant", "constructor": "None", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}}},
+            {"constructor": "Whitelist", "binding": "source", "body": {"op": "variant", "constructor": "CheckStdout", "payload": {"op": "variant", "constructor": "Whitelist", "payload": {"op": "var", "name": "source"}}}}
+          ]}}
+        ]}
+      }
+    },
+    "StdoutCheck": {
+      "core:type": {
+        "typeParams": [{"name": "Error", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "NotConfigured": {"tag": "scalar", "name": "unit"}, "Different": {"tag": "scalar", "name": "unit"},
+          "Same": {"tag": "scalar", "name": "unit"}, "Failed": {"tag": "param", "name": "Error"}
+        }}
+      }
+    },
+    "StdoutStep": {
+      "core:type": {
+        "typeParams": [{"name": "Error", "kind": "Type"}],
+        "type": {"tag": "variant", "cases": {
+          "CheckSize": {"tag": "scalar", "name": "unit"}, "SkipStdout": {"tag": "scalar", "name": "unit"},
+          "Failed": {"tag": "param", "name": "Error"}
+        }}
+      }
+    },
+    "AfterStdout": {
+      "core:function": {
+        "typeParams": [{"name": "Error", "kind": "Type"}],
+        "parameters": [{"name": "check", "type": {"tag": "apply", "constructor": {"decl": "local:StdoutCheck"}, "arguments": [{"tag": "param", "name": "Error"}]}, "mode": "move"}],
+        "returns": {"tag": "apply", "constructor": {"decl": "local:StdoutStep"}, "arguments": [{"tag": "param", "name": "Error"}]},
+        "termination": "partial",
+        "body": {"op": "match", "value": {"op": "var", "name": "check"}, "cases": [
+          {"constructor": "NotConfigured", "binding": "unused", "body": {"op": "variant", "constructor": "CheckSize", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Different", "binding": "unused", "body": {"op": "variant", "constructor": "CheckSize", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Same", "binding": "unused", "body": {"op": "variant", "constructor": "SkipStdout", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Failed", "binding": "error", "body": {"op": "variant", "constructor": "Failed", "payload": {"op": "var", "name": "error"}}}
+        ]}
+      }
+    },
+    "SizeCheck": {"core:type": {"tag": "variant", "cases": {
+      "NotApplicable": {"tag": "scalar", "name": "unit"}, "AtMostOrUnavailable": {"tag": "scalar", "name": "unit"}, "OverLimit": {"tag": "scalar", "name": "unit"}
+    }}},
+    "FilterCheck": {"core:type": {"tag": "variant", "cases": {
+      "NotConfigured": {"tag": "scalar", "name": "unit"}, "Accepted": {"tag": "scalar", "name": "unit"}, "Rejected": {"tag": "scalar", "name": "unit"}
+    }}},
+    "WalkResult": {"core:type": {"tag": "variant", "cases": {
+      "Keep": {"tag": "scalar", "name": "unit"}, "Skip": {"tag": "scalar", "name": "unit"}
+    }}},
+    "SerialSizeStep": {"core:type": {"tag": "variant", "cases": {
+      "CheckFilter": {"tag": "scalar", "name": "unit"}, "Resolved": {"tag": "nominal", "ref": "local:WalkResult"}
+    }}},
+    "SerialAfterSize": {
+      "core:function": {
+        "parameters": [{"name": "size", "type": {"tag": "nominal", "ref": "local:SizeCheck"}}],
+        "returns": {"tag": "nominal", "ref": "local:SerialSizeStep"}, "effects": [], "termination": "total",
+        "body": {"op": "match", "value": {"op": "var", "name": "size"}, "cases": [
+          {"constructor": "NotApplicable", "binding": "unused", "body": {"op": "variant", "constructor": "CheckFilter", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "AtMostOrUnavailable", "binding": "unused", "body": {"op": "variant", "constructor": "Resolved", "payload": {"op": "variant", "constructor": "Keep", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}}},
+          {"constructor": "OverLimit", "binding": "unused", "body": {"op": "variant", "constructor": "Resolved", "payload": {"op": "variant", "constructor": "Skip", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}}}
+        ]}
+      }
+    },
+    "AfterFilter": {
+      "core:function": {
+        "parameters": [{"name": "filter", "type": {"tag": "nominal", "ref": "local:FilterCheck"}}],
+        "returns": {"tag": "nominal", "ref": "local:WalkResult"}, "effects": [], "termination": "total",
+        "body": {"op": "match", "value": {"op": "var", "name": "filter"}, "cases": [
+          {"constructor": "NotConfigured", "binding": "unused", "body": {"op": "variant", "constructor": "Keep", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Accepted", "binding": "unused", "body": {"op": "variant", "constructor": "Keep", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "Rejected", "binding": "unused", "body": {"op": "variant", "constructor": "Skip", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}}
+        ]}
+      }
+    },
+    "ParallelAfterFilter": {
+      "core:function": {
+        "parameters": [{"name": "size", "type": {"tag": "nominal", "ref": "local:SizeCheck"}}, {"name": "filter", "type": {"tag": "nominal", "ref": "local:FilterCheck"}}],
+        "returns": {"tag": "nominal", "ref": "local:WalkResult"}, "effects": [], "termination": "total",
+        "body": {"op": "match", "value": {"op": "var", "name": "size"}, "cases": [
+          {"constructor": "OverLimit", "binding": "unused", "body": {"op": "variant", "constructor": "Skip", "payload": {"op": "literal", "type": {"tag": "scalar", "name": "unit"}, "value": null}}},
+          {"constructor": "NotApplicable", "binding": "unused", "body": {"op": "call", "callee": {"op": "symbol", "ref": "local:AfterFilter"}, "arguments": [{"op": "var", "name": "filter"}]}},
+          {"constructor": "AtMostOrUnavailable", "binding": "unused", "body": {"op": "call", "callee": {"op": "symbol", "ref": "local:AfterFilter"}, "arguments": [{"op": "var", "name": "filter"}]}}
+        ]}
+      }
+    }
+  },
+  "exports": ["RuleMatch", "OverrideStep", "IgnoreStep", "IgnoreFileWinner", "AfterOverride", "AfterIgnoreFiles", "AfterTypes", "HiddenAfterNoMatch", "WalkEntry", "WalkStart", "StartWalkEntry", "StdoutCheck", "StdoutStep", "AfterStdout", "SizeCheck", "FilterCheck", "WalkResult", "SerialSizeStep", "SerialAfterSize", "AfterFilter", "ParallelAfterFilter"]
+}

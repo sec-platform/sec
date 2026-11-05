@@ -1,0 +1,23 @@
+{
+  "schema": "gift.native-binding-selection/design-converged",
+  "moduleId": "ripgrep:external:native_serde",
+  "language": "rust",
+  "profileRef": "example:ripgrep-standard-rust@design-1",
+  "symbols": {
+    "Serialize": {
+      "sourcePath": "native-support/serde.rs",
+      "nativeExport": "Serialize",
+      "role": "trait"
+    },
+    "Serializer": {
+      "sourcePath": "native-support/serde.rs",
+      "nativeExport": "Serializer",
+      "role": "trait"
+    },
+    "SerializeStruct": {
+      "sourcePath": "native-support/serde.rs",
+      "nativeExport": "SerializeStruct",
+      "role": "trait"
+    }
+  }
+}

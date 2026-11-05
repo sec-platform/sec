@@ -1,0 +1,143 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:strip",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    }
+  },
+  "definitions": {
+    "StripPrefixPath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "prefix",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "path:Path"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "path:StripPrefix"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "path"
+              },
+              {
+                "op": "var",
+                "name": "prefix"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Err",
+              "binding": "error",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "constructor": "Ok",
+              "binding": "tail",
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "var",
+                  "name": "tail"
+                }
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "StripPrefixPath": {
+      "definitionId": "StripPrefixPath"
+    }
+  }
+}

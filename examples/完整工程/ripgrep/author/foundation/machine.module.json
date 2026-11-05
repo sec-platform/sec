@@ -1,0 +1,907 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:foundation:machine",
+  "imports": {
+    "native": {
+      "workspace": "ripgrep:foundation:native_machine"
+    },
+    "place": {
+      "workspace": "ripgrep:foundation:place"
+    }
+  },
+  "definitions": {},
+  "exports": {
+    "Usize": {
+      "import": "native",
+      "export": "Usize"
+    },
+    "U32": {
+      "import": "native",
+      "export": "U32"
+    },
+    "U64": {
+      "import": "native",
+      "export": "U64"
+    },
+    "Byte": {
+      "import": "native",
+      "export": "Byte"
+    },
+    "I32": {
+      "import": "native",
+      "export": "I32"
+    },
+    "F64": {
+      "import": "native",
+      "export": "F64"
+    },
+    "Char": {
+      "import": "native",
+      "export": "Char"
+    },
+    "Str": {
+      "import": "native",
+      "export": "Str"
+    },
+    "Text": {
+      "import": "native",
+      "export": "Text"
+    },
+    "ByteSlice": {
+      "import": "native",
+      "export": "ByteSlice"
+    },
+    "ByteVector": {
+      "import": "native",
+      "export": "ByteVector"
+    },
+    "ByteArray": {
+      "import": "native",
+      "export": "ByteArray"
+    },
+    "Borrow": {
+      "import": "place",
+      "export": "Borrow"
+    },
+    "BorrowMut": {
+      "import": "place",
+      "export": "BorrowMut"
+    },
+    "CowBytes": {
+      "import": "native",
+      "export": "CowBytes"
+    },
+    "CowStr": {
+      "import": "native",
+      "export": "CowStr"
+    },
+    "Vec": {
+      "import": "native",
+      "export": "Vec"
+    },
+    "Vector": {
+      "import": "native",
+      "export": "Vector"
+    },
+    "VectorIter": {
+      "import": "native",
+      "export": "VectorIter"
+    },
+    "VectorIterRev": {
+      "import": "native",
+      "export": "VectorIterRev"
+    },
+    "HashMap": {
+      "import": "native",
+      "export": "HashMap"
+    },
+    "Formatter": {
+      "import": "native",
+      "export": "Formatter"
+    },
+    "FormatResult": {
+      "import": "native",
+      "export": "FormatResult"
+    },
+    "IOError": {
+      "import": "native",
+      "export": "IOError"
+    },
+    "ParseIntError": {
+      "import": "native",
+      "export": "ParseIntError"
+    },
+    "TryFromIntError": {
+      "import": "native",
+      "export": "TryFromIntError"
+    },
+    "Utf8Error": {
+      "import": "native",
+      "export": "Utf8Error"
+    },
+    "Display": {
+      "import": "native",
+      "export": "Display"
+    },
+    "Sized": {
+      "import": "native",
+      "export": "Sized"
+    },
+    "ReadCopy": {
+      "import": "native",
+      "export": "read_copy"
+    },
+    "ReadCopyMut": {
+      "import": "native",
+      "export": "read_copy_mut"
+    },
+    "WriteValue": {
+      "import": "native",
+      "export": "write_value"
+    },
+    "CloneValue": {
+      "import": "native",
+      "export": "clone_value"
+    },
+    "WithBorrow": {
+      "import": "place",
+      "export": "WithBorrow"
+    },
+    "WithBorrowMut": {
+      "import": "place",
+      "export": "WithBorrowMut"
+    },
+    "WithSharedBorrow": {
+      "import": "place",
+      "export": "WithSharedBorrow"
+    },
+    "BorrowShared": {
+      "import": "native",
+      "export": "borrow_shared"
+    },
+    "UsizeFromByte": {
+      "import": "native",
+      "export": "usize_from_byte"
+    },
+    "UsizeEqual": {
+      "import": "native",
+      "export": "usize_equal"
+    },
+    "UsizeLessEqual": {
+      "import": "native",
+      "export": "usize_less_equal"
+    },
+    "UsizeLess": {
+      "import": "native",
+      "export": "usize_less"
+    },
+    "UsizeAdd": {
+      "import": "native",
+      "export": "usize_add"
+    },
+    "UsizeSubtract": {
+      "import": "native",
+      "export": "usize_subtract"
+    },
+    "UsizeCheckedAdd": {
+      "import": "native",
+      "export": "usize_checked_add"
+    },
+    "UsizeDecimal": {
+      "import": "native",
+      "export": "usize_decimal"
+    },
+    "UsizeAsU64": {
+      "import": "native",
+      "export": "usize_as_u64"
+    },
+    "ByteEqual": {
+      "import": "native",
+      "export": "byte_equal"
+    },
+    "ByteGreater": {
+      "import": "native",
+      "export": "byte_greater"
+    },
+    "ByteDivide": {
+      "import": "native",
+      "export": "byte_divide"
+    },
+    "ByteRemainder": {
+      "import": "native",
+      "export": "byte_remainder"
+    },
+    "ByteAsScalar": {
+      "import": "native",
+      "export": "byte_as_scalar"
+    },
+    "CharEqual": {
+      "import": "native",
+      "export": "char_equal"
+    },
+    "CharIsAscii": {
+      "import": "native",
+      "export": "char_is_ascii"
+    },
+    "AsciiCharToByte": {
+      "import": "native",
+      "export": "ascii_char_to_byte"
+    },
+    "CharFromU32": {
+      "import": "native",
+      "export": "char_from_u32"
+    },
+    "WordAnd": {
+      "import": "native",
+      "export": "word_and"
+    },
+    "WordOr": {
+      "import": "native",
+      "export": "word_or"
+    },
+    "WordNot": {
+      "import": "native",
+      "export": "word_not"
+    },
+    "WordEqual": {
+      "import": "native",
+      "export": "word_equal"
+    },
+    "WordShiftLeft": {
+      "import": "native",
+      "export": "word_shift_left"
+    },
+    "U64FromByte": {
+      "import": "native",
+      "export": "u64_from_byte"
+    },
+    "U64AsByte": {
+      "import": "native",
+      "export": "u64_as_byte"
+    },
+    "U64Equal": {
+      "import": "native",
+      "export": "u64_equal"
+    },
+    "U64Greater": {
+      "import": "native",
+      "export": "u64_greater"
+    },
+    "U64Add": {
+      "import": "native",
+      "export": "u64_add"
+    },
+    "U64Divide": {
+      "import": "native",
+      "export": "u64_divide"
+    },
+    "U64Remainder": {
+      "import": "native",
+      "export": "u64_remainder"
+    },
+    "U64Decimal": {
+      "import": "native",
+      "export": "u64_decimal"
+    },
+    "U32AsUsize": {
+      "import": "native",
+      "export": "u32_as_usize"
+    },
+    "U32TryFromUsize": {
+      "import": "native",
+      "export": "u32_try_from_usize"
+    },
+    "I32Equal": {
+      "import": "native",
+      "export": "i32_equal"
+    },
+    "I32Add": {
+      "import": "native",
+      "export": "i32_add"
+    },
+    "I32Decimal": {
+      "import": "native",
+      "export": "i32_decimal"
+    },
+    "F64FromU32": {
+      "import": "native",
+      "export": "f64_from_u32"
+    },
+    "F64FromU64": {
+      "import": "native",
+      "export": "f64_from_u64"
+    },
+    "F64Add": {
+      "import": "native",
+      "export": "f64_add"
+    },
+    "F64Divide": {
+      "import": "native",
+      "export": "f64_divide"
+    },
+    "F64GreaterEqual": {
+      "import": "native",
+      "export": "f64_greater_equal"
+    },
+    "F64FromBeBytes": {
+      "import": "native",
+      "export": "f64_from_be_bytes"
+    },
+    "BoolEqual": {
+      "import": "native",
+      "export": "bool_equal"
+    },
+    "ByteSliceLength": {
+      "import": "native",
+      "export": "byte_slice_length"
+    },
+    "ByteSliceIsEmpty": {
+      "import": "native",
+      "export": "byte_slice_is_empty"
+    },
+    "ByteSliceFirst": {
+      "import": "native",
+      "export": "byte_slice_first"
+    },
+    "ByteSliceGet": {
+      "import": "native",
+      "export": "byte_slice_get"
+    },
+    "ByteSliceIndex": {
+      "import": "native",
+      "export": "byte_slice_index"
+    },
+    "ByteSliceLast": {
+      "import": "native",
+      "export": "byte_slice_last"
+    },
+    "ByteSliceRange": {
+      "import": "native",
+      "export": "byte_slice_range"
+    },
+    "ByteSliceRangeMut": {
+      "import": "native",
+      "export": "byte_slice_range_mut"
+    },
+    "ByteSingletonSlice": {
+      "import": "native",
+      "export": "byte_singleton_slice"
+    },
+    "ByteSliceToVector": {
+      "import": "native",
+      "export": "byte_slice_to_vector"
+    },
+    "ByteSliceEqualsAscii": {
+      "import": "native",
+      "export": "byte_slice_equals_ascii"
+    },
+    "ByteVectorExtend": {
+      "import": "native",
+      "export": "byte_vector_extend"
+    },
+    "ByteVectorPush": {
+      "import": "native",
+      "export": "byte_vector_push"
+    },
+    "ByteVectorSet": {
+      "import": "native",
+      "export": "byte_vector_set"
+    },
+    "ByteVectorAsSlice": {
+      "import": "native",
+      "export": "byte_vector_as_slice"
+    },
+    "ByteArrayFill": {
+      "import": "native",
+      "export": "byte_array_fill"
+    },
+    "ByteArraySet": {
+      "import": "native",
+      "export": "byte_array_set"
+    },
+    "ByteArrayAsSlice": {
+      "import": "native",
+      "export": "byte_array_as_slice"
+    },
+    "CowBytesFromBorrowed": {
+      "import": "native",
+      "export": "cow_bytes_from_borrowed"
+    },
+    "CowBytesFromOwned": {
+      "import": "native",
+      "export": "cow_bytes_from_owned"
+    },
+    "CowBytesEmptyBorrowed": {
+      "import": "native",
+      "export": "cow_bytes_empty_borrowed"
+    },
+    "CowBytesBorrowedView": {
+      "import": "native",
+      "export": "cow_bytes_borrowed_view"
+    },
+    "CowBytesView": {
+      "import": "native",
+      "export": "cow_bytes_view"
+    },
+    "CowBytesToMut": {
+      "import": "native",
+      "export": "cow_bytes_to_mut"
+    },
+    "CowBytesClone": {
+      "import": "native",
+      "export": "cow_bytes_clone"
+    },
+    "VectorNew": {
+      "import": "native",
+      "export": "vector_new"
+    },
+    "VectorPush": {
+      "import": "native",
+      "export": "vector_push"
+    },
+    "VectorLen": {
+      "import": "native",
+      "export": "vector_len"
+    },
+    "VectorGet": {
+      "import": "native",
+      "export": "vector_get"
+    },
+    "VectorIndex": {
+      "import": "native",
+      "export": "vector_index"
+    },
+    "VectorRemove": {
+      "import": "native",
+      "export": "vector_remove"
+    },
+    "VectorPop": {
+      "import": "native",
+      "export": "vector_pop"
+    },
+    "VectorIterNext": {
+      "import": "native",
+      "export": "vector_iter_next"
+    },
+    "VectorIterRevNext": {
+      "import": "native",
+      "export": "vector_iter_rev_next"
+    },
+    "OptionBorrow": {
+      "import": "native",
+      "export": "option_borrow"
+    },
+    "TextAsStr": {
+      "import": "native",
+      "export": "text_as_str"
+    },
+    "StrToOwned": {
+      "import": "native",
+      "export": "str_to_owned"
+    },
+    "TextClone": {
+      "import": "native",
+      "export": "text_clone"
+    },
+    "CowStrAsStr": {
+      "import": "native",
+      "export": "cow_str_as_str"
+    },
+    "StrTrimEnd": {
+      "import": "native",
+      "export": "str_trim_end"
+    },
+    "StrStartsWith": {
+      "import": "native",
+      "export": "str_starts_with"
+    },
+    "StrEndsWith": {
+      "import": "native",
+      "export": "str_ends_with"
+    },
+    "StrContains": {
+      "import": "native",
+      "export": "str_contains"
+    },
+    "StrEqualText": {
+      "import": "native",
+      "export": "str_equal_text"
+    },
+    "StrFind": {
+      "import": "native",
+      "export": "str_find"
+    },
+    "StrDropFirstScalar": {
+      "import": "native",
+      "export": "str_drop_first_scalar"
+    },
+    "StrDropLastScalar": {
+      "import": "native",
+      "export": "str_drop_last_scalar"
+    },
+    "TextStartsWith": {
+      "import": "native",
+      "export": "text_starts_with"
+    },
+    "TextEndsWith": {
+      "import": "native",
+      "export": "text_ends_with"
+    },
+    "TextReplace": {
+      "import": "native",
+      "export": "text_replace"
+    },
+    "TextTrimStartMatches": {
+      "import": "native",
+      "export": "text_trim_start_matches"
+    },
+    "TextTrimEndUnicodeWhitespace": {
+      "import": "native",
+      "export": "text_trim_end_unicode_whitespace"
+    },
+    "TextUtf8Bytes": {
+      "import": "native",
+      "export": "text_utf8_bytes"
+    },
+    "StrRange": {
+      "import": "native",
+      "export": "str_range"
+    },
+    "StrFromUtf8": {
+      "import": "native",
+      "export": "str_from_utf8"
+    },
+    "Utf8ErrorValidUpTo": {
+      "import": "native",
+      "export": "utf8_error_valid_up_to"
+    },
+    "Utf8ErrorDebug": {
+      "import": "native",
+      "export": "utf8_error_debug"
+    },
+    "ParseU32": {
+      "import": "native",
+      "export": "parse_u32"
+    },
+    "CharDisplay": {
+      "import": "native",
+      "export": "char_display"
+    },
+    "CharDebug": {
+      "import": "native",
+      "export": "char_debug"
+    },
+    "TextDebug": {
+      "import": "native",
+      "export": "text_debug"
+    },
+    "Panic": {
+      "import": "native",
+      "export": "panic"
+    },
+    "FieldPayload": {
+      "import": "place",
+      "export": "FieldPayload"
+    },
+    "BorrowField": {
+      "import": "place",
+      "export": "BorrowField"
+    },
+    "BorrowFieldMut": {
+      "import": "place",
+      "export": "BorrowFieldMut"
+    },
+    "WithFieldBorrowMut": {
+      "import": "place",
+      "export": "WithFieldBorrowMut"
+    },
+    "ConsumeField": {
+      "import": "place",
+      "export": "ConsumeField"
+    },
+    "UsizeZero": {
+      "import": "native",
+      "export": "USIZE_ZERO"
+    },
+    "UsizeOne": {
+      "import": "native",
+      "export": "USIZE_ONE"
+    },
+    "U64Zero": {
+      "import": "native",
+      "export": "U64_ZERO"
+    },
+    "ByteZero": {
+      "import": "native",
+      "export": "BYTE_ZERO"
+    },
+    "ByteOne": {
+      "import": "native",
+      "export": "BYTE_ONE"
+    },
+    "ByteTwo": {
+      "import": "native",
+      "export": "BYTE_TWO"
+    },
+    "I32Zero": {
+      "import": "native",
+      "export": "I32_ZERO"
+    },
+    "I32One": {
+      "import": "native",
+      "export": "I32_ONE"
+    },
+    "F64OneBillion": {
+      "import": "native",
+      "export": "F64_ONE_BILLION"
+    },
+    "UsizeSub": {
+      "import": "native",
+      "export": "usize_subtract"
+    },
+    "F64Div": {
+      "import": "native",
+      "export": "f64_divide"
+    },
+    "CharFromByte": {
+      "import": "native",
+      "export": "byte_as_scalar"
+    },
+    "VectorIterStart": {
+      "import": "native",
+      "export": "vector_iter"
+    },
+    "VectorIterRevStart": {
+      "import": "native",
+      "export": "vector_iter_rev"
+    },
+    "Box": {
+      "import": "native",
+      "export": "Box"
+    },
+    "Pair": {
+      "import": "native",
+      "export": "Pair"
+    },
+    "VectorIntoIter": {
+      "import": "native",
+      "export": "VectorIntoIter"
+    },
+    "StrChars": {
+      "import": "native",
+      "export": "StrChars"
+    },
+    "HashMapIntoIter": {
+      "import": "native",
+      "export": "HashMapIntoIter"
+    },
+    "BuildHasherDefault": {
+      "import": "native",
+      "export": "BuildHasherDefault"
+    },
+    "Peekable": {
+      "import": "native",
+      "export": "Peekable"
+    },
+    "FromUtf8Error": {
+      "import": "native",
+      "export": "FromUtf8Error"
+    },
+    "AsRef": {
+      "import": "native",
+      "export": "AsRef"
+    },
+    "BorrowKey": {
+      "import": "native",
+      "export": "BorrowKey"
+    },
+    "BuildHasher": {
+      "import": "native",
+      "export": "BuildHasher"
+    },
+    "Clone": {
+      "import": "native",
+      "export": "Clone"
+    },
+    "Copy": {
+      "import": "native",
+      "export": "Copy"
+    },
+    "Debug": {
+      "import": "native",
+      "export": "Debug"
+    },
+    "Default": {
+      "import": "native",
+      "export": "Default"
+    },
+    "Eq": {
+      "import": "native",
+      "export": "Eq"
+    },
+    "Hash": {
+      "import": "native",
+      "export": "Hash"
+    },
+    "Hasher": {
+      "import": "native",
+      "export": "Hasher"
+    },
+    "IntoIterator": {
+      "import": "native",
+      "export": "IntoIterator"
+    },
+    "Iterator": {
+      "import": "native",
+      "export": "Iterator"
+    },
+    "PartialEq": {
+      "import": "native",
+      "export": "PartialEq"
+    },
+    "BoxNew": {
+      "import": "native",
+      "export": "box_new"
+    },
+    "BoxBorrow": {
+      "import": "native",
+      "export": "box_borrow"
+    },
+    "BoxIntoInner": {
+      "import": "native",
+      "export": "box_into_inner"
+    },
+    "TakeValue": {
+      "import": "native",
+      "export": "take_value"
+    },
+    "ReplaceValue": {
+      "import": "native",
+      "export": "replace_value"
+    },
+    "U64Xor": {
+      "import": "native",
+      "export": "u64_xor"
+    },
+    "U64WrappingMultiply": {
+      "import": "native",
+      "export": "u64_wrapping_multiply"
+    },
+    "ByteVectorNew": {
+      "import": "native",
+      "export": "byte_vector_new"
+    },
+    "ByteVectorClone": {
+      "import": "native",
+      "export": "byte_vector_clone"
+    },
+    "ByteVectorIntoText": {
+      "import": "native",
+      "export": "byte_vector_into_text"
+    },
+    "StrByteLength": {
+      "import": "native",
+      "export": "str_byte_length"
+    },
+    "VectorClear": {
+      "import": "native",
+      "export": "vector_clear"
+    },
+    "IteratorNext": {
+      "import": "native",
+      "export": "iterator_next"
+    },
+    "IntoIteratorStart": {
+      "import": "native",
+      "export": "into_iterator"
+    },
+    "IteratorPeekable": {
+      "import": "native",
+      "export": "iterator_peekable"
+    },
+    "IteratorPeek": {
+      "import": "native",
+      "export": "iterator_peek"
+    },
+    "UsizeVectorExtend": {
+      "import": "native",
+      "export": "usize_vector_extend"
+    },
+    "UsizeVectorSort": {
+      "import": "native",
+      "export": "usize_vector_sort"
+    },
+    "UsizeVectorSortUnstable": {
+      "import": "native",
+      "export": "usize_vector_sort_unstable"
+    },
+    "UsizeVectorDedup": {
+      "import": "native",
+      "export": "usize_vector_dedup"
+    },
+    "BuildHasherDefaultNew": {
+      "import": "native",
+      "export": "build_hasher_default_new"
+    },
+    "HashMapWithHasher": {
+      "import": "native",
+      "export": "hash_map_with_hasher"
+    },
+    "HashMapEntryOrInsert": {
+      "import": "native",
+      "export": "hash_map_entry_or_insert"
+    },
+    "HashMapGet": {
+      "import": "native",
+      "export": "hash_map_get"
+    },
+    "HashMapGetMut": {
+      "import": "native",
+      "export": "hash_map_get_mut"
+    },
+    "HashMapInsert": {
+      "import": "native",
+      "export": "hash_map_insert"
+    },
+    "HashMapContainsKey": {
+      "import": "native",
+      "export": "hash_map_contains_key"
+    },
+    "HashMapLength": {
+      "import": "native",
+      "export": "hash_map_length"
+    },
+    "HashMapIntoIterStart": {
+      "import": "native",
+      "export": "hash_map_into_iter"
+    },
+    "StrTrimStartMatches": {
+      "import": "native",
+      "export": "str_trim_start_matches"
+    },
+    "StrReplace": {
+      "import": "native",
+      "export": "str_replace"
+    },
+    "TextNew": {
+      "import": "native",
+      "export": "text_new"
+    },
+    "TextPushStr": {
+      "import": "native",
+      "export": "text_push_str"
+    },
+    "TextVectorJoin": {
+      "import": "native",
+      "export": "text_vector_join"
+    },
+    "VectorIntoIterStart": {
+      "import": "native",
+      "export": "vector_into_iter"
+    },
+    "Tuple1": {
+      "import": "native",
+      "export": "Tuple1"
+    },
+    "Fn": {
+      "import": "native",
+      "export": "Fn"
+    },
+    "FnMut": {
+      "import": "native",
+      "export": "FnMut"
+    },
+    "FnOnce": {
+      "import": "native",
+      "export": "FnOnce"
+    },
+    "Add": {
+      "import": "native",
+      "export": "Add"
+    },
+    "AddAssign": {
+      "import": "native",
+      "export": "AddAssign"
+    }
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:ignore:pathutil:strip",
+  "imports": {
+    "machine": {
+      "workspace": "ripgrep:foundation:machine"
+    },
+    "path": {
+      "workspace": "ripgrep:foundation:path"
+    },
+    "unix": {
+      "workspace": "ripgrep:foundation:path_unix"
+    }
+  },
+  "definitions": {
+    "StripPrefixPath": {
+      "core:function": {
+        "parameters": [
+          {
+            "name": "prefix",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "path",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "path:Path"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "path:Path"
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              }
+            ]
+          }
+        },
+        "body": {
+          "op": "let",
+          "name": "prefixBytes",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "unix:OsStrAsBytes"
+            },
+            "arguments": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "path:AsOsStr"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "prefix"
+                  }
+                ]
+              }
+            ]
+          },
+          "body": {
+            "op": "let",
+            "name": "pathBytes",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "unix:OsStrAsBytes"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "path:AsOsStr"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "path"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": {
+              "op": "if",
+              "condition": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeLessEqual"
+                },
+                "arguments": [
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceLength"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "prefixBytes"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceLength"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "pathBytes"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "op": "if",
+                "condition": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ByteSliceEqual"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "prefixBytes"
+                    },
+                    {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:ByteSliceRange"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "pathBytes"
+                        },
+                        {
+                          "op": "symbol",
+                          "ref": "machine:UsizeZero"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:ByteSliceLength"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "prefixBytes"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "then": {
+                  "op": "variant",
+                  "constructor": "Some",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "path:PathFromOsStr"
+                    },
+                    "arguments": [
+                      {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "unix:OsStrFromBytes"
+                        },
+                        "arguments": [
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteSliceRange"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "pathBytes"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:ByteSliceLength"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "prefixBytes"
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:ByteSliceLength"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "pathBytes"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "otherwise": {
+                  "op": "variant",
+                  "constructor": "None",
+                  "payload": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "unit"
+                    },
+                    "value": null
+                  }
+                }
+              },
+              "otherwise": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            }
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ]
+      }
+    }
+  },
+  "exports": {
+    "StripPrefixPath": {
+      "definitionId": "StripPrefixPath"
+    }
+  }
+}

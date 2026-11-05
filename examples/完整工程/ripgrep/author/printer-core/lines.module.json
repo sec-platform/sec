@@ -1,0 +1,2826 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:searcher:lines",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "runtime": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:runtime"
+    },
+    "memchr": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:external:memchr"
+    },
+    "matcher": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:matcher:values"
+    },
+    "format": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:format"
+    }
+  },
+  "definitions": {
+    "Interval": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "start": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            },
+            "end": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": false
+      }
+    },
+    "LineStep": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "lineTerm": {
+              "type": {
+                "tag": "scalar",
+                "name": "uint",
+                "bits": 8,
+                "overflow": "checked"
+              }
+            },
+            "position": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            },
+            "end": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "LineIter": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "bytes": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:ByteSlice"
+                  },
+                  {
+                    "region": {
+                      "parameter": "b"
+                    }
+                  }
+                ]
+              }
+            },
+            "stepper": {
+              "type": {
+                "tag": "nominal",
+                "ref": "local:LineStep"
+              }
+            }
+          },
+          "open": false
+        },
+        "typeParams": [
+          {
+            "name": "b",
+            "kind": "Region"
+          }
+        ],
+        "opaque": true
+      }
+    },
+    "LineStepNew": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "lineTerm",
+            "type": {
+              "tag": "scalar",
+              "name": "uint",
+              "bits": 8,
+              "overflow": "checked"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "start",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "end",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:LineStep"
+        },
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "lineTerm",
+              "value": {
+                "op": "var",
+                "name": "lineTerm"
+              }
+            },
+            {
+              "name": "position",
+              "value": {
+                "op": "var",
+                "name": "start"
+              }
+            },
+            {
+              "name": "end",
+              "value": {
+                "op": "var",
+                "name": "end"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "CommitInterval": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:LineStep"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "start",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "end",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:Usize"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "nominal",
+            "ref": "local:Interval"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:UsizeLessEqual"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "start"
+              },
+              {
+                "op": "var",
+                "name": "end"
+              }
+            ]
+          },
+          "then": {
+            "op": "do",
+            "steps": [
+              {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithFieldBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "self"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "fieldRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "slot",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:Usize"
+                            },
+                            {
+                              "region": {
+                                "parameter": "fieldRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WriteValue"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "slot"
+                        },
+                        {
+                          "op": "var",
+                          "name": "end"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "local:LineStep"
+                  },
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "text"
+                      },
+                      "value": "position"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "r"
+                    }
+                  },
+                  {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  {
+                    "effectRow": {
+                      "members": [
+                        {
+                          "class": "state-write"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ],
+            "result": {
+              "op": "variant",
+              "constructor": "Some",
+              "payload": {
+                "op": "record",
+                "fields": [
+                  {
+                    "name": "start",
+                    "value": {
+                      "op": "var",
+                      "name": "start"
+                    }
+                  },
+                  {
+                    "name": "end",
+                    "value": {
+                      "op": "var",
+                      "name": "end"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "otherwise": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "runtime:Panic"
+            },
+            "arguments": [
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                },
+                "value": "assertion failed: m.0 <= m.1"
+              }
+            ]
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "LineStepNext": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:LineStep"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "b"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "nominal",
+            "ref": "local:Interval"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "b",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "let",
+          "name": "current",
+          "value": {
+            "op": "record",
+            "fields": [
+              {
+                "name": "end",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithFieldBorrowMut"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    },
+                    {
+                      "op": "lambda",
+                      "typeParams": [
+                        {
+                          "name": "fieldRegion",
+                          "kind": "Region"
+                        }
+                      ],
+                      "params": [
+                        {
+                          "name": "slot",
+                          "type": {
+                            "tag": "apply",
+                            "constructor": {
+                              "decl": "machine:BorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "machine:Usize"
+                              },
+                              {
+                                "region": {
+                                  "parameter": "fieldRegion"
+                                }
+                              }
+                            ]
+                          },
+                          "mode": "inout"
+                        }
+                      ],
+                      "parameterContracts": [
+                        {
+                          "position": 0,
+                          "retention": "noescape"
+                        }
+                      ],
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:ReadCopyMut"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "slot"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:LineStep"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "end"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    },
+                    {
+                      "tag": "nominal",
+                      "ref": "machine:Usize"
+                    },
+                    {
+                      "effectRow": {
+                        "members": [
+                          {
+                            "class": "state-read"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "position",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithFieldBorrowMut"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    },
+                    {
+                      "op": "lambda",
+                      "typeParams": [
+                        {
+                          "name": "fieldRegion",
+                          "kind": "Region"
+                        }
+                      ],
+                      "params": [
+                        {
+                          "name": "slot",
+                          "type": {
+                            "tag": "apply",
+                            "constructor": {
+                              "decl": "machine:BorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "tag": "nominal",
+                                "ref": "machine:Usize"
+                              },
+                              {
+                                "region": {
+                                  "parameter": "fieldRegion"
+                                }
+                              }
+                            ]
+                          },
+                          "mode": "inout"
+                        }
+                      ],
+                      "parameterContracts": [
+                        {
+                          "position": 0,
+                          "retention": "noescape"
+                        }
+                      ],
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:ReadCopyMut"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "slot"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:LineStep"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "position"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    },
+                    {
+                      "tag": "nominal",
+                      "ref": "machine:Usize"
+                    },
+                    {
+                      "effectRow": {
+                        "members": [
+                          {
+                            "class": "state-read"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "lineTerm",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:WithFieldBorrowMut"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    },
+                    {
+                      "op": "lambda",
+                      "typeParams": [
+                        {
+                          "name": "fieldRegion",
+                          "kind": "Region"
+                        }
+                      ],
+                      "params": [
+                        {
+                          "name": "slot",
+                          "type": {
+                            "tag": "apply",
+                            "constructor": {
+                              "decl": "machine:BorrowMut"
+                            },
+                            "arguments": [
+                              {
+                                "tag": "scalar",
+                                "name": "uint",
+                                "bits": 8,
+                                "overflow": "checked"
+                              },
+                              {
+                                "region": {
+                                  "parameter": "fieldRegion"
+                                }
+                              }
+                            ]
+                          },
+                          "mode": "inout"
+                        }
+                      ],
+                      "parameterContracts": [
+                        {
+                          "position": 0,
+                          "retention": "noescape"
+                        }
+                      ],
+                      "body": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:ReadCopyMut"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "slot"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:LineStep"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "lineTerm"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    },
+                    {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    {
+                      "effectRow": {
+                        "members": [
+                          {
+                            "class": "state-read"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "let",
+            "name": "bounded",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ByteSliceRange"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "bytes"
+                },
+                {
+                  "op": "symbol",
+                  "ref": "machine:UsizeZero"
+                },
+                {
+                  "op": "field",
+                  "record": {
+                    "op": "var",
+                    "name": "current"
+                  },
+                  "name": "end"
+                }
+              ]
+            },
+            "body": {
+              "op": "let",
+              "name": "remaining",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ByteSliceRange"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "bounded"
+                  },
+                  {
+                    "op": "field",
+                    "record": {
+                      "op": "var",
+                      "name": "current"
+                    },
+                    "name": "position"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceLength"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "bounded"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "body": {
+                "op": "match",
+                "value": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "memchr:Memchr"
+                  },
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "current"
+                      },
+                      "name": "lineTerm"
+                    },
+                    {
+                      "op": "var",
+                      "name": "remaining"
+                    }
+                  ]
+                },
+                "cases": [
+                  {
+                    "constructor": "None",
+                    "binding": "missing",
+                    "body": {
+                      "op": "if",
+                      "condition": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "machine:UsizeLess"
+                        },
+                        "arguments": [
+                          {
+                            "op": "field",
+                            "record": {
+                              "op": "var",
+                              "name": "current"
+                            },
+                            "name": "position"
+                          },
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteSliceLength"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "bounded"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "then": {
+                        "op": "call",
+                        "callee": {
+                          "op": "symbol",
+                          "ref": "local:CommitInterval"
+                        },
+                        "arguments": [
+                          {
+                            "op": "var",
+                            "name": "self"
+                          },
+                          {
+                            "op": "field",
+                            "record": {
+                              "op": "var",
+                              "name": "current"
+                            },
+                            "name": "position"
+                          },
+                          {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteSliceLength"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "bounded"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "otherwise": {
+                        "op": "variant",
+                        "constructor": "None",
+                        "payload": {
+                          "op": "literal",
+                          "type": {
+                            "tag": "scalar",
+                            "name": "unit"
+                          },
+                          "value": null
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "constructor": "Some",
+                    "binding": "relativeEnd",
+                    "body": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "local:CommitInterval"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "self"
+                        },
+                        {
+                          "op": "field",
+                          "record": {
+                            "op": "var",
+                            "name": "current"
+                          },
+                          "name": "position"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:UsizeAdd"
+                          },
+                          "arguments": [
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:UsizeAdd"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "field",
+                                  "record": {
+                                    "op": "var",
+                                    "name": "current"
+                                  },
+                                  "name": "position"
+                                },
+                                {
+                                  "op": "var",
+                                  "name": "relativeEnd"
+                                }
+                              ]
+                            },
+                            {
+                              "op": "symbol",
+                              "ref": "machine:UsizeOne"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "LineStepNextMatch": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:LineStep"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          },
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "b"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "nominal",
+            "ref": "matcher:Match"
+          }
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "b",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:LineStepNext"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              },
+              {
+                "op": "var",
+                "name": "bytes"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "None",
+              "binding": "missing",
+              "body": {
+                "op": "variant",
+                "constructor": "None",
+                "payload": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "unit"
+                  },
+                  "value": null
+                }
+              }
+            },
+            {
+              "constructor": "Some",
+              "binding": "range",
+              "body": {
+                "op": "variant",
+                "constructor": "Some",
+                "payload": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "matcher:MatchNew"
+                  },
+                  "arguments": [
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "range"
+                      },
+                      "name": "start"
+                    },
+                    {
+                      "op": "field",
+                      "record": {
+                        "op": "var",
+                        "name": "range"
+                      },
+                      "name": "end"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ]
+      }
+    },
+    "LineIterNew": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "lineTerm",
+            "type": {
+              "tag": "scalar",
+              "name": "uint",
+              "bits": 8,
+              "overflow": "checked"
+            },
+            "mode": "in"
+          },
+          {
+            "name": "bytes",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "machine:ByteSlice"
+                },
+                {
+                  "region": {
+                    "parameter": "b"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "local:LineIter"
+          },
+          "arguments": [
+            {
+              "region": {
+                "parameter": "b"
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "b",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "record",
+          "fields": [
+            {
+              "name": "bytes",
+              "value": {
+                "op": "var",
+                "name": "bytes"
+              }
+            },
+            {
+              "name": "stepper",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "local:LineStepNew"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "lineTerm"
+                  },
+                  {
+                    "op": "symbol",
+                    "ref": "machine:UsizeZero"
+                  },
+                  {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceLength"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "bytes"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "LineIterNext": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:LineIter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "b"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "option",
+          "inner": {
+            "tag": "apply",
+            "constructor": {
+              "decl": "machine:Borrow"
+            },
+            "arguments": [
+              {
+                "tag": "nominal",
+                "ref": "machine:ByteSlice"
+              },
+              {
+                "region": {
+                  "parameter": "b"
+                }
+              }
+            ]
+          }
+        },
+        "typeParams": [
+          {
+            "name": "b",
+            "kind": "Region"
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "let",
+          "name": "bytes",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithFieldBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "self"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "bytesRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "slot",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:Borrow"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "nominal",
+                              "ref": "machine:ByteSlice"
+                            },
+                            {
+                              "region": {
+                                "parameter": "b"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "region": {
+                            "parameter": "bytesRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:ReadCopyMut"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "slot"
+                    }
+                  ]
+                }
+              }
+            ],
+            "semanticArguments": [
+              {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "local:LineIter"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "value": {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  },
+                  "value": "bytes"
+                }
+              },
+              {
+                "region": {
+                  "parameter": "r"
+                }
+              },
+              {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:Borrow"
+                },
+                "arguments": [
+                  {
+                    "tag": "nominal",
+                    "ref": "machine:ByteSlice"
+                  },
+                  {
+                    "region": {
+                      "parameter": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "effectRow": {
+                  "members": [
+                    {
+                      "class": "state-read"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "body": {
+            "op": "match",
+            "value": {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:WithFieldBorrowMut"
+              },
+              "arguments": [
+                {
+                  "op": "var",
+                  "name": "self"
+                },
+                {
+                  "op": "lambda",
+                  "typeParams": [
+                    {
+                      "name": "stepRegion",
+                      "kind": "Region"
+                    }
+                  ],
+                  "params": [
+                    {
+                      "name": "slot",
+                      "type": {
+                        "tag": "apply",
+                        "constructor": {
+                          "decl": "machine:BorrowMut"
+                        },
+                        "arguments": [
+                          {
+                            "tag": "nominal",
+                            "ref": "local:LineStep"
+                          },
+                          {
+                            "region": {
+                              "parameter": "stepRegion"
+                            }
+                          }
+                        ]
+                      },
+                      "mode": "inout"
+                    }
+                  ],
+                  "parameterContracts": [
+                    {
+                      "position": 0,
+                      "retention": "noescape"
+                    }
+                  ],
+                  "body": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "local:LineStepNext"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "slot"
+                      },
+                      {
+                        "op": "var",
+                        "name": "bytes"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:LineIter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "b"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "stepper"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                },
+                {
+                  "tag": "option",
+                  "inner": {
+                    "tag": "nominal",
+                    "ref": "local:Interval"
+                  }
+                },
+                {
+                  "effectRow": {
+                    "members": [
+                      {
+                        "class": "state-read"
+                      },
+                      {
+                        "class": "state-write"
+                      },
+                      {
+                        "class": "external"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "cases": [
+              {
+                "constructor": "None",
+                "binding": "missing",
+                "body": {
+                  "op": "variant",
+                  "constructor": "None",
+                  "payload": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "unit"
+                    },
+                    "value": null
+                  }
+                }
+              },
+              {
+                "constructor": "Some",
+                "binding": "range",
+                "body": {
+                  "op": "variant",
+                  "constructor": "Some",
+                  "payload": {
+                    "op": "call",
+                    "callee": {
+                      "op": "symbol",
+                      "ref": "machine:ByteSliceRange"
+                    },
+                    "arguments": [
+                      {
+                        "op": "var",
+                        "name": "bytes"
+                      },
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "range"
+                        },
+                        "name": "start"
+                      },
+                      {
+                        "op": "field",
+                        "record": {
+                          "op": "var",
+                          "name": "range"
+                        },
+                        "name": "end"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "LineStepDebug": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:LineStep"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "data",
+            "kind": "Region"
+          },
+          {
+            "name": "f",
+            "kind": "Region"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "LineStep"
+                  }
+                ]
+              },
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "format:DebugStructBuilder"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "f"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "line_term"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:LineStep"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "lineTerm"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "pos"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:LineStep"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "position"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "end"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:LineStep"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "end"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "builder"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "builderRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "builderPlace",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugStructBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "region": {
+                            "parameter": "builderRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "format:DebugFinish"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "builderPlace"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "LineIterDebug": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "local:LineIter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "b"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "typeParams": [
+          {
+            "name": "b",
+            "kind": "Region"
+          },
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "data",
+            "kind": "Region"
+          },
+          {
+            "name": "f",
+            "kind": "Region"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "LineIter"
+                  }
+                ]
+              },
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "format:DebugStructBuilder"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "f"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "bytes"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "local:LineIter"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "region": {
+                                          "parameter": "b"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "bytes"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "stepper"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "local:LineIter"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "region": {
+                                          "parameter": "b"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "stepper"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "builder"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "builderRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "builderPlace",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugStructBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "region": {
+                            "parameter": "builderRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "format:DebugFinish"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "builderPlace"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "Interval": {
+      "definitionId": "Interval"
+    },
+    "LineStep": {
+      "definitionId": "LineStep"
+    },
+    "LineIter": {
+      "definitionId": "LineIter"
+    },
+    "LineStepNew": {
+      "definitionId": "LineStepNew"
+    },
+    "LineStepNext": {
+      "definitionId": "LineStepNext"
+    },
+    "LineStepNextMatch": {
+      "definitionId": "LineStepNextMatch"
+    },
+    "LineIterNew": {
+      "definitionId": "LineIterNew"
+    },
+    "LineIterNext": {
+      "definitionId": "LineIterNext"
+    },
+    "LineStepDebug": {
+      "definitionId": "LineStepDebug"
+    },
+    "LineIterDebug": {
+      "definitionId": "LineIterDebug"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourcePath": "crates/searcher/src/lines.rs:16-107",
+    "sourceMismatch": "LineStep::new documentation claims start>end panics, but P constructs without checking. Gift preserves that constructor and delays bounds rejection until Next, in original end-slice then position-slice order.",
+    "qualification": "Only LineIter/LineStep and their explicit range/match methods; remaining lines.rs helpers are not claimed complete. Interval is the logical pair; the exact native tuple/Iterator/Debug witnesses and zero-copy borrowing remain integration obligations."
+  }
+}

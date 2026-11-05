@@ -1,0 +1,17 @@
+{
+  "schema": "gift.project/design-converged",
+  "projectId": "example:language-v1",
+  "sourceScopes": [
+    {"root": "language-v1", "kind": "semantic", "editSource": {"mode": "file"}, "include": ["*.module.json"]},
+    {"root": "language-v1", "kind": "design", "editSource": {"mode": "file"}, "include": ["*.control.json"]},
+    {"root": "interval/library", "kind": "semantic", "editSource": {"mode": "file"}, "include": ["interval-spec.module.json"]},
+    {"root": "reservations/library", "kind": "semantic", "editSource": {"mode": "file"}, "include": ["reservation.module.json"]}
+  ],
+  "targets": {
+    "library": {
+      "profileRef": {"id": "design:language-v1-ts", "revision": "1"},
+      "outputRoots": [{"rootId": "product", "moduleId": "module:language-v1", "export": "Product"}]
+    }
+  },
+  "defaultTarget": "library"
+}

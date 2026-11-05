@@ -1,0 +1,1104 @@
+{
+  "schema": "gift.author-module/design-converged",
+  "moduleId": "ripgrep:printer:decimal",
+  "imports": {
+    "machine": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:machine"
+    },
+    "format": {
+      "mode": "workspace",
+      "moduleId": "ripgrep:foundation:format"
+    }
+  },
+  "definitions": {
+    "DecimalFormatter": {
+      "kind": "core:type",
+      "body": {
+        "type": {
+          "tag": "record",
+          "fields": {
+            "buffer": {
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "machine:ByteArray"
+                },
+                "arguments": [
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "int"
+                      },
+                      "value": "20"
+                    }
+                  }
+                ]
+              }
+            },
+            "start": {
+              "type": {
+                "tag": "nominal",
+                "ref": "machine:Usize"
+              }
+            }
+          },
+          "open": false
+        },
+        "opaque": true
+      }
+    },
+    "New": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "value",
+            "type": {
+              "tag": "nominal",
+              "ref": "machine:U64"
+            },
+            "mode": "in"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "local:DecimalFormatter"
+        },
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "number",
+              "value": {
+                "op": "var",
+                "name": "value"
+              }
+            },
+            {
+              "op": "var",
+              "name": "buffer",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:ByteArrayFill"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    "value": "0"
+                  }
+                ],
+                "semanticArguments": [
+                  {
+                    "value": {
+                      "op": "literal",
+                      "type": {
+                        "tag": "scalar",
+                        "name": "int"
+                      },
+                      "value": "20"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "var",
+              "name": "index",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:UsizeFromByte"
+                },
+                "arguments": [
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "uint",
+                      "bits": 8,
+                      "overflow": "checked"
+                    },
+                    "value": "20"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "while",
+              "condition": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              },
+              "body": {
+                "op": "exec:block",
+                "statements": [
+                  {
+                    "op": "set",
+                    "name": "index",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:UsizeSubtract"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "index"
+                        },
+                        {
+                          "op": "symbol",
+                          "ref": "machine:UsizeOne"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "let",
+                    "name": "digit",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64AsByte"
+                      },
+                      "arguments": [
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:U64Remainder"
+                          },
+                          "arguments": [
+                            {
+                              "op": "var",
+                              "name": "number"
+                            },
+                            {
+                              "op": "call",
+                              "callee": {
+                                "op": "symbol",
+                                "ref": "machine:U64FromByte"
+                              },
+                              "arguments": [
+                                {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "uint",
+                                    "bits": 8,
+                                    "overflow": "checked"
+                                  },
+                                  "value": "10"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "set",
+                    "name": "number",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Divide"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "number"
+                        },
+                        {
+                          "op": "call",
+                          "callee": {
+                            "op": "symbol",
+                            "ref": "machine:U64FromByte"
+                          },
+                          "arguments": [
+                            {
+                              "op": "literal",
+                              "type": {
+                                "tag": "scalar",
+                                "name": "uint",
+                                "bits": 8,
+                                "overflow": "checked"
+                              },
+                              "value": "10"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "eval",
+                    "value": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:WithBorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "buffer"
+                        },
+                        {
+                          "op": "lambda",
+                          "typeParams": [
+                            {
+                              "name": "bufferRegion",
+                              "kind": "Region"
+                            }
+                          ],
+                          "params": [
+                            {
+                              "name": "bufferPlace",
+                              "type": {
+                                "tag": "apply",
+                                "constructor": {
+                                  "decl": "machine:BorrowMut"
+                                },
+                                "arguments": [
+                                  {
+                                    "tag": "apply",
+                                    "constructor": {
+                                      "decl": "machine:ByteArray"
+                                    },
+                                    "arguments": [
+                                      {
+                                        "value": {
+                                          "op": "literal",
+                                          "type": {
+                                            "tag": "scalar",
+                                            "name": "int"
+                                          },
+                                          "value": "20"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "bufferRegion"
+                                    }
+                                  }
+                                ]
+                              },
+                              "mode": "inout"
+                            }
+                          ],
+                          "parameterContracts": [
+                            {
+                              "position": 0,
+                              "retention": "noescape"
+                            }
+                          ],
+                          "body": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "machine:ByteArraySet"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "bufferPlace"
+                              },
+                              {
+                                "op": "var",
+                                "name": "index"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "std:IntAdd"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "literal",
+                                    "type": {
+                                      "tag": "scalar",
+                                      "name": "uint",
+                                      "bits": 8,
+                                      "overflow": "checked"
+                                    },
+                                    "value": "48"
+                                  },
+                                  {
+                                    "op": "var",
+                                    "name": "digit"
+                                  }
+                                ]
+                              }
+                            ],
+                            "semanticArguments": [
+                              {
+                                "value": {
+                                  "op": "literal",
+                                  "type": {
+                                    "tag": "scalar",
+                                    "name": "int"
+                                  },
+                                  "value": "20"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "op": "if",
+                    "condition": {
+                      "op": "call",
+                      "callee": {
+                        "op": "symbol",
+                        "ref": "machine:U64Equal"
+                      },
+                      "arguments": [
+                        {
+                          "op": "var",
+                          "name": "number"
+                        },
+                        {
+                          "op": "symbol",
+                          "ref": "machine:U64Zero"
+                        }
+                      ]
+                    },
+                    "then": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "break"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "record",
+            "fields": [
+              {
+                "name": "buffer",
+                "value": {
+                  "op": "var",
+                  "name": "buffer"
+                }
+              },
+              {
+                "name": "start",
+                "value": {
+                  "op": "var",
+                  "name": "index"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "AsBytes": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:DecimalFormatter"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          }
+        ],
+        "returns": {
+          "tag": "apply",
+          "constructor": {
+            "decl": "machine:Borrow"
+          },
+          "arguments": [
+            {
+              "tag": "nominal",
+              "ref": "machine:ByteSlice"
+            },
+            {
+              "region": {
+                "parameter": "r"
+              }
+            }
+          ]
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          }
+        ],
+        "body": {
+          "op": "call",
+          "callee": {
+            "op": "symbol",
+            "ref": "machine:ByteSliceRange"
+          },
+          "arguments": [
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ByteArrayAsSlice"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:BorrowField"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:DecimalFormatter"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "buffer"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "semanticArguments": [
+                {
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "20"
+                  }
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:ReadCopy"
+              },
+              "arguments": [
+                {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "machine:BorrowField"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "self"
+                    }
+                  ],
+                  "semanticArguments": [
+                    {
+                      "tag": "nominal",
+                      "ref": "local:DecimalFormatter"
+                    },
+                    {
+                      "value": {
+                        "op": "literal",
+                        "type": {
+                          "tag": "scalar",
+                          "name": "text"
+                        },
+                        "value": "start"
+                      }
+                    },
+                    {
+                      "region": {
+                        "parameter": "r"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "op": "call",
+              "callee": {
+                "op": "symbol",
+                "ref": "machine:UsizeFromByte"
+              },
+              "arguments": [
+                {
+                  "op": "literal",
+                  "type": {
+                    "tag": "scalar",
+                    "name": "uint",
+                    "bits": 8,
+                    "overflow": "checked"
+                  },
+                  "value": "20"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "Debug": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "self",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:Borrow"
+              },
+              "arguments": [
+                {
+                  "tag": "nominal",
+                  "ref": "local:DecimalFormatter"
+                },
+                {
+                  "region": {
+                    "parameter": "r"
+                  }
+                }
+              ]
+            },
+            "mode": "borrow"
+          },
+          {
+            "name": "formatter",
+            "type": {
+              "tag": "apply",
+              "constructor": {
+                "decl": "machine:BorrowMut"
+              },
+              "arguments": [
+                {
+                  "tag": "apply",
+                  "constructor": {
+                    "decl": "machine:Formatter"
+                  },
+                  "arguments": [
+                    {
+                      "region": {
+                        "parameter": "data"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "region": {
+                    "parameter": "f"
+                  }
+                }
+              ]
+            },
+            "mode": "inout"
+          }
+        ],
+        "returns": {
+          "tag": "nominal",
+          "ref": "machine:FormatResult"
+        },
+        "typeParams": [
+          {
+            "name": "r",
+            "kind": "Region"
+          },
+          {
+            "name": "data",
+            "kind": "Region"
+          },
+          {
+            "name": "f",
+            "kind": "Region"
+          }
+        ],
+        "parameterContracts": [
+          {
+            "position": 0,
+            "retention": "noescape"
+          },
+          {
+            "position": 1,
+            "retention": "noescape"
+          }
+        ],
+        "body": {
+          "op": "exec:block",
+          "statements": [
+            {
+              "op": "var",
+              "name": "builder",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "format:DebugStruct"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "formatter"
+                  },
+                  {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "DecimalFormatter"
+                  }
+                ]
+              },
+              "type": {
+                "tag": "apply",
+                "constructor": {
+                  "decl": "format:DebugStructBuilder"
+                },
+                "arguments": [
+                  {
+                    "region": {
+                      "parameter": "f"
+                    }
+                  },
+                  {
+                    "region": {
+                      "parameter": "data"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "buf"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:DecimalFormatter"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "buffer"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "op": "eval",
+              "value": {
+                "op": "call",
+                "callee": {
+                  "op": "symbol",
+                  "ref": "machine:WithBorrowMut"
+                },
+                "arguments": [
+                  {
+                    "op": "var",
+                    "name": "builder"
+                  },
+                  {
+                    "op": "lambda",
+                    "typeParams": [
+                      {
+                        "name": "builderRegion",
+                        "kind": "Region"
+                      }
+                    ],
+                    "params": [
+                      {
+                        "name": "builderPlace",
+                        "type": {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "machine:BorrowMut"
+                          },
+                          "arguments": [
+                            {
+                              "tag": "apply",
+                              "constructor": {
+                                "decl": "format:DebugStructBuilder"
+                              },
+                              "arguments": [
+                                {
+                                  "region": {
+                                    "parameter": "f"
+                                  }
+                                },
+                                {
+                                  "region": {
+                                    "parameter": "data"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "region": {
+                                "parameter": "builderRegion"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "inout"
+                      }
+                    ],
+                    "parameterContracts": [
+                      {
+                        "position": 0,
+                        "retention": "noescape"
+                      }
+                    ],
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {
+                          "op": "eval",
+                          "value": {
+                            "op": "call",
+                            "callee": {
+                              "op": "symbol",
+                              "ref": "format:DebugField"
+                            },
+                            "arguments": [
+                              {
+                                "op": "var",
+                                "name": "builderPlace"
+                              },
+                              {
+                                "op": "literal",
+                                "type": {
+                                  "tag": "scalar",
+                                  "name": "text"
+                                },
+                                "value": "start"
+                              },
+                              {
+                                "op": "call",
+                                "callee": {
+                                  "op": "symbol",
+                                  "ref": "machine:BorrowField"
+                                },
+                                "arguments": [
+                                  {
+                                    "op": "var",
+                                    "name": "self"
+                                  }
+                                ],
+                                "semanticArguments": [
+                                  {
+                                    "tag": "nominal",
+                                    "ref": "local:DecimalFormatter"
+                                  },
+                                  {
+                                    "value": {
+                                      "op": "literal",
+                                      "type": {
+                                        "tag": "scalar",
+                                        "name": "text"
+                                      },
+                                      "value": "start"
+                                    }
+                                  },
+                                  {
+                                    "region": {
+                                      "parameter": "r"
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "result": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "machine:WithBorrowMut"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "builder"
+              },
+              {
+                "op": "lambda",
+                "typeParams": [
+                  {
+                    "name": "builderRegion",
+                    "kind": "Region"
+                  }
+                ],
+                "params": [
+                  {
+                    "name": "builderPlace",
+                    "type": {
+                      "tag": "apply",
+                      "constructor": {
+                        "decl": "machine:BorrowMut"
+                      },
+                      "arguments": [
+                        {
+                          "tag": "apply",
+                          "constructor": {
+                            "decl": "format:DebugStructBuilder"
+                          },
+                          "arguments": [
+                            {
+                              "region": {
+                                "parameter": "f"
+                              }
+                            },
+                            {
+                              "region": {
+                                "parameter": "data"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "region": {
+                            "parameter": "builderRegion"
+                          }
+                        }
+                      ]
+                    },
+                    "mode": "inout"
+                  }
+                ],
+                "parameterContracts": [
+                  {
+                    "position": 0,
+                    "retention": "noescape"
+                  }
+                ],
+                "body": {
+                  "op": "call",
+                  "callee": {
+                    "op": "symbol",
+                    "ref": "format:DebugFinish"
+                  },
+                  "arguments": [
+                    {
+                      "op": "var",
+                      "name": "builderPlace"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "DecimalFormatter": {
+      "definitionId": "DecimalFormatter"
+    },
+    "New": {
+      "definitionId": "New"
+    },
+    "AsBytes": {
+      "definitionId": "AsBytes"
+    },
+    "Debug": {
+      "definitionId": "Debug"
+    }
+  },
+  "annotations": {
+    "sourceCommit": "4c2362d359d9913c7a5e391ccd79cb4da22bc89b",
+    "sourcePath": "crates/printer/src/util.rs:415-445",
+    "qualification": "Actual bounded 20-byte decimal algorithm, no native formatter wrapper. U64 mod 10 proves the original u8 try_from cannot fail; U64AsByte preserves that value at these sites. Fixed-array stack representation and borrow/Target qualification are required."
+  }
+}

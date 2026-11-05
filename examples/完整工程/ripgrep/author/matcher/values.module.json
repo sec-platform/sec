@@ -650,7 +650,6 @@
                 "arguments": [{"op":"var","name":"self"}],
                 "semanticArguments": [
                   {"tag":"nominal","ref":"local:LineTerminator"},
-                  {"tag":"scalar","name":"uint","bits":8,"overflow":"checked"},
                   {"value":{"op":"literal","type":{"tag":"scalar","name":"text"},"value":"byte"}},
                   {"region":{"parameter":"rho"}}
                 ]

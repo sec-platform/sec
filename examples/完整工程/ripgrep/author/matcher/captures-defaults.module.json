@@ -35,7 +35,7 @@
               "returns": {"tag":"option","inner":{"tag":"nominal","ref":"values:Match"}},
               "effects": {"members":[],"tail":{"parameter":"Fx"}},
               "callMode": "shared",
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
+              "parameterContracts": []
             }
           }
         ],
@@ -96,7 +96,7 @@
               "returns": {"tag":"nominal","ref":"machine:Usize"},
               "effects": {"members":[],"tail":{"parameter":"Fx"}},
               "callMode": "shared",
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
+              "parameterContracts": []
             }
           }
         ],
@@ -124,7 +124,7 @@
           {"name":"haystackRegion","kind":"Region"},
           {"name":"replacementRegion","kind":"Region"},
           {"name":"destinationRegion","kind":"Region"},
-          {"name":"nameEnvironment","kind":"Region"}
+          {"name":"F","traitBounds":[{"traitRef":"machine:Sized","selfType":{"tag":"param","name":"F"}},{"traitRef":"machine:FnMut","selfType":{"tag":"param","name":"F"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}]},{"traitRef":"machine:FnOnce","selfType":{"tag":"param","name":"F"},"traitArguments":[{"tag":"apply","constructor":{"decl":"machine:Tuple1"},"arguments":[{"tag":"apply","constructor":{"decl":"machine:Borrow"},"arguments":[{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]}]}],"typeParams":[{"name":"nameRegion","kind":"Region"}],"associatedTypes":{"Output":{"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}}}}]}
         ],
         "parameters": [
           {
@@ -151,27 +151,12 @@
               "returns": {"tag":"option","inner":{"tag":"nominal","ref":"values:Match"}},
               "effects": {"members":[],"tail":{"parameter":"Fx"}},
               "callMode": "shared",
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
+              "parameterContracts": []
             }
           },
           {
             "name": "nameToIndex",
-            "type": {
-              "tag": "function",
-              "typeParams": [{"name":"nameRegion","kind":"Region"}],
-              "params": [
-                {
-                  "tag": "apply",
-                  "constructor": {"decl":"machine:Borrow"},
-                  "arguments": [{"tag":"nominal","ref":"machine:Str"},{"region":{"parameter":"nameRegion"}}]
-                }
-              ],
-              "returns": {"tag":"option","inner":{"tag":"nominal","ref":"machine:Usize"}},
-              "effects": {"members":[],"tail":{"parameter":"Fx"}},
-              "callMode": "exclusive",
-              "captures": [{"region":{"parameter":"nameEnvironment"}}],
-              "parameterContracts": [{"position":0,"retention":"noescape"}]
-            },
+            "type": {"tag":"param","name":"F"},
             "mode": "move"
           },
           {
