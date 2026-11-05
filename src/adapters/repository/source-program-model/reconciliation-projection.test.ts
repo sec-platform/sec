@@ -168,11 +168,12 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     'src/example/facade.ts': "export { run } from './service.ts';\n",
     'src/consumer/use.ts': "import { run } from '../example/facade.ts';\nexport const value = run();\n"
   }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const renamed = compileFixture({
+  const renamedSources = {
     'src/example/service.ts': 'export function execute(): string { return \'ok\'; }\n',
     'src/example/facade.ts': "export { execute } from './service.ts';\n",
     'src/consumer/use.ts': "import { execute } from '../example/facade.ts';\nexport const value = execute();\n"
-  }, [serviceDescriptor('src/example/service.ts', 'execute')]);
+  };
+  const renamed = compileFixture(renamedSources, [serviceDescriptor('src/example/service.ts', 'execute')]);
   const moved = compileFixture({
     'src/example/operation.ts': 'export function run(): string { return \'ok\'; }\n',
     'src/example/facade.ts': "export { run } from './operation.ts';\n",
@@ -209,6 +210,14 @@ test('declaration rename, move, and re-export changes are derived from owner rel
   }));
   expect(reference.retirementPaths).toContain('src/example/service.ts');
   expect(reference.changedPaths).toContain('src/example/operation.ts');
+  // Independent compilation checks reconciliation identity stability; source
+  // insertion order is already normalized by compileFixture.
+  const repeatedRenamed = compileFixture(
+    Object.fromEntries(Object.entries(renamedSources).reverse()),
+    [serviceDescriptor('src/example/service.ts', 'execute')]
+  );
+  expect(reconcile(before, repeatedRenamed).projectionDigest)
+    .toBe(reconcile(before, renamed).projectionDigest);
   expect(architectureEvolution(before, before).status).toBe('no-change');
   const issued = reconcile(before, before);
   expect(() => compileSourceProgramArchitectureEvolutionReference({
