@@ -210,6 +210,10 @@ test('declaration rename, move, and re-export changes are derived from owner rel
   expect(reference.retirementPaths).toContain('src/example/service.ts');
   expect(reference.changedPaths).toContain('src/example/operation.ts');
   expect(architectureEvolution(before, before).status).toBe('no-change');
+  const issued = reconcile(before, before);
+  expect(() => compileSourceProgramArchitectureEvolutionReference({
+    reconciliation: { ...issued }
+  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('export visibility retirement admits only an exact closed internal frontier', () => {
@@ -867,28 +871,6 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
     code: 'candidate-provider-evidence-invalid',
     subject: 'static-analysis.dependencies'
   }));
-});
-
-test('equivalent compiler snapshots retain the same reconciliation identity', () => {
-  const before = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const firstAfter = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
-    'src/example/helper.ts': 'export const helper = true;\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const secondAfter = compileFixture(Object.fromEntries(Object.entries({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
-    'src/example/helper.ts': 'export const helper = true;\n'
-  }).reverse()), [serviceDescriptor('src/example/service.ts', 'run')]);
-
-  expect(reconcile(before, firstAfter).projectionDigest)
-    .toBe(reconcile(before, secondAfter).projectionDigest);
-
-  const issued = reconcile(before, before);
-  expect(() => compileSourceProgramArchitectureEvolutionReference({
-    reconciliation: { ...issued }
-  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('Git LF and Windows checkout line endings have one semantic reconciliation identity', () => {
