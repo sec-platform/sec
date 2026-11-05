@@ -38,6 +38,18 @@ function fixture() {
 }
 
 test('changed initial bytes or template cannot reuse historical completion', async () => {
+  // These exact template choices are public Workspace inputs, not merely
+  // internally consistent generated artifacts. Keep an independent oracle in
+  // the existing fast preparation test rather than a second template test file.
+  const minimalPlan = prepared().plan;
+  expect(minimalPlan.app).toMatchObject({ id: 'app', name: 'app' });
+  expect(minimalPlan.blocks).toEqual([]);
+  expect(minimalPlan.acceptance).toEqual([]);
+  const referencePlan = prepareWorkspaceCreate('reference-customer', { officialRegistryRelativePath: 'registry' }).plan;
+  expect(referencePlan.app.id).toBe('customer-admin');
+  expect(referencePlan.blocks.map(block => block.id)).toEqual([
+    'auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'
+  ]);
   for (const change of ['bytes', 'template'] as const) {
     const value = fixture();
     await initializePreparedWorkspace(prepared(), value.operations);
