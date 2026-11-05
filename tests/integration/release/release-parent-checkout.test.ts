@@ -19,7 +19,7 @@ test.skipIf(process.platform !== 'linux')('release parent checkout is locally co
     const source = path.join(root, 'source');
     const checkout = path.join(root, 'checkout');
     const shallow = path.join(root, 'shallow');
-    const execute = async (cwd: string, command: string, args: string[], env: Record<string, string> = {}) => {
+    const execute = async (cwd: string, command: string, args: string[], env: Record<string, string> = {}, input?: Uint8Array) => {
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
       const outcome = await runObservedCommand(command, args, {
@@ -27,6 +27,7 @@ test.skipIf(process.platform !== 'linux')('release parent checkout is locally co
         envMode: 'replace',
         env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
           GIT_TERMINAL_PROMPT: '0', ...env },
+        ...(input === undefined ? {} : { input, maxStdinBytes: 16 * 1024 }),
         timeoutMs: 10_000,
         terminationGraceMs: 100,
         terminationDeadlineMs: 2_000,
@@ -40,26 +41,38 @@ test.skipIf(process.platform !== 'linux')('release parent checkout is locally co
       return { status: outcome.exitCode, stdout: Buffer.concat(stdout).toString('utf8').trim(),
         stderr: Buffer.concat(stderr).toString('utf8') };
     };
-    const git = async (cwd: string, args: string[]) => {
+    const git = async (cwd: string, args: string[], input?: Uint8Array) => {
       // Keep native author/committer identity scoped to every fixture Git
       // operation, including commit-tree, without mutable local config setup.
       const result = await execute(cwd, 'git', [
         '-c', 'user.email=release-parent@sec.invalid',
         '-c', 'user.name=SEC Release Parent Test',
         ...args
-      ]);
+      ], {}, input);
       if (result.status !== 0) throw new Error(`Git fixture failed: ${result.stderr}`);
       return result.stdout;
     };
     mkdirSync(source);
-    await git(source, ['init', '--quiet']);
-    // Each created repository owns its own refs and index; identity is
-    // supplied by the scoped Git helper rather than separate config effects.
-    for (const value of ['root', 'base', 'head']) {
-      writeFileSync(path.join(source, 'value.txt'), value);
-      await git(source, ['add', 'value.txt']);
-      await git(source, ['commit', '--quiet', '-m', value]);
+    await git(source, ['init', '--quiet', '--initial-branch=main']);
+    // One bounded native import establishes the three-commit parent graph.
+    // Each fixture retains its own index, refs and loose worktree; the actual
+    // shallow-checkout and release-script observations still use native Git.
+    const history = ['root', 'base', 'head'] as const;
+    const importRecords: string[] = [];
+    for (const [index, value] of history.entries()) {
+      importRecords.push(
+        'commit refs/heads/main\n',
+        `mark :${index + 1}\n`,
+        `author SEC Release Parent Test <release-parent@sec.invalid> ${index + 1} +0000\n`,
+        `committer SEC Release Parent Test <release-parent@sec.invalid> ${index + 1} +0000\n`,
+        `data ${Buffer.byteLength(value)}\n${value}\n`,
+        'M 100644 inline value.txt\n',
+        `data ${Buffer.byteLength(value)}\n${value}\n`
+      );
     }
+    await git(source, ['fast-import', '--quiet'], Buffer.from(importRecords.join(''), 'utf8'));
+    await git(source, ['read-tree', 'HEAD']);
+    writeFileSync(path.join(source, 'value.txt'), history[history.length - 1]);
     const commitsNewestFirst = (await git(source, ['rev-list', '--max-count=3', 'HEAD'])).split('\n');
     expect(commitsNewestFirst).toHaveLength(3);
     const [head, base, ancestor] = commitsNewestFirst as [string, string, string];
@@ -79,7 +92,8 @@ test.skipIf(process.platform !== 'linux')('release parent checkout is locally co
     expect((await verify(checkout, head, ancestor)).status).not.toBe(0);
     expect((await verify(shallow, head, base)).status).not.toBe(0);
 
-    const headTree = await git(source, ['rev-parse', `${head}^{tree}`]);
+    const [headTree, baseTree] = (await git(source, ['rev-parse', `${head}^{tree}`, `${base}^{tree}`])).split('\n');
+    if (!headTree || !baseTree) throw new Error('Missing exact head or parent tree');
     const merge = await git(source, ['commit-tree', headTree, '-p', head, '-p', base, '-m', 'merge fixture']);
     await git(source, ['update-ref', 'HEAD', merge, head]);
     expect((await verify(source, merge, head)).status).not.toBe(0);
@@ -87,7 +101,6 @@ test.skipIf(process.platform !== 'linux')('release parent checkout is locally co
 
     // Removing only this fixture's loose base tree leaves the parent commit
     // available, distinguishing tree availability from ancestry and commit checks.
-    const baseTree = await git(source, ['rev-parse', `${base}^{tree}`]);
     rmSync(path.join(source, '.git', 'objects', baseTree.slice(0, 2), baseTree.slice(2)));
     expect(await git(source, ['cat-file', '-t', base])).toBe('commit');
     expect((await verify(source, head, base)).status).not.toBe(0);
