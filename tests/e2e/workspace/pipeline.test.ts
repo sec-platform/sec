@@ -12,8 +12,7 @@ import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifa
 import type { ReviewSummary } from '../../../src/assurance/verification/review/contract/types.ts';
 import {
   addBlock,
-  compileWorkspace,
-  initWorkspace
+  compileWorkspace
 } from '../../../src/bootstrap/engineering/cli.ts';
 import {
   assertPipelineCompletionProofInvariant,
@@ -26,7 +25,7 @@ import { getPipelineStageDefinition } from '../../../src/compiler/pipeline/stage
 import { PIPELINE_STAGE_IDS } from '../../../src/compiler/pipeline/stages.ts';
 import { formatJsonFile } from "../../../src/contracts/json-text.ts";
 import type { ProvenanceArtifact, ProvenanceFile } from '../../../src/semantics/provenance/types.ts';
-import { withTempWorkspace } from '../../testkit/workspace.ts';
+import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;
 
@@ -74,8 +73,7 @@ function tamperArtifactBytes(bytes: Uint8Array, kind: 'json' | 'text'): Uint8Arr
 }
 
 test('compile coordinator runs resolve and compose in one committed transaction', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot);
+  await withWorkspaceScenario('empty-minimal', async (workspaceRoot) => {
     const boundaries: string[] = [];
 
     const result = await compileWorkspace(workspaceRoot, {
@@ -130,8 +128,7 @@ test('compile coordinator runs resolve and compose in one committed transaction'
 }, 120000);
 
 test('full Pipeline completion proof binds the exact registry closure and derivative evidence', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot);
+  await withWorkspaceScenario('empty-minimal', async (workspaceRoot) => {
     await addBlock(workspaceRoot, 'ticket/basic');
 
     const result = await compileWorkspace(workspaceRoot, {
@@ -322,8 +319,7 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
 }, 240000);
 
 test('compileWorkspace acquires the writer lease and accepts only the exact reentrant token', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot);
+  await withWorkspaceScenario('empty-minimal', async (workspaceRoot) => {
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
 
     try {

@@ -7,7 +7,8 @@ import { setTimeout as sleepMs } from 'node:timers/promises';
 import pLimit from 'p-limit';
 
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/adapters/self-hosting/development/runner/env-manager.ts';
-import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
 import { captureWorkspacePipelineOptions, createTemplatePreparation, workspaceTemplatePipeline, type WorkspacePipelineFixtureOptions, type WorkspaceTemplateKind } from './template-preparation.ts';
 import { captureWorkspaceRetention, createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback, settleWorkspaceCleanups, workspaceTemporaryPrefix } from './workspace-cleanup.ts';
@@ -88,7 +89,7 @@ async function prepareWorkspacePipeline(
   target: WorkspaceTemplateKind
 ): Promise<void> {
   const { addBlock, compileWorkspace, initWorkspace } = await import('../../src/bootstrap/engineering/cli.ts');
-  await initWorkspace(workspaceRoot, { template: 'reference-customer' });
+  await initWorkspace(workspaceRoot, { template: target === 'empty-minimal' ? 'minimal' : 'reference-customer' });
   const pipelineTarget = workspaceTemplatePipeline(target);
   if (!pipelineTarget) return;
 
@@ -206,7 +207,18 @@ async function cloneWorkspaceTemplate(kind: WorkspaceTemplateKind, prefix = `eng
   const templateRoot = await ensureTemplate(kind);
   // The template remains run-owned; each caller receives independent files.
   // Copying is outside the same-kind preparation window.
-  return prepareOwnedWorkspace(prefix, root => copyWorkspaceFixture(templateRoot, root));
+  return prepareOwnedWorkspace(prefix, async root => {
+    await copyWorkspaceFixture(templateRoot, root);
+    if (kind === 'empty-minimal') {
+      // Selected .sec snapshots are written independently; retain the original
+      // artifact modes as well as their bytes before executing each transaction.
+      for (const artifact of [CI_ARTIFACT_FILES.graphLock, CI_ARTIFACT_FILES.verificationReport]) {
+        const source = resolveWorkspaceArtifactPath(templateRoot, artifact);
+        const target = resolveWorkspaceArtifactPath(root, artifact);
+        await fs.chmod(target, (await fs.stat(source)).mode & 0o777);
+      }
+    }
+  });
 }
 
 /** All custom pipeline preparations share one capture/allocation/cleanup path.
