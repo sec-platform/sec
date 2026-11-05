@@ -12,6 +12,8 @@
 
 开发任务从[开放意图及其组合](需求含义与实现责任.md#open-intent-expression-closure)出发；[四条决定坐标](需求关系与能力边界.md#developer-mental-model)只解释实际Decision，不构成任务种类或准入。普通作者没有必需文本语言关键词；结构源码、控制UX和可选`.gift`各有准确责任与词汇。主体、所求关系及本次出口按[开放开发面](需求关系与能力边界.md#open-developer-intent-surface)进入，不先归固定任务桶。
 
+**抽象生成到意图源码的入口：** 从[基础抽象](组合/抽象与开放定义.md#abstraction-generative-foundation)寻找跨规则共用规律，沿[专业语义桥](组合/语义扩展与领域接合.md#foundation-to-domain-bridge)形成各自准确解释，再由[第一层意图源码](第一层语言.md#gift-intent-source-projection)和[同源作者投影](结构化源码.md#author-source-projection-contract)承接具体工程。研究语料与查询不直接变成必填作者字段，缺解释、Method或授权分别保留缺项。
+
 <a id="建议从这里进入"></a>
 
 ## 从成果进入定义
