@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileTypeScriptSourceProgramModel } from './typescript.ts';
+import {
+  compileTypeScriptSourceProgramModel,
+  observeSourceProgramTypeScriptRename,
+  observeSourceProgramTypeScriptSyntax
+} from './typescript.ts';
 import { moduleMembership } from './test/typescript-model-input.ts';
 
 test('TypeScript semantic compilation keeps production and test surfaces distinct while excluding resources', () => {
@@ -27,6 +31,24 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
     { name: 'productionValue', path: 'src/example.ts' },
     { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
   ]);
+  const source = files.find(({ path }) => path === 'src/example.ts')!.source;
+  const position = source.indexOf('productionValue');
+  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+    expect.objectContaining({ status: 'resolved', canRename: true })
+  );
+  const changedFiles = files.map((file) => {
+    if (file.path !== 'src/example.ts') return file;
+    const changedSource = 'export const productionValue = 3;\n';
+    return Object.freeze({ ...file, source: changedSource, contentDigest: rawSha256(changedSource) });
+  });
+  compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(changedFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files: changedFiles,
+    moduleMembership
+  });
+  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+    expect.objectContaining({ status: 'unresolved', reason: 'generation-stale' })
+  );
 });
 
 test('TypeScript semantic references preserve aliases without treating shadowed or dynamic computed names as target references', () => {
@@ -49,7 +71,8 @@ test('TypeScript semantic references preserve aliases without treating shadowed 
         'export const result = defaultAlias + renamed + namespaceAlias.target',
         '  + shorthand.local + shadow(1) + quoted + computed + Math.max(1, 2);'
       ].join('\n')
-    }
+    },
+    { path: 'tests/invalid.test.ts', source: 'export const = ;\n' }
   ];
   const files = sources.map(({ path, source }) => Object.freeze({
     path,
@@ -80,4 +103,7 @@ test('TypeScript semantic references preserve aliases without treating shadowed 
     { kind: 'reference', name: 'target', moduleSpecifier: null },
     { kind: 'reference', name: 'target', moduleSpecifier: null }
   ]);
+  expect(observeSourceProgramTypeScriptSyntax(model, 'tests/invalid.test.ts')).toEqual(
+    expect.objectContaining({ status: 'resolved', syntax: 'invalid' })
+  );
 });

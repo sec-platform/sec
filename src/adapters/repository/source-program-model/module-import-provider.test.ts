@@ -12,7 +12,7 @@ function compileFixture(sources: Readonly<Record<string, string>>) {
   });
 }
 
-test('TypeScript compiler supplies JSON and triple-slash dependencies to the canonical graph', () => {
+test('JSON and triple-slash paths resolve present dependencies and reject missing dependencies', () => {
   const graph = compileFixture({
     'src/example/main.ts': [
       '/// <reference path="./ambient.d.ts" />',
@@ -21,19 +21,8 @@ test('TypeScript compiler supplies JSON and triple-slash dependencies to the can
       ''
     ].join('\n'),
     'src/example/ambient.d.ts': 'declare const ambient: string;\n',
-    'src/example/values.json': '{"ready":true}\n'
-  });
-
-  expect(graph.directDependencies('src/example/main.ts')).toEqual([
-    'src/example/ambient.d.ts',
-    'src/example/values.json'
-  ]);
-  expect(graph.unresolvedFiles).toEqual([]);
-});
-
-test('missing relative resource and triple-slash targets fail closed in the same graph', () => {
-  const graph = compileFixture({
-    'src/example/main.ts': [
+    'src/example/values.json': '{"ready":true}\n',
+    'src/missing/main.ts': [
       '/// <reference path="./missing.d.ts" />',
       "import values from './missing.json';",
       'export const value = values;',
@@ -41,12 +30,15 @@ test('missing relative resource and triple-slash targets fail closed in the same
     ].join('\n')
   });
 
-  expect(graph.references.map(({ specifier }) => specifier)).toEqual([
-    './missing.d.ts',
-    './missing.json'
+  expect(graph.directDependencies('src/example/main.ts')).toEqual([
+    'src/example/ambient.d.ts',
+    'src/example/values.json'
   ]);
-  expect(graph.unresolvedFiles).toEqual(['src/example/main.ts']);
+  expect(graph.references.filter(({ from }) => from === 'src/missing/main.ts')
+    .map(({ specifier }) => specifier)).toEqual(['./missing.d.ts', './missing.json']);
+  expect(graph.unresolvedFiles).toEqual(['src/missing/main.ts']);
 });
+
 
 test('compiler syntax preserves import kinds and every precompilation reference class', () => {
   const graph = compileFixture({
