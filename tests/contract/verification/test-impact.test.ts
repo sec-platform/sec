@@ -1,9 +1,10 @@
 import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { commitTestImpactFixtureSources } from '../../helpers/test-impact-git-commit.ts';
 
@@ -13,8 +14,10 @@ import { issueTestImpactProjection } from '../../../src/adapters/repository/sour
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
-import { classifyTestImpactSource, testImpactModuleIdsForSourceKind } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
+import { TEST_IMPACT_SOURCE_KINDS, classifyTestImpactSource, testImpactModuleIdsForSourceKind } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
 import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+
+const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: canonicalGitChildEnvironment() });
@@ -99,6 +102,18 @@ function expectUnique(values: readonly string[]): void {
 }
 
 test('repository sources route by semantic kind and module identity', () => {
+  // Keep exact descriptor bindings and all non-code source kinds in the
+  // existing routing contract; no second test file or per-kind registration.
+  for (const kind of TEST_IMPACT_SOURCE_KINDS.filter(kind => kind !== 'typescript')) {
+    const owners = testImpactModuleIdsForSourceKind(kind);
+    expect(new Set(owners).size).toBe(owners.length);
+    expect(owners.length).toBeGreaterThan(0);
+    for (const owner of owners) {
+      const descriptor = path.join(repositoryRoot, 'src', ...owner.split('.'), 'module.json');
+      expect(JSON.parse(readFileSync(descriptor, 'utf8')).importGraph).toBe('runtime');
+    }
+  }
+
   // TypeScript uses executable import edges, not the non-code kind-to-owner map.
   expect(testImpactModuleIdsForSourceKind('typescript')).toEqual([]);
   const activeDocumentationPath = (candidate: string) => candidate === 'config/repository/work-selection.md';
