@@ -144,7 +144,15 @@ test('lightweight test observations bind aliased and namespace imports to signed
       "import * as operation from '../src/example/operation.ts';",
       "test('namespace', () => expect(operation.execute(1)).toBe(2));",
       ''
-    ].join('\n')
+    ].join('\n'),
+    'tests/effect.test.ts': [
+      "import { test } from 'bun:test';",
+      "import { readFile } from 'node:fs/promises';",
+      "import { runOperation } from '../src/example/operation.ts';",
+      "test('effect', async () => { await readFile('state.json'); await runOperation('subject'); await fetch('https://example.invalid'); });",
+      ''
+    ].join('\n'),
+    'tests/reexport.test.ts': "export { execute as publicExecute } from '../src/example/operation.ts';\n"
   });
 
   expect(projection.references).toContainEqual(expect.objectContaining({
@@ -155,7 +163,7 @@ test('lightweight test observations bind aliased and namespace imports to signed
     observationClass: 'derived',
     sourceRelation: 'declaration'
   }));
-  expect(projection.registrations).toHaveLength(2);
+  expect(projection.registrations).toHaveLength(3);
   expect(projection.registrations.filter(({ path }) => path === 'tests/alias.test.ts')).toEqual([
     expect.objectContaining({
       path: 'tests/alias.test.ts',
@@ -181,23 +189,18 @@ test('lightweight test observations bind aliased and namespace imports to signed
     observationClass: 'derived',
     sourceRelation: 'declaration'
   }));
-  expect(projection.unknowns).not.toContainEqual(expect.objectContaining({
+  expect(projection.unknowns.filter(({ path }) => (
+    path === 'tests/alias.test.ts' || path === 'tests/namespace.test.ts'
+  ))).not.toContainEqual(expect.objectContaining({
     code: 'test-production-binding-unresolved'
   }));
-  expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
-test('lightweight test observations retain filesystem and repository-provider effects', () => {
-  const projection = compileFixture({
-    'tests/effect.test.ts': [
-      "import { test } from 'bun:test';",
-      "import { readFile } from 'node:fs/promises';",
-      "import { runOperation } from '../src/example/operation.ts';",
-      "test('effect', async () => { await readFile('state.json'); await runOperation('subject'); await fetch('https://example.invalid'); });",
-      ''
-    ].join('\n')
-  });
-
+  expect(projection.references).toContainEqual(expect.objectContaining({
+    kind: 'reexport',
+    name: 'execute',
+    moduleSpecifier: '../src/example/operation.ts',
+    targetPath: 'src/example/operation.ts',
+    observationClass: 'derived'
+  }));
   expect(projection.capabilities).toContainEqual(expect.objectContaining({
     capability: 'filesystem',
     operation: 'readFile',
@@ -216,6 +219,7 @@ test('lightweight test observations retain filesystem and repository-provider ef
     operation: 'fetch',
     transport: 'runtime-built-in-api'
   }));
+  expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('compiler observations bind current-Bun local TypeScript program argv', () => {
@@ -457,20 +461,6 @@ test('local program observations reject shadowed, dynamic, external, and foreign
     [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options })"],
     [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] })"]
   ]);
-});
-
-test('lightweight test observations bind reexports through the canonical module graph', () => {
-  const projection = compileFixture({
-    'tests/reexport.test.ts': "export { execute as publicExecute } from '../src/example/operation.ts';\n"
-  });
-
-  expect(projection.references).toContainEqual(expect.objectContaining({
-    kind: 'reexport',
-    name: 'execute',
-    moduleSpecifier: '../src/example/operation.ts',
-    targetPath: 'src/example/operation.ts',
-    observationClass: 'derived'
-  }));
 });
 
 test('lightweight test observations preserve dynamic imports as typed unknowns', () => {
