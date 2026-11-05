@@ -1,0 +1,1902 @@
+{
+  "schema": "local-closeout-record/1",
+  "purpose": "Historical disposition evidence, not product authority or execution permission",
+  "base": "68b8786f70c16bddb14ea357d9d058aa88af68da",
+  "archive": {
+    "base": "68b8786f70c16bddb14ea357d9d058aa88af68da",
+    "tree": "936df1928ad5693490967657dbbd298f303fbaa2",
+    "commit": "161bc44b45b34d6b6a62578579787a85b6b34b54",
+    "ref": "refs/heads/codex/archive-local-drafts-20261105",
+    "paths": 132,
+    "contentVerified": true,
+    "secretPatternScan": "no high-confidence credential patterns found; no local logs included"
+  },
+  "scope": "Workspace files excluding Git object store, reparse locators and this closeout run; no host-wide census",
+  "initialFileCount": 17668,
+  "initialBytes": 2035944083,
+  "groups": [
+    {
+      "path": ".agents",
+      "files": 9,
+      "bytes": 71749,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".bun-version",
+      "files": 1,
+      "bytes": 6,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".codex",
+      "files": 6,
+      "bytes": 5658,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".documentation",
+      "files": 5,
+      "bytes": 3877414,
+      "decision": "retain-versioned-authority-and-rebuildable-offline-figures",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".editorconfig",
+      "files": 1,
+      "bytes": 440,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".gitattributes",
+      "files": 1,
+      "bytes": 2296,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".githooks",
+      "files": 5,
+      "bytes": 777,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".github",
+      "files": 12,
+      "bytes": 142788,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".gitignore",
+      "files": 1,
+      "bytes": 601,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".prettierrc.json",
+      "files": 1,
+      "bytes": 257,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".sec",
+      "files": 7,
+      "bytes": 4352,
+      "decision": "retain-owner-managed-runtime-state",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/argument-binding-20261028",
+      "files": 7,
+      "bytes": 87159,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/argument-domains-20261030",
+      "files": 10,
+      "bytes": 196975,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/argument-route-retirement-20261029",
+      "files": 16,
+      "bytes": 179339,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/author-surface-correction-20261029",
+      "files": 21,
+      "bytes": 337174,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/cli-consumers-20261029",
+      "files": 18,
+      "bytes": 436685,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/cli-decisions-20261029",
+      "files": 18,
+      "bytes": 329525,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/cli-documentation-20261029",
+      "files": 38,
+      "bytes": 862071,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/cli-meaning-20261029",
+      "files": 12,
+      "bytes": 205487,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/cli-options-20261029",
+      "files": 16,
+      "bytes": 154445,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/cli-relations-20261029",
+      "files": 9,
+      "bytes": 92419,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/command-output-20261028",
+      "files": 6,
+      "bytes": 92550,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/dependency-installs",
+      "files": 3,
+      "bytes": 1550,
+      "decision": "retain-owner-managed-runtime-state",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/design-mainline-20261023",
+      "files": 487,
+      "bytes": 13772012,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/design-preflight-20261022",
+      "files": 5773,
+      "bytes": 141664593,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/design-publish-20261023",
+      "files": 11,
+      "bytes": 72765,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/developer-design-20261025",
+      "files": 10,
+      "bytes": 47373,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/developer-design-review-20261025",
+      "files": 4,
+      "bytes": 48726,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/developer-surface-audit-20261025",
+      "files": 18,
+      "bytes": 2777863,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/goal-edit-20261028",
+      "files": 12,
+      "bytes": 71189,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/goal-edit-20261029",
+      "files": 12,
+      "bytes": 157184,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/goal-edit-20261030",
+      "files": 30,
+      "bytes": 351654,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-author-change-20261030",
+      "files": 10,
+      "bytes": 154696,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-collections",
+      "files": 18,
+      "bytes": 1904997,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-components",
+      "files": 43,
+      "bytes": 5129616,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-core-design",
+      "files": 6,
+      "bytes": 8529,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-engineering",
+      "files": 24,
+      "bytes": 1975810,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-exact-cut-v1",
+      "files": 35,
+      "bytes": 896889,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-measurement",
+      "files": 64,
+      "bytes": 2965589,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-observed",
+      "files": 38,
+      "bytes": 2106972,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-occurrence",
+      "files": 36,
+      "bytes": 2380997,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-parameters",
+      "files": 42,
+      "bytes": 2641646,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-project-source",
+      "files": 29,
+      "bytes": 2180093,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-research-delivery",
+      "files": 11,
+      "bytes": 635997,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-retrieval-v1",
+      "files": 71,
+      "bytes": 1379894,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-scheduling",
+      "files": 36,
+      "bytes": 1130314,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-set-values-v1",
+      "files": 40,
+      "bytes": 1125713,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-sparse",
+      "files": 42,
+      "bytes": 4853999,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-theory-design",
+      "files": 5,
+      "bytes": 37602,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-time",
+      "files": 29,
+      "bytes": 2032691,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-value-codec",
+      "files": 22,
+      "bytes": 1941450,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/intent-value-design",
+      "files": 6,
+      "bytes": 35046,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/language-v1",
+      "files": 106,
+      "bytes": 6016631,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/matcher-repair-20261027",
+      "files": 12,
+      "bytes": 352965,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/meaning-binding-20261028",
+      "files": 9,
+      "bytes": 286107,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/native-type-import-20261029",
+      "files": 10,
+      "bytes": 323097,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/requirement-codec-closure-20261025",
+      "files": 10,
+      "bytes": 87334,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/subagent-config-20261030",
+      "files": 3,
+      "bytes": 2560,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/top-level-universality-20261023",
+      "files": 305,
+      "bytes": 12054889,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/unified-author-design",
+      "files": 5,
+      "bytes": 35076,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/unified-language-contract",
+      "files": 5,
+      "bytes": 31283,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/whole-engineering-20261025",
+      "files": 6886,
+      "bytes": 1685801064,
+      "decision": "retain-local-pinned-upstream-dirty-native-checkouts-and-comparison-assets",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/whole-engineering-design",
+      "files": 5,
+      "bytes": 26752,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/whole-product-20261030",
+      "files": 30,
+      "bytes": 422456,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".tmp/workspace-cleanup-20261028",
+      "files": 8,
+      "bytes": 1056539,
+      "decision": "retain-local-research-evidence-preimage",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": ".vscode",
+      "files": 1,
+      "bytes": 300,
+      "decision": "retain-local-ide",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "AGENTS.md",
+      "files": 1,
+      "bytes": 8376,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "files": 1,
+      "bytes": 6815,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "AUTHORS.md",
+      "files": 1,
+      "bytes": 563,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "CITATION.cff",
+      "files": 1,
+      "bytes": 703,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "CODE_OF_CONDUCT.md",
+      "files": 1,
+      "bytes": 1271,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "files": 1,
+      "bytes": 7499,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "LICENSE",
+      "files": 1,
+      "bytes": 16726,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "LICENSES",
+      "files": 3,
+      "bytes": 37448,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "NOTICE",
+      "files": 1,
+      "bytes": 727,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "PROJECT_STATUS.md",
+      "files": 1,
+      "bytes": 6718,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "README.md",
+      "files": 1,
+      "bytes": 5306,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "README.zh-CN.md",
+      "files": 1,
+      "bytes": 3941,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "REUSE.toml",
+      "files": 1,
+      "bytes": 406,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "SECURITY.md",
+      "files": 1,
+      "bytes": 1475,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "SUPPORT.md",
+      "files": 1,
+      "bytes": 787,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "alternatives",
+      "files": 15,
+      "bytes": 38262,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "bun.lock",
+      "files": 1,
+      "bytes": 30773,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "bunfig.toml",
+      "files": 1,
+      "bytes": 85,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "catalog",
+      "files": 64,
+      "bytes": 80315,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "config",
+      "files": 9,
+      "bytes": 53535,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "docs",
+      "files": 294,
+      "bytes": 9193940,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "examples",
+      "files": 548,
+      "bytes": 11156755,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "knip.json",
+      "files": 1,
+      "bytes": 2618,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "mise.toml",
+      "files": 1,
+      "bytes": 22,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "package.json",
+      "files": 1,
+      "bytes": 5319,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/codex-session-*",
+      "files": 7,
+      "bytes": 81515820,
+      "decision": "retain-private-audit-no-upload",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/design-closure-20261023.md",
+      "files": 1,
+      "bytes": 12491,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/design-closure-lessons.md",
+      "files": 1,
+      "bytes": 24245,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/design-closure-plan.md",
+      "files": 1,
+      "bytes": 87856,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/developer-design-20261025-census.json",
+      "files": 1,
+      "bytes": 7928,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/developer-design-20261025-evidence.json",
+      "files": 1,
+      "bytes": 2140,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/developer-design-review-20261025-census.json",
+      "files": 1,
+      "bytes": 3533,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/developer-design-review-push-20261025.md",
+      "files": 1,
+      "bytes": 10728,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/developer-design-unification-20261025.md",
+      "files": 1,
+      "bytes": 8236,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/developer-surface-audit-20261025.md",
+      "files": 1,
+      "bytes": 10509,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/requirement-codec-closure-20261025.md",
+      "files": 1,
+      "bytes": 8601,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/ripgrep-first-layer-facts.md",
+      "files": 1,
+      "bytes": 30969,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "report/ripgrep-whole-engineering-20261025.md",
+      "files": 1,
+      "bytes": 28666,
+      "decision": "retain-local-historical-record-publish-decisions-only",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "schema",
+      "files": 74,
+      "bytes": 917436,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "src",
+      "files": 1297,
+      "bytes": 16918245,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "tests",
+      "files": 717,
+      "bytes": 7208724,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "tools",
+      "files": 26,
+      "bytes": 426413,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    },
+    {
+      "path": "tsconfig.json",
+      "files": 1,
+      "bytes": 489,
+      "decision": "retain-versioned-source-or-existing-root",
+      "exceptions": "draft and bytecode entries below override group default"
+    }
+  ],
+  "managedLocators": [
+    {
+      "path": "node_modules",
+      "disposition": "retain-managed-locator-no-traversal"
+    }
+  ],
+  "draftEntries": [
+    {
+      "path": ".gitignore",
+      "tracked": true,
+      "sha256": "266377d64bff59f1ceb2d7e04a62f93ab52bb4f736827a7a7dbade8639a78131",
+      "bytes": 601,
+      "disposition": "reject-redundant-ignore-rule",
+      "reasonGroup": "ignore-rule"
+    },
+    {
+      "path": "docs/作者/紧凑结构与同源编辑.md",
+      "tracked": true,
+      "sha256": "22d14ea164e6c4710d94c20ca336bebfe812e65352a9a2e042b3a62f74a9ea32",
+      "bytes": 82941,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/作者/组合/结构编辑与身份保持.md",
+      "tracked": true,
+      "sha256": "352f0735bcf223efd759b7f8014037ce0528dbb29def9248656ff417f1771618",
+      "bytes": 104005,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/作者/结构化源码.md",
+      "tracked": true,
+      "sha256": "5a13a3ff472f1ddc967cdd27b802c1872349cbd0ee2c200e5ba5ab4bca1004ab",
+      "bytes": 133724,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/作者/需求规则与供给合同.md",
+      "tracked": true,
+      "sha256": "ee3472b294b8def636651b844891f43eed8ac310f8e169d597c29b7ca897b6b9",
+      "bytes": 49516,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/开发/第一层编译承接.md",
+      "tracked": true,
+      "sha256": "402a8926e7af7e01f29678aae085f09fd6a3aa3c1d1c8830f69886abc1fe52ff",
+      "bytes": 60051,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/编译/内核/领域方法与整体根.md",
+      "tracked": true,
+      "sha256": "d12748ff4fa7bc60b87f19f1ed40d4fadb936cfa3ebcb54e089a5710a1f756a6",
+      "bytes": 57828,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/编译/实现选择与设计搜索.md",
+      "tracked": true,
+      "sha256": "5c052d9a25a2ab380dcabdb6b553f8e282a7caae0fbe46a962a40a2d72af6d2b",
+      "bytes": 140044,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/编译/目标/具体降低与领域输出.md",
+      "tracked": true,
+      "sha256": "34dd3f4f3dc231c07aae39ff1f23285c6a68e315a0d934b974e564feee5ff2f4",
+      "bytes": 69101,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/领域/计算基础/文法类型与求值.md",
+      "tracked": true,
+      "sha256": "4a57135bc61a1e231b59022c34ceb72c41d378623d78b0ff97d47b95213a9548",
+      "bytes": 49412,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "docs/领域/计算基础/通用计算与任务语义.md",
+      "tracked": true,
+      "sha256": "9135a25ccdab069eeed3dd5ea2eb9c9b06cd3633c3164fd79afbd61fc1ecf230",
+      "bytes": 85050,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/DEFS-SOURCE.md",
+      "tracked": false,
+      "sha256": "3447fb87355fa19c8180ac25ba8c39b8ad5b23d02d32016b7446cd10cc6408b5",
+      "bytes": 15668,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/PARSING-SOURCE.md",
+      "tracked": false,
+      "sha256": "b6c843d53c865272b4bbaf2891468f9a6059cfaf3556ab27c01a8a37a0ade300",
+      "bytes": 7125,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/config.module.json",
+      "tracked": false,
+      "sha256": "2a190af25f95da9eabb75dad33e642cd7679dd825e3f6ff14317701ad1595486",
+      "bytes": 70207,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-asserted.module.json",
+      "tracked": false,
+      "sha256": "a3ff18ba3f215b4bc97009f4b3e0cde06adb97caa18ee8613999e198f4631ddc",
+      "bytes": 230969,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-choice.module.json",
+      "tracked": false,
+      "sha256": "1b36f59e2e548fff0fbb88086b03b0c8822cfc0ab8d8be661d775697409e8367",
+      "bytes": 245359,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-context.module.json",
+      "tracked": false,
+      "sha256": "51c34b0ccdef5756d0cf20d660010d457aae2e8bfad6114578b6676fe366d862",
+      "bytes": 35033,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-convert.module.json",
+      "tracked": false,
+      "sha256": "782bbc5beaa45d6ec26e20a885480709383cc68d89c0cfe10abfeddb92cd0105",
+      "bytes": 20439,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-formats.module.json",
+      "tracked": false,
+      "sha256": "f6f609c2e5562e9765396eb245a09e6324cfac125e4c649438c245ab5b10fae0",
+      "bytes": 70926,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-identities.module.json",
+      "tracked": false,
+      "sha256": "73fe97d661303fa783253a6f38e2b505588dad5895de0ff109564477ae0564e2",
+      "bytes": 27798,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-asserted.module.json",
+      "tracked": false,
+      "sha256": "eb7dddc1d27e12a0b7cac6b3cf1c6ddd26140f7542354299073a160ff7cbdef7",
+      "bytes": 335801,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-choice.module.json",
+      "tracked": false,
+      "sha256": "8dc1d25358ca9127388d27e6aac19b38012da886b41f3dd6488c078cfd58550d",
+      "bytes": 71434,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-context.module.json",
+      "tracked": false,
+      "sha256": "290da2cdd7870f48fb0a2f440c5c69a788ab2f1999d5d8f6387fed5fdb7fdc3b",
+      "bytes": 41005,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-formats.module.json",
+      "tracked": false,
+      "sha256": "274456fe1b4810d4f764ce6f177354acba25e4e428bb4c362e2ca967c915f97e",
+      "bytes": 31781,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-modes.module.json",
+      "tracked": false,
+      "sha256": "ea374eb9bff43df52bb32194bc654d177b80de3287d5450dc530a15d26ff56f7",
+      "bytes": 52451,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-numbers.module.json",
+      "tracked": false,
+      "sha256": "ad96965762dce7e4b88c4a9a9a6acee2d4466876d287358c9e4775c60a45fd43",
+      "bytes": 92360,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-path.module.json",
+      "tracked": false,
+      "sha256": "ea7eb7e28cc0d0f4b2bda02c75e3ec801ba893d9c7047655aa10c6e5e4dd0ca7",
+      "bytes": 45821,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-pathseparator.module.json",
+      "tracked": false,
+      "sha256": "05b861b9436dcc45978919b05680e57fbeef8083848ca242a416f7319e23fc9d",
+      "bytes": 12945,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-separators.module.json",
+      "tracked": false,
+      "sha256": "31587550aebd067a06950fab0356b2280c1525ea7ff7a8c6fca2738b8136d94b",
+      "bytes": 38607,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-state.module.json",
+      "tracked": false,
+      "sha256": "58afcc4e08b66ac817a52fca7cf905890800a478e749d355b66255b0c927177b",
+      "bytes": 53680,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-switches.module.json",
+      "tracked": false,
+      "sha256": "767e9eb862fea50a33f60dc3611927c257c1c1d14687df57ae217f539e781cdb",
+      "bytes": 397533,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-impl-values.module.json",
+      "tracked": false,
+      "sha256": "9c87814b926887260357cf8a9543925dc624c837c6c6620e4ab6ed2c45d32988",
+      "bytes": 137123,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-modes.module.json",
+      "tracked": false,
+      "sha256": "3697025a7e2e3e26828ded3e8ee0e2606b4cd0a496fab6b7c2a2eff2fc550a4f",
+      "bytes": 64597,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-numbers.module.json",
+      "tracked": false,
+      "sha256": "a8999bf78cdca4c15b19ad4a0ff0a86d6cb1517aeed8190e9c966ff1451a9f49",
+      "bytes": 76734,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-path.module.json",
+      "tracked": false,
+      "sha256": "e3952582497012d3d902b38e89a2f1135a985911e443815e4dd3bf95cb6d021e",
+      "bytes": 53683,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-pathseparator.module.json",
+      "tracked": false,
+      "sha256": "6c2b3d15cc27701175cbdcf9101be5996109e20b41b367d521c2fc17b2476968",
+      "bytes": 32442,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-separators.module.json",
+      "tracked": false,
+      "sha256": "86756079d9d352dd463bcb83222f0bf09508c9c0d7144cf43846ac5618feac57",
+      "bytes": 39283,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-state.module.json",
+      "tracked": false,
+      "sha256": "12d7823b44636437bbcc5a8004822ce9982e17490a5cf5ae310b923b497a3ab6",
+      "bytes": 53635,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-switches.module.json",
+      "tracked": false,
+      "sha256": "fcac56bc2b3c41af85bc26aed5434ba4b012739e1a98d6a468da563ac3f79f00",
+      "bytes": 209016,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs-values.module.json",
+      "tracked": false,
+      "sha256": "f1b93558ea1f78f45e93a874d449cf28bc6c16d391fce72dc96d0328e6080538",
+      "bytes": 78671,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/defs.module.json",
+      "tracked": false,
+      "sha256": "02d5020d66c65f7ce88b1c7c3746b6b4a556028176067864a1c966a08d55c2af",
+      "bytes": 27401,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/flags/parse.module.json",
+      "tracked": false,
+      "sha256": "83d563e93f9b76a086e79baf0a867e4d846d36419b0ef8341bbd5364a037fd20",
+      "bytes": 225026,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/IMPORTS.md",
+      "tracked": false,
+      "sha256": "738de17b0ac0108e00384a83a5c6745f1a56a2046e5d5fdf54165aad0ae9e822",
+      "bytes": 3573,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/SOURCE.md",
+      "tracked": true,
+      "sha256": "9e316c92ac26fc5f5b10b89ff65059a3f4b06110d3d175c5fd8d61a949cfae36",
+      "bytes": 3939,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/fnv.gift",
+      "tracked": true,
+      "sha256": null,
+      "bytes": 0,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/format.module.json",
+      "tracked": false,
+      "sha256": "2023f5180fed7c59f933909998ffb9fddb041be14c45c4063298bbf4cb544295",
+      "bytes": 2398,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/io.module.json",
+      "tracked": false,
+      "sha256": "55de3808b16de88ad92321d7110bd1ce16c7e3f782c7c4a80fe4a9aa1c47c011",
+      "bytes": 2473,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/machine.module.json",
+      "tracked": false,
+      "sha256": "68926a66d068835400a307372adc553605879154f30b2d2b20908331547a17e7",
+      "bytes": 19305,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/memchr.module.json",
+      "tracked": false,
+      "sha256": "b9aa5fa993fab26ad284719f5012d08c8442f6854ce874e3218ff350b82a8e0e",
+      "bytes": 368,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-format.selection.json",
+      "tracked": false,
+      "sha256": "2b8aee50e344b68c1de7186f85cde6e720162e694474c6a3020eac10614c6548",
+      "bytes": 3344,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-io.selection.json",
+      "tracked": false,
+      "sha256": "7a77ce227e9b8741e546a5a423dd659b00edb419c9e390f40a6aeeb754d169e0",
+      "bytes": 3825,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-machine.selection.json",
+      "tracked": false,
+      "sha256": "a53af0100eaf4ef66dd5e6579279bfae922450efcafc32923f59e7de6d4b0e25",
+      "bytes": 30559,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-path-unix.selection.json",
+      "tracked": false,
+      "sha256": "27657ef525b293a9d911ac08e6d7fb8bb98a601cdb5117fd114a9b4447f8e6a8",
+      "bytes": 817,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-path-windows.selection.json",
+      "tracked": false,
+      "sha256": "e38b885cb356a781371c14697c77dee2e3de8230424f4e33cc34154800444df1",
+      "bytes": 522,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-path.selection.json",
+      "tracked": false,
+      "sha256": "730a440d7c3dcdff773912e8f560c3c0995b5d1b89a8431b96e126c8cd745d3c",
+      "bytes": 4857,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-runtime.selection.json",
+      "tracked": false,
+      "sha256": "fb52586dfb14754fba457fa488e5ee04071848e316aa35ec76cf211732199039",
+      "bytes": 650,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-serde.selection.json",
+      "tracked": false,
+      "sha256": "2d8c8ab064446c61cb4a80738301e24cfa356f347d744ae8901da3e9bbaa1a57",
+      "bytes": 615,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-termcolor.selection.json",
+      "tracked": false,
+      "sha256": "d48d854e36cfc54657a68f7479987123d3a722cf2db36352c459494927928261",
+      "bytes": 1290,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/native-time.selection.json",
+      "tracked": false,
+      "sha256": "5e84f2b32b5afc8484b995281a58b6fe898a46313db14bf3174eae2fd1de1a31",
+      "bytes": 1060,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/path-unix.module.json",
+      "tracked": false,
+      "sha256": "05777c4ab8283826d744e8a8b51f364d626ada8f735f204dd63d06b4f53e30ae",
+      "bytes": 619,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/path-windows.module.json",
+      "tracked": false,
+      "sha256": "34cfe033cb89dce9215b4011c0d8e4249999c20e017edd661a52fc016c81013b",
+      "bytes": 437,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/path.module.json",
+      "tracked": false,
+      "sha256": "86fded91c55b7ae5a4ea794b35bda4d0a49cf51853f1e90fda5be15d93a17b54",
+      "bytes": 3167,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/place.module.json",
+      "tracked": false,
+      "sha256": "2e18ae89e9dfa4d2d95a214ab8f8b510090867540b8c5acfe4b4dd63ffadf3f6",
+      "bytes": 4634,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/runtime.module.json",
+      "tracked": false,
+      "sha256": "c7fc4a581ba1da9fbb6dde2a10c9319a798eb73349069be5d014256c5b6a3828",
+      "bytes": 501,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/serde.module.json",
+      "tracked": false,
+      "sha256": "b8bc508ba70801d646d1c5f20ada4fdc8f2acb458867ad6d795a40c7dbf179f3",
+      "bytes": 481,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/termcolor.module.json",
+      "tracked": false,
+      "sha256": "673185406baaf6c8b9b22e0c712bc6834bf9b7c3357cd6cd1f9df6c6f87501b6",
+      "bytes": 868,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/foundation/time.module.json",
+      "tracked": false,
+      "sha256": "7038cd9c480dbba9a05f14ee6d25d023f98d35da82b20b311e4eebf0637a99cc",
+      "bytes": 762,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/globset/GLOBSET-SOURCE.md",
+      "tracked": false,
+      "sha256": "539fb59a0fffd37b6faee4fc40f16e0db2206136590c706292963f31df448417",
+      "bytes": 7337,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/globset/candidate.module.json",
+      "tracked": false,
+      "sha256": "1931b775b445da44b51933c343c0254d7ac2d18b8f13b38196e5a1d3a8ef2217",
+      "bytes": 101262,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/globset/fnv.module.json",
+      "tracked": false,
+      "sha256": "f358e26d47802fc7598a82d6f92bed199050c4039cac89d6ace39565a5f1eb8d",
+      "bytes": 41321,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/globset/glob.module.json",
+      "tracked": false,
+      "sha256": "d7e5696a920c55b4f1808a8286cdc831492fd621861154f9b51c075dc64453f0",
+      "bytes": 463783,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/globset/set.module.json",
+      "tracked": false,
+      "sha256": "34b11b083ecf450549ee52f50afabf04023f7c8a88da209ccd910fa7e9f187f1",
+      "bytes": 1068428,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/P/filename.module.json",
+      "tracked": false,
+      "sha256": "001c9626b8444f811cc35a63cbb73e5f98ce3c0f5e25c59f4c3d5c33afe929df",
+      "bytes": 20444,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/Q/filename.module.json",
+      "tracked": false,
+      "sha256": "f082ee5eff735492215d716e89993ea0754f3d6939671c88c4630114bdf92cc6",
+      "bytes": 15498,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/SOURCE.md",
+      "tracked": false,
+      "sha256": "23b92b79930b99be78c443a817061f45cbdf2aa448a48f16939703bf4219d58e",
+      "bytes": 10436,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/api.module.json",
+      "tracked": false,
+      "sha256": "0965039a39c996ffccabd6eadff4dde38aa0aea09e5aeca7ae5ca2d8620db5b6",
+      "bytes": 722,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/common.module.json",
+      "tracked": false,
+      "sha256": "b098470f95edfaa6e72b8d87e9ba01acad051487fe14f54a1c419145d580f630",
+      "bytes": 12382,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/nonunix/filename.module.json",
+      "tracked": false,
+      "sha256": "fa1e647cd0f1881724611da0c853b0b809950c8951cf4accc4516a9370c25dac",
+      "bytes": 1825,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/nonunix/isfilename.module.json",
+      "tracked": false,
+      "sha256": "b1875c3ff318495f6ed06ca279f0e6911c065c5d912944dba1e95be694e386bb",
+      "bytes": 2335,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/nonunix/strip.module.json",
+      "tracked": false,
+      "sha256": "d7868fcc97b4f8bc62bdaed1163ba43dca8ad3b16c767678212a1b7b66f44c11",
+      "bytes": 3325,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/nonwindows/hidden.module.json",
+      "tracked": false,
+      "sha256": "6fff7697a0c6749b9564b021a2af716ef783e9c1cc9a41546b72e82d2d736ee4",
+      "bytes": 2994,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/unix/isfilename.module.json",
+      "tracked": false,
+      "sha256": "b3c348b56bfdecd3a978c60d52fc799d53d89b7b31892b2abbfd70c9c8484703",
+      "bytes": 3093,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/unix/strip.module.json",
+      "tracked": false,
+      "sha256": "019d1d9bffb441ed2b524b57a90275656e5ca73949ead2f07729c8462a98f192",
+      "bytes": 9232,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-pathutil/windows/hidden.module.json",
+      "tracked": false,
+      "sha256": "2cc577f851f89375de14bf6dc1090dd0382902c4d5e4d89b017e742d5906f9a5",
+      "bytes": 11640,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-rules/IGNORE-SOURCE.md",
+      "tracked": false,
+      "sha256": "5a9a552f680f85fdcd9655f93f58e337b368bee4db7b56c041a9bed0d3415b16",
+      "bytes": 7419,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-rules/core.module.json",
+      "tracked": false,
+      "sha256": "78b8b2c403b9545cbf8d9a77e09fabba6a8fabe98645c97ffcceb3d5ac562e80",
+      "bytes": 482166,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-rules/gitignore.module.json",
+      "tracked": false,
+      "sha256": "aa2f296b9f4b6c4b83a71067d4b0db3cc1576169f05c37f9cc3713552c487f3c",
+      "bytes": 684615,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-rules/overrides.module.json",
+      "tracked": false,
+      "sha256": "3ed3a30891d0498081a209a0c19870cc979effb5c990a2ffdda900d6bd8b8963",
+      "bytes": 128810,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-types/SOURCE.md",
+      "tracked": true,
+      "sha256": "818461c1c36f864a3b2304056d547349e01ff2b493283002a766217a4deb0628",
+      "bytes": 20791,
+      "disposition": "adopt-identical-data-dedup",
+      "reasonGroup": "duplicate-default-types"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/ignore-types/default-types.module.json",
+      "tracked": true,
+      "sha256": null,
+      "bytes": 0,
+      "disposition": "adopt-identical-data-dedup",
+      "reasonGroup": "duplicate-default-types"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/INTERPOLATION-SOURCE.md",
+      "tracked": true,
+      "sha256": "7b4e37438d6cc95b0aa1c816db2460acbd6f1cb8c5137ebd1cddbcf1aba43f56",
+      "bytes": 14182,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/MATCHER-SOURCE.md",
+      "tracked": false,
+      "sha256": "b360c2ebe5d23801f2f2a3f0e4dae4bce0d3c6626e7ebe607c7a94715cd97456",
+      "bytes": 24246,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/SOURCE.md",
+      "tracked": true,
+      "sha256": "c651f71c891d7cca5facaa98625b194631b7261983f8134c8d25e5d739b90244",
+      "bytes": 19710,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/captures-defaults.module.json",
+      "tracked": true,
+      "sha256": "e42d57dc8d421a8818f87fab5b08d3b2ad953e0535bc642f0b11f474ee5aa71e",
+      "bytes": 9597,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/interpolation.module.json",
+      "tracked": true,
+      "sha256": "7c056b03bdb613fc094bb837e9f61830d7192d187aeb21c952ac204ad7930e93",
+      "bytes": 47362,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/matcher-defaults.module.json",
+      "tracked": false,
+      "sha256": "daf86c935526c03884719246e3dd74a8c6daa70754a6acd0796b9498d16babc3",
+      "bytes": 71581,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/traits.module.json",
+      "tracked": false,
+      "sha256": "71216c16e3b49a3ed17fcbb1d3c57d36fc8aa8350a5915d83bc99722fcce602c",
+      "bytes": 98234,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/matcher/values.module.json",
+      "tracked": true,
+      "sha256": "4497041a041ffed70791871b2c860497bed24e1143de050b1eeaaf203d97d50c",
+      "bytes": 59884,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/SOURCE.md",
+      "tracked": false,
+      "sha256": "b934797f9bdbc7960eb6d139a2960ea1973df51ccf60c47ad43560841f055d23",
+      "bytes": 11243,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/counter.module.json",
+      "tracked": false,
+      "sha256": "bf1b23f2cce2b038c8badfa9ecf81a4aa2760d681703d5a5c1a69024d6df631c",
+      "bytes": 106732,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/decimal.module.json",
+      "tracked": false,
+      "sha256": "01c816393eba26c09a5561a8804ec88b5142e4dc4acb2bbfc0c0124948a8e287",
+      "bytes": 35177,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/duration.module.json",
+      "tracked": false,
+      "sha256": "410fba37d7c65edf67454f15dac248532f7f1be09b386e60ab993398b0e7ee27",
+      "bytes": 15800,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/lines.module.json",
+      "tracked": false,
+      "sha256": "fff040d6b87506064728713b6bfdbbfcabc34e3d86d9d90586faebcca7860ea5",
+      "bytes": 86164,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/serde.module.json",
+      "tracked": false,
+      "sha256": "d71d802711d267e7d1161525fc98f76924fc6811b256ebc4a20ad7e4dde2cd9e",
+      "bytes": 95067,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/stats.module.json",
+      "tracked": false,
+      "sha256": "83b1c1638148df994aff282fd3192583c47b567a77cc6ef5f9e498d113768618",
+      "bytes": 169320,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/author/printer-core/traits.module.json",
+      "tracked": false,
+      "sha256": "d463d19f9d01b6211c9f444504a428617aedf897cf4b6deecf473463eeb8ea36",
+      "bytes": 76350,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/intent/path-selection.module.json",
+      "tracked": false,
+      "sha256": "a1594ca9f54ded9dd16d96c5386cb124421382d4ca71ed01149511d8ebd5b18b",
+      "bytes": 17999,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/README.md",
+      "tracked": false,
+      "sha256": "aff2ffc656de7766a31e2a0f583dbf2361ff6985eac8963f667d10d9a64be082",
+      "bytes": 18213,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/format.rs",
+      "tracked": false,
+      "sha256": "0623440ec332d25b53046754b8b2b282f6f3ef2d147297f8c45087a4f0ad0224",
+      "bytes": 8175,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/io.rs",
+      "tracked": false,
+      "sha256": "fb303431725c42be62ad3003bab0b188bc02676220aa329de62272c0814cdd3e",
+      "bytes": 1941,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/lib.rs",
+      "tracked": false,
+      "sha256": "46a143ae85760ef085e636cceef67b8ca0ae05e164bf1928ffe5c689a7abf3b3",
+      "bytes": 220,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/machine.rs",
+      "tracked": false,
+      "sha256": "34a163adfa51d422a11cb04c6782448c722f8a085185e345c2d8e33c364df131",
+      "bytes": 26136,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/path.rs",
+      "tracked": false,
+      "sha256": "7fa2959da8a7df6becfcc255b75ab8627977e2419037f1b9a869ce5ab0f2af8f",
+      "bytes": 5259,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/runtime.rs",
+      "tracked": false,
+      "sha256": "1ff84ca44bb38d0901eb5047ee6ccba9689028275500b0cf8c207a0d83d6ca13",
+      "bytes": 379,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/serde.rs",
+      "tracked": false,
+      "sha256": "e7f7a25010f2439d24f6016c3b2176dfd47debbe1cec072f49ddf09c690b54e3",
+      "bytes": 186,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/termcolor.rs",
+      "tracked": false,
+      "sha256": "0d1001a895663bee44645530b77cec02173d04dd95358bd061069fbe87352da9",
+      "bytes": 371,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/完整工程/ripgrep/native-support/time.rs",
+      "tracked": false,
+      "sha256": "4fe89d50765bdae6afb12bd8fb31eccbb6728081d902e1a2bb508f362ed1a2ad",
+      "bytes": 471,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "ripgrep-drafts"
+    },
+    {
+      "path": "examples/第一层作者/language-v1.project.json",
+      "tracked": false,
+      "sha256": "8e354ccb12a418bbc564042ded1963d78de8d91a188ff0a4a7f7e88fcfe6a49e",
+      "bytes": 832,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/第一层作者/language-v1/ledger.module.json",
+      "tracked": false,
+      "sha256": "c04075ff1427e6f8b4ddd3b7b82939ef9aae3023e1de91e222ed890a8b321805",
+      "bytes": 4030,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/第一层作者/language-v1/program.module.json",
+      "tracked": false,
+      "sha256": "753ec9ac3a641fb96153235dbbee8c1c5981d5d7df2bec5d6e07445ca36fa82f",
+      "bytes": 2979,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/第一层作者/language-v1/public-name.control.json",
+      "tracked": false,
+      "sha256": "f9419bfc2344c743dda96213891547e3ba24aca3b520d5d6413b6ea4c036d318",
+      "bytes": 390,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/第一层作者/language-v1/状态目标设计.md",
+      "tracked": false,
+      "sha256": "122aad9393627f636f45083b55815e08bd7f5fa5101d00114b25d9fc37763569",
+      "bytes": 16029,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/第一层作者/language-v1/纯结果目标设计.md",
+      "tracked": false,
+      "sha256": "9e50667a2ed47c35c216b14e7861e65adddad491803c8da7ed00cadfb34667b5",
+      "bytes": 6630,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "examples/第一层作者/names-and-roots/record-binding-cases.json",
+      "tracked": false,
+      "sha256": "ee5249d3f05838dae5532b95051fad67aa3936ec2eac6a0f117c2f66cce6e97c",
+      "bytes": 9771,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/README.md",
+      "tracked": true,
+      "sha256": "2e6e00d61b8feb837a816078002222767ff187fe64bb6bcb234ba88a8bde0df0",
+      "bytes": 7244,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/call-bound-requirement.schema.json",
+      "tracked": false,
+      "sha256": "4a1e685f55c5409f91e93d87b421b8e006d72dc2af0b872c420d200a3c0eb3be",
+      "bytes": 2819,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/codec-parameters.json",
+      "tracked": true,
+      "sha256": "a5c32ea841823b4d4b85a6062d95afe4233282703e1b509ab629d6678a4d1028",
+      "bytes": 83036,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/record-let.schema.json",
+      "tracked": false,
+      "sha256": "eced68aa480dbcad23980e0e793bd90eb386006b9de41f2ad1496104eefc95cc",
+      "bytes": 2450,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/semantic-supply-content.json",
+      "tracked": true,
+      "sha256": "d0d857d03334ee742ffdc6b54939a534128cfb55089120637237380b0f1080d7",
+      "bytes": 1793,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/semantic-supply.json",
+      "tracked": true,
+      "sha256": "922827e681445bc47e6214cb2caaef916a2d1cde9dca2c9e49e84ec5561b381c",
+      "bytes": 1356,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/surface-supply-content.json",
+      "tracked": true,
+      "sha256": "05967b32ad83df5713289965fa80ca633e75300a2e7a8e253c391c6c8e869794",
+      "bytes": 1952,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    },
+    {
+      "path": "schema/author/first-layer/surface-supply.json",
+      "tracked": true,
+      "sha256": "8699017d716e68e9c0b1821bc0df37a55e6df38ffc66aa4561d9b5a0cb5870d3",
+      "bytes": 986,
+      "disposition": "archive-not-adopted",
+      "reasonGroup": "language-drafts"
+    }
+  ],
+  "deleteRegenerableBytecode": [
+    {
+      "path": ".tmp/whole-engineering-20261025/printer-core/__pycache__/inspect.cpython-314.pyc",
+      "bytes": 8108,
+      "sha256": "192937c431250f52acf89553e70502b45ac852472bb87c3a16d2b87ce4b22b0b",
+      "tracked": false
+    },
+    {
+      "path": ".tmp/whole-engineering-20261025/__pycache__/flags-focused-review.cpython-314.pyc",
+      "bytes": 46605,
+      "sha256": "0cd987c4ffd619526f7afc537ce1fc6f5ccbe5f05f96b1d250aefb1aa60da237",
+      "tracked": false
+    },
+    {
+      "path": "tools/documentation/tests/__pycache__/test_check_author_codec_spec.cpython-314.pyc",
+      "bytes": 15899,
+      "sha256": "d11ce67aa94c6c436b363997be8881a248b6638955c8bd45544eec22895d6efc",
+      "tracked": false
+    },
+    {
+      "path": "tools/documentation/tests/__pycache__/test_check_codec_parameters.cpython-314.pyc",
+      "bytes": 15823,
+      "sha256": "2f2a8642625d9b6c8b9d278c10d308706a80966dec8c5a080af5b279e1aa4d00",
+      "tracked": false
+    },
+    {
+      "path": "tools/documentation/__pycache__/author_codec_spec.cpython-314.pyc",
+      "bytes": 19493,
+      "sha256": "b9c267f70d8d1493d43c99c17f2ab43b02c34e0fc09b1ef1458f77b19251fd16",
+      "tracked": false
+    },
+    {
+      "path": "tools/documentation/__pycache__/codec_parameters.cpython-314.pyc",
+      "bytes": 16974,
+      "sha256": "dec4361058f5163d634acfb25bec7281a49bc1db7a0b8ab33aef7e1ddce24d03",
+      "tracked": false
+    },
+    {
+      "path": "tools/documentation/__pycache__/source_inventory.cpython-314.pyc",
+      "bytes": 42569,
+      "sha256": "389af559c615807c29064043b21cdbceb92bf72c7e03bbcffd74bbbe54e91475",
+      "tracked": false
+    }
+  ],
+  "excluded": [
+    "Git object stores are not ordinary cleanup targets",
+    "No traversal of node_modules junction",
+    "No raw local logs, credentials or runtime databases published"
+  ],
+  "counts": {
+    "originalDrafts": 132,
+    "adoptedPaths": 2,
+    "archivedNotAdoptedPaths": 129,
+    "rejectedIgnoreRulePaths": 1,
+    "retiredBytecode": 7
+  }
+}
