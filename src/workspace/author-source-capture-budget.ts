@@ -38,10 +38,11 @@ export function requireAuthorSourceCaptureBudget(
   for (const key of keys) {
     const descriptor = descriptors[key];
     if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')
+        || typeof descriptor.value !== 'number'
         || !Number.isSafeInteger(descriptor.value) || descriptor.value < 1) {
       throw new TypeError('Author source capture ceilings must be positive safe integers');
     }
-    checked[key] = descriptor.value as number;
+    checked[key] = descriptor.value;
   }
   return Object.freeze(checked);
 }
