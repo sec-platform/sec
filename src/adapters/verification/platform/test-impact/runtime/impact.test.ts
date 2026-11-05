@@ -5,6 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { commitTestImpactFixtureSources } from '../../../../../../tests/helpers/test-impact-git-commit.ts';
+
 import { compileRepositorySourceProgramCompilation } from '../../../../repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../../repository/source-program-model/test-impact-projection.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
@@ -62,9 +64,13 @@ test('observed local program edges continue through test helpers to runnable tes
       writeFileSync(absolutePath, source, 'utf8');
     }
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['add', '--all']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
-    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const commitSha = commitTestImpactFixtureSources(repositoryRoot, sources, {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'SEC TestImpact',
+      GIT_AUTHOR_EMAIL: 'test-impact@example.invalid',
+      GIT_COMMITTER_NAME: 'SEC TestImpact',
+      GIT_COMMITTER_EMAIL: 'test-impact@example.invalid'
+    }, { name: 'SEC TestImpact', email: 'test-impact@example.invalid' });
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({ repositoryRoot, commitSha });
     const compilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot, repositoryRoot });
     const provider = createRepositoryTestImpactSourceProvider({

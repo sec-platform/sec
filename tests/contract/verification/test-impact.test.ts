@@ -5,6 +5,8 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { commitTestImpactFixtureSources } from '../../helpers/test-impact-git-commit.ts';
+
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { compileRepositorySourceProgramCompilation } from '../../../src/adapters/repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../src/adapters/repository/source-program-model/test-impact-projection.ts';
@@ -65,11 +67,13 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
       mkdirSync(path.dirname(filePath), { recursive: true });
       writeFileSync(filePath, source, 'utf8');
     }
-    git(root, ['add', '--all']);
-    git(root, ['-c', 'user.name=SEC Test Impact', '-c', 'user.email=test-impact@sec.invalid', 'commit', '--quiet', '-m', 'test-impact-fixture']);
+    const commitSha = commitTestImpactFixtureSources(
+      root, fixtureSources, canonicalGitChildEnvironment(),
+      { name: 'SEC Test Impact', email: 'test-impact@sec.invalid' }
+    );
     const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
       repositoryRoot: root,
-      commitSha: git(root, ['rev-parse', 'HEAD'])
+      commitSha
     });
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
     return createRepositoryTestImpactSourceProvider({
