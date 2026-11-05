@@ -150,6 +150,9 @@ test('repository sources route by semantic kind and module identity', () => {
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
     'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
     'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/adapters/self-hosting/control/agent/skill.ts'; void role;",
+    'catalog/registry/official/ticket.basic/block.manifest.yaml': 'id: ticket.basic\n',
+    'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
+    'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;",
     '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
     'src/adapters/self-hosting/development/hooks/install.ts': 'export const installHooks = true;',
     'src/adapters/self-hosting/development/hooks/module.json': JSON.stringify({
@@ -165,6 +168,17 @@ test('repository sources route by semantic kind and module identity', () => {
 
   expect(selectTestsForSources(['.githooks/post-merge'], provider).fast)
     .toContain('tests/unit/install-hooks-fixture.test.ts');
+
+  const documentation = selectTestsForSources(['docs/产品/产品要求与工作约束.md'], provider);
+  expect(documentation.owners).toContain('adapters.self-hosting.control.documentation');
+  expect(documentation.fast).toEqual([]);
+  expect(documentation.slow).toEqual([]);
+
+  const manifest = selectTestsForSources([
+    'catalog/registry/official/ticket.basic/block.manifest.yaml'
+  ], provider);
+  expect(manifest.owners).toEqual(expect.arrayContaining(['compiler', 'compiler.registry']));
+  expect(manifest.fast).toContain('tests/unit/virtual-manifest-consumer.test.ts');
 });
 
 test('impact follows executable imports instead of import-like text', () => {
@@ -287,22 +301,4 @@ test('imported machine data retains exact consumers for present and missing sour
       owners: ['compiler']
     });
   }
-});
-
-test('non-code product inputs reach tests through semantic module owners', () => {
-  const provider = sourceProvider({
-    'catalog/registry/official/ticket.basic/block.manifest.yaml': 'id: ticket.basic\n',
-    'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
-    'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"
-  });
-  const documentation = selectTestsForSources(['docs/产品/产品要求与工作约束.md'], provider);
-  expect(documentation.owners).toContain('adapters.self-hosting.control.documentation');
-  expect(documentation.fast).toEqual([]);
-  expect(documentation.slow).toEqual([]);
-
-  const manifest = selectTestsForSources([
-    'catalog/registry/official/ticket.basic/block.manifest.yaml'
-  ], provider);
-  expect(manifest.owners).toEqual(expect.arrayContaining(['compiler', 'compiler.registry']));
-  expect(manifest.fast.length + manifest.slow.length).toBeGreaterThan(0);
 });
