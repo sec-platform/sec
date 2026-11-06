@@ -7,52 +7,11 @@ import {
 } from './typescript.ts';
 import { moduleMembership } from './test/typescript-model-input.ts';
 
-test('TypeScript semantic compilation keeps production and test surfaces distinct while excluding resources', () => {
-  const files = [
-    ['src/example.ts', 'export const productionValue = 1;\n'],
-    ['tests/example.test.ts', 'export const mirroredTestValue = 2;\n'],
-    ['catalog/registry/official/example/files/src/generated.ts', 'export const generatedResourceValue = 3;\n']
-  ].map(([path, source]) => Object.freeze({
-    path: path!,
-    source: source!,
-    contentDigest: rawSha256(source!)
-  }));
-  const model = compileTypeScriptSourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-
-  expect(model.files.map(({ path, surface }) => ({ path, surface }))).toEqual([
-    { path: 'src/example.ts', surface: 'production' },
-    { path: 'tests/example.test.ts', surface: 'test' }
-  ]);
-  expect(model.declarations.map(({ name, path }) => ({ name, path }))).toEqual([
-    { name: 'productionValue', path: 'src/example.ts' },
-    { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
-  ]);
-  const source = files.find(({ path }) => path === 'src/example.ts')!.source;
-  const position = source.indexOf('productionValue');
-  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
-    expect.objectContaining({ status: 'resolved', canRename: true })
-  );
-  const changedFiles = files.map((file) => {
-    if (file.path !== 'src/example.ts') return file;
-    const changedSource = 'export const productionValue = 3;\n';
-    return Object.freeze({ ...file, source: changedSource, contentDigest: rawSha256(changedSource) });
-  });
-  compileTypeScriptSourceProgramModel({
-    sourceRevision: sha256(changedFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files: changedFiles,
-    moduleMembership
-  });
-  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
-    expect.objectContaining({ status: 'unresolved', reason: 'generation-stale' })
-  );
-});
-
-test('TypeScript semantic references preserve aliases without treating shadowed or dynamic computed names as target references', () => {
+test('TypeScript semantic compilation preserves surfaces, references, syntax and revision isolation', () => {
   const sources = [
+    { path: "src/example.ts", source: "export const productionValue = 1;\n" },
+    { path: "tests/example.test.ts", source: "export const mirroredTestValue = 2;\n" },
+    { path: "catalog/registry/official/example/files/src/generated.ts", source: "export const generatedResourceValue = 3;\n" },
     {
       path: 'src/bootstrap/reference-target.ts',
       source: 'export const target = 1;\nexport default target;\n'
@@ -75,15 +34,25 @@ test('TypeScript semantic references preserve aliases without treating shadowed 
     { path: 'tests/invalid.test.ts', source: 'export const = ;\n' }
   ];
   const files = sources.map(({ path, source }) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
+    path, source, contentDigest: rawSha256(source)
   }));
   const model = compileTypeScriptSourceProgramModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
+
+  expect(model.files.filter(({ path }) => path === 'src/example.ts' || path === 'tests/example.test.ts').map(({ path, surface }) => ({ path, surface }))).toEqual([
+    { path: 'src/example.ts', surface: 'production' },
+    { path: 'tests/example.test.ts', surface: 'test' }
+  ]);
+  expect(model.declarations.filter(({ path }) => path === 'src/example.ts' || path === 'tests/example.test.ts').map(({ name, path }) => ({ name, path }))).toEqual([
+    { name: 'productionValue', path: 'src/example.ts' },
+    { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
+  ]);
+  expect(model.files.some(({ path }) => path.startsWith('catalog/registry/official/'))).toBe(false);
+  expect(model.declarations.some(({ name }) => name === 'generatedResourceValue')).toBe(false);
+
   const targetReferences = model.references.filter(({ targetPath }) => (
     targetPath === 'src/bootstrap/reference-target.ts'
   ));
@@ -105,5 +74,24 @@ test('TypeScript semantic references preserve aliases without treating shadowed 
   ]);
   expect(observeSourceProgramTypeScriptSyntax(model, 'tests/invalid.test.ts')).toEqual(
     expect.objectContaining({ status: 'resolved', syntax: 'invalid' })
+  );
+
+  const source = files.find(({ path }) => path === 'src/example.ts')!.source;
+  const position = source.indexOf('productionValue');
+  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+    expect.objectContaining({ status: 'resolved', canRename: true })
+  );
+  const changedFiles = files.map((file) => {
+    if (file.path !== 'src/example.ts') return file;
+    const changedSource = 'export const productionValue = 3;\n';
+    return Object.freeze({ ...file, source: changedSource, contentDigest: rawSha256(changedSource) });
+  });
+  compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(changedFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files: changedFiles,
+    moduleMembership
+  });
+  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+    expect.objectContaining({ status: 'unresolved', reason: 'generation-stale' })
   );
 });
