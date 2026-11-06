@@ -2,6 +2,60 @@
   "scope": "Finite complete-base structure only. Expected true does not establish symbol resolution, original string Profile meaning, type/effect qualification or execution. Fixtures are outside sourceScopes.",
   "cases": [
     {
+      "name": "ordinary-function-return-inference-slot",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged", "moduleId": "module:infer-return",
+        "definitions": {"identity": {"kind": "core:function", "body": {"parameters": [{"name": "x", "type": {"tag": "scalar", "name": "int"}}], "body": {"op": "var", "name": "x"}}}}
+      },
+      "expected": true
+    },
+    {
+      "name": "constant-type-inference-slot",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged", "moduleId": "module:infer-constant",
+        "definitions": {"flag": {"kind": "core:constant", "body": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}}}}
+      },
+      "expected": true
+    },
+    {
+      "name": "identity-lambda-shape-awaits-semantic-annotation-need",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged", "moduleId": "module:ambiguous-lambda",
+        "definitions": {"identity": {"kind": "core:constant", "body": {"value": {"op": "lambda", "params": [{"name": "x"}], "body": {"op": "var", "name": "x"}}}}}
+      },
+      "expected": true
+    },
+    {
+      "name": "explicit-return-conflict-is-a-semantic-obligation",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
+      "value": {
+        "schema": "gift.author-module/design-converged", "moduleId": "module:explicit-return",
+        "definitions": {"identity": {"kind": "core:function", "body": {"parameters": [{"name": "x", "type": {"tag": "scalar", "name": "int"}}], "returns": {"tag": "scalar", "name": "bool"}, "body": {"op": "var", "name": "x"}}}}
+      },
+      "expected": true
+    },
+    {
+      "name": "ordinary-function-parameter-still-requires-type",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "value": {"kind": "core:function", "body": {"parameters": [{"name": "x"}], "body": {"op": "var", "name": "x"}}},
+      "expected": false
+    },
+    {
+      "name": "ordinary-function-still-requires-body",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "value": {"kind": "core:function", "body": {"parameters": [], "returns": {"tag": "scalar", "name": "unit"}}},
+      "expected": false
+    },
+    {
+      "name": "constant-still-requires-value",
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "value": {"kind": "core:constant", "body": {"type": {"tag": "scalar", "name": "bool"}}},
+      "expected": false
+    },
+    {
       "name": "complete-perform-empty",
       "schema": "urn:gift:design-schema:universal-author-module-2-converged-base",
       "value": {

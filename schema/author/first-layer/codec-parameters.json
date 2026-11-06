@@ -16,6 +16,239 @@
       "candidateId": "urn:gift:design-schema:universal-author-module-2-converged-base",
       "replacements": [
         {
+          "pointer": "/$defs/Definition/oneOf/1/properties/body",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/Type"
+              },
+              "value": {
+                "$ref": "#/$defs/Expr"
+              }
+            }
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/Type"
+              },
+              "value": {
+                "$ref": "#/$defs/Expr"
+              }
+            }
+          }
+        },
+        {
+          "pointer": "/$defs/Definition/oneOf/2/properties/body",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "parameters",
+              "returns",
+              "body"
+            ],
+            "properties": {
+              "typeParams": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TypeParam"
+                },
+                "minItems": 0
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Param"
+                },
+                "minItems": 0
+              },
+              "returns": {
+                "$ref": "#/$defs/Type"
+              },
+              "effects": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Effect"
+                    },
+                    "minItems": 0,
+                    "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
+                  },
+                  {
+                    "$ref": "#/$defs/EffectRow"
+                  }
+                ],
+                "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
+              },
+              "body": {
+                "$ref": "#/$defs/ExecBody"
+              },
+              "contract": {
+                "$ref": "#/$defs/Contract"
+              },
+              "termination": {
+                "enum": [
+                  "total",
+                  "partial",
+                  "assumed-total"
+                ],
+                "description": "Meaning and evidence qualification are owned by docs/领域/计算基础/文法类型与求值.md. partial permits nontermination; assumed-total is an explicit assumption, not proof; total requires qualified termination evidence before a consumer may rely on proven termination. This declaration alone supplies no proof or execution guarantee."
+              },
+              "callMode": {
+                "enum": [
+                  "shared",
+                  "exclusive",
+                  "consume"
+                ],
+                "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+              },
+              "parameterContracts": {
+                "$ref": "#/$defs/ParameterContracts"
+              },
+              "captures": {
+                "$ref": "#/$defs/Captures"
+              }
+            }
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "parameters",
+              "body"
+            ],
+            "properties": {
+              "typeParams": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/TypeParam"
+                },
+                "minItems": 0
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Param"
+                },
+                "minItems": 0
+              },
+              "returns": {
+                "$ref": "#/$defs/Type"
+              },
+              "effects": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Effect"
+                    },
+                    "minItems": 0,
+                    "description": "Optional closed-function effect upper bound. When omitted, Type/Effect owner derives least qualified effect set from a complete fixed body and all fixed callees; unknown calls, foreign functions and effect-polymorphic values remain NeedsEffectBound. Omission never grants IO or authorizes effects."
+                  },
+                  {
+                    "$ref": "#/$defs/EffectRow"
+                  }
+                ],
+                "description": "Legacy complete Effect[] remains accepted unchanged as a closed row; the common row form adds a qualified EffectRow tail. All original effect fields including recoverable raise.errorType remain authoritative. Function type, declaration and lambda omission defaults stay distinct in the semantic owner."
+              },
+              "body": {
+                "$ref": "#/$defs/ExecBody"
+              },
+              "contract": {
+                "$ref": "#/$defs/Contract"
+              },
+              "termination": {
+                "enum": [
+                  "total",
+                  "partial",
+                  "assumed-total"
+                ],
+                "description": "Meaning and evidence qualification are owned by docs/领域/计算基础/文法类型与求值.md. partial permits nontermination; assumed-total is an explicit assumption, not proof; total requires qualified termination evidence before a consumer may rely on proven termination. This declaration alone supplies no proof or execution guarantee."
+              },
+              "callMode": {
+                "enum": [
+                  "shared",
+                  "exclusive",
+                  "consume"
+                ],
+                "description": "Existing function invocation qualification; distinct from Param.mode. Omission retains the original profile rule and grants no new ownership or execution permission."
+              },
+              "parameterContracts": {
+                "$ref": "#/$defs/ParameterContracts"
+              },
+              "captures": {
+                "$ref": "#/$defs/Captures"
+              }
+            }
+          }
+        },
+        {
+          "pointer": "/$defs/LambdaParam",
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "type": {
+                "$ref": "#/$defs/Type"
+              },
+              "mode": {
+                "enum": [
+                  "in",
+                  "borrow",
+                  "move",
+                  "out",
+                  "inout"
+                ]
+              }
+            },
+            "description": "Only lambda-local parameters may omit type, and only when a unique qualified expected callable signature supplies it. An omitted annotation is not Any. Ordinary declaration Param.type remains required; original mode semantics is retained."
+          },
+          "replacement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "type": {
+                "$ref": "#/$defs/Type"
+              },
+              "mode": {
+                "enum": [
+                  "in",
+                  "borrow",
+                  "move",
+                  "out",
+                  "inout"
+                ]
+              }
+            },
+            "description": "Only lambda-local parameters may omit type. Omission is accepted when the existing finite rules uniquely determine the parameter from a qualified expected callable signature, or, for a single-parameter lambda without an expected signature, from fixed operations and resolved callee signatures. Ambiguity requires a local annotation. This adds no implicit let generalization. An omitted annotation is not Any. Ordinary declaration Param.type remains required; original mode semantics is retained."
+          }
+        },
+        {
           "pointer": "/$defs/Definition/oneOf/4/properties/body",
           "expected": {
             "type": "object",

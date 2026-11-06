@@ -2,6 +2,42 @@
   "scope": "Independent S2/S3 equations and S4 shape expectations. No S0 lexical, linker, type/Profile, runtime or migration proof. Expected values are authored independently of the expander.",
   "cases": [
     {
+      "name": "inferred-constant-type-is-not-inserted-by-expansion",
+      "slot": "definition",
+      "input": {"core:constant": {"value": {"literal": {"type": {"tag": "scalar", "name": "bool"}, "value": true}}}},
+      "expectedExpanded": {"kind": "core:constant", "body": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}}},
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "inferred-function-return-is-not-inserted-by-expansion",
+      "slot": "definition",
+      "input": {"core:function": {"parameters": [{"name": "x", "type": {"tag": "scalar", "name": "int"}}], "body": {"var": {"name": "x"}}}},
+      "expectedExpanded": {"kind": "core:function", "body": {"parameters": [{"name": "x", "type": {"tag": "scalar", "name": "int"}}], "body": {"op": "var", "name": "x"}}},
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "explicit-constant-constraint-survives-short-expansion",
+      "slot": "definition",
+      "input": {"core:constant": {"type": "bool", "value": {"literal": {"type": {"tag": "scalar", "name": "int"}, "value": "1"}}}},
+      "expectedExpanded": {"kind": "core:constant", "body": {"type": {"tag": "scalar", "name": "bool"}, "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}}},
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "raw-constant-literal-still-requires-type",
+      "slot": "definition",
+      "input": {"core:constant": {"literal": true}},
+      "expectedExpansionError": true
+    },
+    {
+      "name": "constant-literal-and-value-still-exclusive",
+      "slot": "definition",
+      "input": {"core:constant": {"type": "bool", "literal": true, "value": {"var": {"name": "x"}}}},
+      "expectedExpansionError": true
+    },
+    {
       "name": "subject-generic-and-display-name",
       "slot": "definition",
       "input": {

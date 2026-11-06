@@ -23,6 +23,33 @@ print(json.dumps(build_graph({p:pathlib.Path(p).read_bytes() for p in paths}),en
 }
 
 #[test]
+fn candidate_inference_slots_preserve_absence_without_changing_historical_format() {
+    for (kind,body,absent) in [
+        ("core:function",json!({"parameters":[{"name":"x","type":{"tag":"scalar","name":"int"}}],"body":{"op":"var","name":"x"}}),"returns"),
+        ("core:constant",json!({"value":{"op":"literal","type":{"tag":"scalar","name":"bool"},"value":true}}),"type"),
+    ] {
+        let mut module=json!({"schema":"gift.author-module/design-converged","moduleId":"module:inference","definitions":{"value":{"kind":kind,"body":body}}});
+        let bytes=serde_json::to_vec(&module).unwrap();
+        let decoded=engine().read(&bytes).unwrap_or_else(|e|panic!("{kind}: {e:?}"));
+        assert_eq!(decoded.bytes(),bytes);
+        let expanded=decoded.expanded().get("definitions").unwrap().get("value").unwrap().get("body").unwrap();
+        assert!(expanded.get(absent).is_none());
+        assert_eq!(decoded.source().to_value(),module);
+        assert_eq!(decoded.expanded().to_value(),module);
+
+        module["definitions"]["value"]["body"][absent]=Value::Null;
+        assert_eq!(engine().read(&serde_json::to_vec(&module).unwrap()).err().unwrap().code,"InvalidAuthorSource");
+        module["definitions"]["value"]["body"].as_object_mut().unwrap().remove(absent);
+        module["schema"]=json!("gift.author-module/2");
+        let old=serde_json::to_vec(&module).unwrap();
+        assert_eq!(engine().read(&old).err().unwrap().code,"UnsupportedAuthorSchema");
+        let error=gift_author_kernel::compile(&old).unwrap_err();
+        assert_eq!(error.code,"InvalidAuthorSource");
+        assert_eq!(error.path,format!("/definitions/value/body/{absent}"));
+    }
+}
+
+#[test]
 fn existing_independent_short_equations_and_complete_shape_expectations() {
     let expander=Expansion::new(engine().graph(),None).unwrap();
     let mut accepted=0;let mut rejected=0;
