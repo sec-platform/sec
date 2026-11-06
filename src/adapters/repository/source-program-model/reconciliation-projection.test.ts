@@ -929,13 +929,15 @@ test('cross-revision pairing preserves duplicate names and reordered overloads',
     'src/example/first.ts': 'export const value = 1;\n',
     'src/example/second.ts': 'export const value = 2;\n',
     'src/example/service.ts': `${overloads}\n`,
-    'src/example/marker.ts': 'export const marker = false;\n'
+    'src/example/marker.ts': 'export const marker = false;\n',
+    'src/example/old.ts': 'export interface Plan { readonly resolved: boolean; }\n'
   }, [descriptor]);
   const after = compileFixture({
     'src/example/first.ts': 'export const value = 1;\n',
     'src/example/second.ts': 'export const value = 2;\n',
     'src/example/service.ts': `${reorderedOverloads}\n`,
-    'src/example/marker.ts': 'export const marker = true;\n'
+    'src/example/marker.ts': 'export const marker = true;\n',
+    'src/example/contract.ts': 'export interface Plan { readonly resolved: boolean; }\n'
   }, [descriptor]);
   const projection = reconcile(before, after);
 
@@ -950,20 +952,14 @@ test('cross-revision pairing preserves duplicate names and reordered overloads',
   expect(projection.changes.filter(({ before: prior, after: current }) => (
     prior?.path === 'src/example/service.ts' || current?.path === 'src/example/service.ts'
   ))).toEqual([]);
-});
-
-test('pure declaration moves remain owned by one unchanged module responsibility', () => {
-  const descriptor = Object.freeze({ root: 'src/example', source: Object.freeze({}) });
-  const before = compileFixture({
-    'src/example/old.ts': 'export interface Plan { readonly resolved: boolean; }\n'
-  }, [descriptor]);
-  const after = compileFixture({
-    'src/example/contract.ts': 'export interface Plan { readonly resolved: boolean; }\n'
-  }, [descriptor]);
-  const projection = reconcile(before, after);
-
+  // A pure type-only move remains resolved even alongside unrelated overload
+  // reordering and a real value change; verify its exact declaration pairing.
   expect(projection.status).toBe('resolved');
-  expect(projection.changes).toContainEqual(expect.objectContaining({ kind: 'moved' }));
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'moved',
+    before: expect.objectContaining({ path: 'src/example/old.ts', name: 'Plan' }),
+    after: expect.objectContaining({ path: 'src/example/contract.ts', name: 'Plan' })
+  }));
 });
 
 function compileTestFindingFixture(sources: Readonly<Record<string, string>>, descriptor: Readonly<Record<string, unknown>> = {}) {
