@@ -275,16 +275,43 @@ test('graph cut admits exact provider receipts and requests syntax only for thei
   )).toThrow('source-program-compilation-cancelled:reduction-plan');
 });
 
-test('graph cut blocks both same-file type consumers and cross-file aliases or re-exports', () => {
+test('graph cut blocks exact type consumers, unknown frontiers and required owner obligations', () => {
   const fixture = compileGraphCutFixture({
     'src/example/contract.ts': [
       "export type SourceProgramObservationClass = 'observed' | 'unknown';",
       'export interface Observation { readonly observationClass: SourceProgramObservationClass; }',
+      'function register(): number { return 1; }',
+      'export const UNUSED = register();',
+      'export const KEPT = 2;',
+      'export function deliver(): string { return "pending"; }',
       ''
     ].join('\n'),
     'src/example/provider.ts': 'export type SharedContract = { readonly value: string };\n',
     'src/example/facade.ts': "export { type SharedContract } from './provider.ts';\n",
     'src/example/consumer.ts': "import type { SharedContract } from './facade.ts';\nexport const value: SharedContract = { value: 'ok' };\n"
+  }, {
+    capabilityProviders: [{
+      capability: 'example.delivery',
+      operations: ['deliver'],
+      effectKinds: [],
+      ownerInternalOperations: [],
+      operationRoles: []
+    }],
+    operationObligations: [{
+      operation: { kind: 'capability', capability: 'example.delivery', operation: 'deliver' },
+      consumerSupport: { consumers: [] },
+      effect: {
+        kinds: [],
+        failureKinds: [],
+        recovery: 'not-applicable'
+      },
+      evolution: {
+        migration: 'not-required',
+        retirement: 'replacement-obligations-satisfied'
+      },
+      resources: { aggregateBudgets: [{ resource: 'duration-ms', maximum: 100 }] },
+      futureSupport: { condition: 'semantic-superset-required' }
+    }]
   });
   const sameFilePlan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
@@ -317,18 +344,7 @@ test('graph cut blocks both same-file type consumers and cross-file aliases or r
     status: 'blocked',
     reason: 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
   }));
-});
-
-test('graph cut keeps Source Program unknown consumer frontiers blocked', () => {
-  const fixture = compileGraphCutFixture({
-    'src/example/contract.ts': [
-      'function register(): number { return 1; }',
-      'export const UNUSED = register();',
-      'export const KEPT = 2;',
-      ''
-    ].join('\n')
-  });
-  const plan = compileSourceProgramGraphCutReductionPlan(
+  const unknownPlan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
     compileGraphCutProviderReceipt(fixture, [{
@@ -338,14 +354,14 @@ test('graph cut keeps Source Program unknown consumer frontiers blocked', () => 
     graphCutContext(fixture)
   );
 
-  expect(plan.reductions).toContainEqual(expect.objectContaining({
+  expect(unknownPlan.reductions).toContainEqual(expect.objectContaining({
     path: 'src/example/contract.ts',
     name: 'UNUSED',
     status: 'blocked',
     disposition: 'blocked',
     reason: 'canonical Source Program consumer frontier is unknown; unused provider evidence cannot authorize deletion'
   }));
-  expect(() => renderSourceProgramGraphCutReductionPatch(plan, fixture.files)).toThrow(
+  expect(() => renderSourceProgramGraphCutReductionPatch(unknownPlan, fixture.files)).toThrow(
     'Graph-cut patch requires at least one ready reduction'
   );
   const driftedFiles = fixture.files.map((file) => Object.freeze({
@@ -353,42 +369,14 @@ test('graph cut keeps Source Program unknown consumer frontiers blocked', () => 
     source: `${file.source}// external drift\n`,
     contentDigest: rawSha256(`${file.source}// external drift\n`)
   }));
-  expect(() => renderSourceProgramGraphCutReductionPatch(plan, driftedFiles)).toThrow(
+  expect(() => renderSourceProgramGraphCutReductionPatch(unknownPlan, driftedFiles)).toThrow(
     'do not match the compiler-sealed Source Program snapshot'
   );
-  expect(() => renderSourceProgramGraphCutReductionPatch({ ...plan }, fixture.files)).toThrow(
+  expect(() => renderSourceProgramGraphCutReductionPatch({ ...unknownPlan }, fixture.files)).toThrow(
     'compiler-issued verified plan'
   );
-});
 
-test('graph cut blocks typed required-unmaterialized owner obligations before deletion', () => {
-  const fixture = compileGraphCutFixture({
-    'src/example/contract.ts': 'export function deliver(): string { return "pending"; }\n'
-  }, {
-    capabilityProviders: [{
-      capability: 'example.delivery',
-      operations: ['deliver'],
-      effectKinds: [],
-      ownerInternalOperations: [],
-      operationRoles: []
-    }],
-    operationObligations: [{
-      operation: { kind: 'capability', capability: 'example.delivery', operation: 'deliver' },
-      consumerSupport: { consumers: [] },
-      effect: {
-        kinds: [],
-        failureKinds: [],
-        recovery: 'not-applicable'
-      },
-      evolution: {
-        migration: 'not-required',
-        retirement: 'replacement-obligations-satisfied'
-      },
-      resources: { aggregateBudgets: [{ resource: 'duration-ms', maximum: 100 }] },
-      futureSupport: { condition: 'semantic-superset-required' }
-    }]
-  });
-  const plan = compileSourceProgramGraphCutReductionPlan(
+  const requiredPlan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
     compileGraphCutProviderReceipt(fixture, [{
@@ -398,7 +386,7 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
     graphCutContext(fixture)
   );
 
-  expect(plan.reductions).toContainEqual(expect.objectContaining({
+  expect(requiredPlan.reductions).toContainEqual(expect.objectContaining({
     path: 'src/example/contract.ts',
     name: 'deliver',
     status: 'blocked',
@@ -413,7 +401,7 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
       ]
     })]
   }));
-  expect(() => renderSourceProgramGraphCutReductionPatch(plan, fixture.files)).toThrow(
+  expect(() => renderSourceProgramGraphCutReductionPatch(requiredPlan, fixture.files)).toThrow(
     'Graph-cut patch requires at least one ready reduction'
   );
 });
