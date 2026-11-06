@@ -448,7 +448,7 @@ const incrementalScenarios: readonly Readonly<{
   { name: 'resolution candidate shadowing', before: { 'src/example/choice/index.ts': 'export const choice = 1;\n', 'src/example/consumer.ts': "import { choice } from './choice'; export const result = choice;\n" }, after: { 'src/example/choice.ts': 'export const choice = 2;\n' }, mode: 'full' }
 ];
 
-// The eight unchanged-source predecessors are one immutable issued generation;
+// Unchanged-source predecessors reuse one immutable issued generation;
 // current inputs, clean comparisons and each case's timeout remain independent.
 let sharedIncrementalBaseline: RepositorySourceProgramCompilationReceipt | undefined;
 for (const scenario of incrementalScenarios) {
