@@ -709,30 +709,6 @@ test('computed values block changed declarations and their consumer frontier', (
       subject: 'computed-property-unresolved'
     }));
 
-  const moduleInitializerBefore = compileFixture({
-    'src/example/service.ts': [
-      'declare const registry: Record<string, () => void>;',
-      'declare const key: string;',
-      'registry[key]();',
-      "console.log('before');",
-      ''
-    ].join('\n')
-  }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  const moduleInitializerAfter = compileFixture({
-    'src/example/service.ts': [
-      'declare const registry: Record<string, () => void>;',
-      'declare const key: string;',
-      'registry[key]();',
-      "console.log('after');",
-      ''
-    ].join('\n')
-  }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  expect(reconcile(moduleInitializerBefore, moduleInitializerAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-
   const dependencyBefore = compileFixture({
     'src/example/registry.ts': 'export const registry: Record<string, unknown> = {};\n',
     'src/example/select.ts': [
@@ -759,7 +735,16 @@ test('computed values block changed declarations and their consumer frontier', (
       subject: 'computed-property-unresolved'
     }));
 
-  const moduleDependencyBefore = compileFixture({
+  // The script initializer and imported module resolve separate bindings.
+  // Preserve separate source-path witnesses while sharing one Program pair.
+  const moduleEffectsBeforeSources = {
+    'src/example/service.ts': [
+      'declare const registry: Record<string, () => void>;',
+      'declare const key: string;',
+      'registry[key]();',
+      "console.log('before');",
+      ''
+    ].join('\n'),
     'src/example/registry.ts': 'export const registry: Record<string, () => void> = {};\n',
     'src/example/use.ts': [
       "import { registry } from './registry.ts';",
@@ -767,21 +752,25 @@ test('computed values block changed declarations and their consumer frontier', (
       'registry[key]();',
       ''
     ].join('\n')
+  };
+  const moduleEffectsBefore = compileFixture(moduleEffectsBeforeSources, [
+    Object.freeze({ root: 'src/example', source: Object.freeze({}) })
+  ]);
+  const moduleEffectsAfter = compileFixture({
+    ...moduleEffectsBeforeSources,
+    'src/example/service.ts': moduleEffectsBeforeSources['src/example/service.ts']
+      .replace("console.log('before');", "console.log('after');"),
+    'src/example/registry.ts': 'export const registry: Record<string, () => void> = { changed() {} };\n'
   }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  const moduleDependencyAfter = compileFixture({
-    'src/example/registry.ts': 'export const registry: Record<string, () => void> = { changed() {} };\n',
-    'src/example/use.ts': [
-      "import { registry } from './registry.ts';",
-      'declare const key: string;',
-      'registry[key]();',
-      ''
-    ].join('\n')
-  }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  expect(reconcile(moduleDependencyBefore, moduleDependencyAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
+  const moduleEffectReasons = reconcile(moduleEffectsBefore, moduleEffectsAfter).unresolvedReasons;
+  // A generic unresolved result could hide either broken dependency path.
+  for (const sourcePath of ['src/example/service.ts', 'src/example/use.ts']) {
+    expect(moduleEffectReasons).toContainEqual(expect.objectContaining({
       code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
+      subject: 'computed-property-unresolved',
+      paths: [sourcePath]
     }));
+  }
 
   const computedBinding = compileFixture({
     'src/example/service.ts': [
