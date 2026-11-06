@@ -1,6 +1,6 @@
 # Rust目标画像与降低
 
-> **范围**：Rust 已进入当前通用目标语言计划；TypeScript 仍先行。本篇闭合 Rust 目标的设计边界，不表示后端、工具链、Cargo、ABI、调试或运行符合性已经实现，也不授权迁写 Gift 核心。
+> **范围**：Rust 是当前目标工程语言；已有 TypeScript 目标及固定消费者保留。本篇承接完整意图规则在 Rust 上的保持与工程交付，不表示后端、工具链、Cargo、ABI、调试或运行符合性已经实现，也不授权迁写 Gift 核心。
 
 本篇是 [目标组织](README.md)、[原生能力映射](../原生映射/README.md) 和 [原生与跨语言编译](../内核/原生与跨语言编译.md) 在 Rust 输出上的具体消费。作者语义、对象/资源/数值/原子规则仍由其原 owner 拥有；这里固定怎样选择实际 Rust 工具链、怎样降低已绑定语义、怎样组成 crate/产物以及怎样保留诊断与再次修改。Rust 的缺失或额外能力不能反向修改原 Requirement，目标能够表达某种写法也不证明本次 MethodSpec、依赖或运行环境已经合格。
 
@@ -130,6 +130,12 @@ Rust lowering 只在 Gift 已有所有权/寿命事实足以证明时生成安�
 - **cleanup**：同一资源只能有一个实际 cleanup owner。使用 Rust Drop/作用域时不再生成第二次手工 destructor；使用手工 FFI 清理时精确阻止双重 Drop；
 - **fallible close**：显式 Result/close operation；Drop 不冒充异步、可失败或远端结算完成。
 
+Rust lowering 消费原[退出与清理 U0—U5](../../领域/对象与控制/控制流与存储寿命.md#控制出口与清理结果的确定合并)及[临时结果拥有责任](../../领域/对象与控制/控制流与存储寿命.md#provisional-result-ownership)。自动 `Drop` 仅在所选 edition 的 drop scope、字段析构顺序、局部/捕获寿命及实际清理操作共同保持该计划时采用。Rust struct 字段按声明顺序析构，局部变量按相应 drop scope 的逆声明顺序析构；二者都不能仅凭变量或字段存在证明符合源资源的真实取得逆序、依赖关闭及失败保留规则。[Rust Reference：析构与 drop scope](https://doc.rust-lang.org/reference/destructors.html)
+
+不能由自动析构保持的路径，生成显式关闭及其必要局部拥有状态：Return、Break、Continue、Raise、Fault、Cancel 分别到达原源语义边界，按计划处理清理和 ensure。返回表达式只求值一次，临时结果及其合法依赖跨清理保活，成功交付后才转移；交付前失败时弃置仍拥有的结果，不能把未交付 Own 算成调用者责任。`?`、Rust 临时量和 guard 只在保持同一出口与首因/附加失败时使用。已显式结算或移交的资源从原自动清理责任退出，避免双重关闭；不为普通纯值添加资源台账。
+
+例如先取得 A 再取得 B，却按字段 A、B 放入同一 struct；主体 Fault F 后，B 关闭失败 C 而 A 可独立关闭。目标必须按 B、A 处理并保留 F 与 C，不能让字段析构顺序改成 A、B。若 B 仍借用 A，则遵守原依赖责任而非盲目释放 A。异步 close 尚未结算时，接收方不能提前取得临时结果；ensure 失败也必须处理该结果的 Own。`panic=abort` 或宿主不展开终止时，不能声称 Drop 已执行；要求此类故障后仍有持久恢复的产品另消费原持久恢复/外部 owner，缺资格则拒绝相交保证。[Rust Reference：不展开的进程终止](https://doc.rust-lang.org/reference/destructors.html#process-termination-without-unwinding)
+
 `unsafe` 不是目标能力兜底。只有已选方法确需且具有具体安全前提时生成最小 unsafe region，并把其前提、来源与验证消费保留下来；普通 lowering 不因为性能偏好转入 unsafe。
 
 ```mermaid
@@ -143,11 +149,15 @@ flowchart TD
   live --> move{"所有权成功转移？"}
   move -->|是| transferred["清除源清理责任，新 owner 接续"]
   move -->|否| retained["原 owner 继续持有"]
-  transferred --> cleanup["唯一 Drop/作用域或显式 guard；不双析构"]
+  transferred --> cleanup["消费 U0—U5 退出计划；等义时 Drop，否则显式关闭；不双析构"]
   retained --> cleanup
   init -->|部分失败| partial["仅清理真实已初始化字段"]
   partial --> cleanup
-  cleanup --> close["可失败或异步 close 显式结算；丢弃 Future 不证明外部停止"]
+  cleanup --> close["按资源依赖关闭并保留首因/清理失败；异步 close 等待真实结算"]
+  close --> pending["临时结果跨清理及 ensure 保活"]
+  pending --> delivery{"交付成功？"}
+  delivery -->|是| receiver["接收方接管，临时拥有责任退出"]
+  delivery -->|否| discard["弃置仍拥有的结果，保留失败与未结算责任"]
 ```
 
 <a id="rust-managed-graph-lowering"></a>
@@ -238,6 +248,8 @@ Cargo 是常规 Rust 工程的默认成熟构建/依赖供给，但不是语义 
 
 **build.rs 与 proc-macro：** 它们是可执行构建供给，不是纯数据依赖。源码/二进制、环境、文件、网络、工具与输出必须进入实际输入/Effect 边界；没有许可不能在类型检查里偷偷执行。仅消费其声明结果不等于把执行权交给任意依赖。
 
+构建供给分别固定 host 执行环境与目标配置，捕获实际工具、声明及实际读取、生成成员、链接指令和其有意义的顺序。`build.rs` 中的 host `cfg` 不能充当目标平台条件；目标条件消费 Cargo 提供的准确目标信息。`OUT_DIR` 可以跨构建保留，旧文件不能因仍在目录中就进入本次产物：复用按原构建输入键、完整输出成员及内容读回决定，新结果删减成员时由原构建/生成状态 owner 处理旧输出及仍在使用的内容。正常 Cargo `rerun-if-*` 声明和缓存可复用；需要封闭输入、跨环境复现或更强隔离的用途另取得相应证据，不能把声明当作完整实际读集。没有 build.rs/proc-macro 的 crate 不引入这些作用。[Cargo：构建脚本生命周期、输出及目标环境](https://doc.rust-lang.org/cargo/reference/build-scripts.html)
+
 **编译闭包：** Cargo/rustc、标准库、target support、linker、system/native libs、generated sources 和必要配置全部在目标成员/工具输入中。构建目录缓存不是作者源，也不进入发行包除非真实消费者需要。
 
 <a id="rust-dependency-realization"></a>
@@ -249,7 +261,9 @@ Rust 后端不承担“看到某个业务词就挑最流行 crate”的职责。
 
 生成器消费的是**能力映射**而不是字符串模板。例如同一个“HTTP client”能力可以由不同 crate 实现；Binding 固定后，adapter/method 决定构造 client、错误映射、async runtime、TLS、取消和资源关闭。后端不得只因 crate API 改名就在 printer 中猜另一函数；映射失配使该 Provider/Method 不合格并回到 resolver/Needs。一个成熟 crate 已经完整承担算法时，Gift 生成最小调用和适配代码，不复制其内部算法；只有相交差额需要本地产生代码。
 
-依赖贡献由各 UseBinding 汇入一个 crate/workspace 级 composition：相同 package source/version 的 feature 要按 Cargo 真实规则联合，互斥/不兼容语义在组合阶段失败或隔离为不同可合法共存的 package identity；不能让最后写 manifest 的 method 覆盖前者。不同目标根若要求不相容依赖，可以形成不同 crate/workspace/构建根，不能为了“一个 Cargo.toml”降低业务合同。
+依赖贡献由各 UseBinding 汇入一个 crate/workspace 级 composition。每个实际构建单元保留 package/source/content、目标根、host/target、normal/build/dev/proc-macro 用途、features/cfg、profile 和工具链绑定；feature 只在准确 Cargo resolver、所选 workspace members/targets 及实际命令规定的上下文中联合。同一个 package version 或 Cargo.lock 不能把不同单元合为同一构建身份。互斥/不兼容语义在组合阶段失败或隔离为不同合法构建根，不能让最后写 manifest 的 method 覆盖前者，也不能为了“一个 Cargo.toml”降低业务合同。[Cargo：feature resolver 的上下文](https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2)
+
+例如 resolver 2 下同一库作为 normal dependency 禁用默认 features，作为 build-dependency 启用 `std`：host 工具可用 `std` 不证明 target 库也启用了它；`cargo test` 对 dev dependency 的激活也不能作为普通 build 的运行依赖。组合者复用 Cargo 的真实解析及构建，不自造 feature 求解器。`cargo metadata` 固定 `--format-version` 并按实际字段消费；package graph、feature 观测、实际编译制品与目标运行依赖的范围分别保留，单次 metadata 或锁文件不证明全部 host/target 与构建输入已封闭。必要上下文未知时保留准确 Needs，不猜一个全局 feature 集。[Cargo metadata 合同](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html)
 
 build.rs、proc-macro 与 native dependency 都是可执行/外部供给。它们可以是成熟代码复用路径，但必须通过实际构建 Effect、供应链和可重现输入管理；不能因为“别人已有完美代码”就把未知脚本升级为纯编译数据。对于只需库 API 的普通业务，优先直接复用合格 crate；对于需要修改/学习候选实现的开发任务，可以把其源码作为有来源的外部/原生资产读取和比较，但不会因此复制成 Gift 作者真源或自动获得商业再分发许可。
 
@@ -257,8 +271,8 @@ build.rs、proc-macro 与 native dependency 都是可执行/外部供给。它�
 
 ```mermaid
 flowchart TD
-  bindings["各 UseBinding 已选精确 crate 与能力映射"] --> dependencyGraph["固定 source/version、features、target 条件及 API 合同"]
-  dependencyGraph --> cargo["消费 Cargo 真实 feature unification、平台条件及 lock 结果"]
+  bindings["各 UseBinding 已选精确 crate 与能力映射"] --> dependencyGraph["固定 source/content、API 与 host/target、用途、features/cfg/profile"]
+  dependencyGraph --> cargo["按真实 resolver、members/targets 和命令消费 Cargo 的解析/构建"]
   cargo --> compose{"crate/workspace 组合相容？"}
   compose -->|是| manifest["单一组合者形成 manifest 与真实调用/适配"]
   compose -->|否| split["准确失败或合法分离构建根，不让最后 writer 覆盖"]
@@ -266,7 +280,7 @@ flowchart TD
   executable -->|是| effect["实际执行准入、供应链、环境、文件、网络与工具输入闭合"]
   executable -->|否| closure["封闭 rustc/Cargo、std、target、linker 及配置输入"]
   effect --> closure
-  closure --> result["实际构建及完整成员；缓存不作唯一事实源"]
+  closure --> result["实际构建与本次完整输出读回；OUT_DIR 旧成员不自动入选"]
   dependencyGraph -->|缺供给| needs["返回 Needs；获准取得后形成新固定输入，不在 printer 联网"]
 ```
 
@@ -410,7 +424,7 @@ fallback 是新的方案选择，不得静默从 stable 变 nightly、从纯 Rus
 
 这些是设计测试向量，不是当前运行结果。
 
-## 19. 与 TypeScript 先行的关系
+## 19. 与既有 TypeScript 目标的共同保持
 
 TS 与 Rust 共用作者、Requirement、UseBinding、TargetProgramIR/LoweringResult、成员闭包和保证框架；它们不需要产生同形源码。
 
@@ -418,8 +432,9 @@ TS 与 Rust 共用作者、Requirement、UseBinding、TargetProgramIR/LoweringRe
 - 一个目标无法表达某项硬要求，不抹掉另一个独立目标已完成结果；
 - 两个目标均声称相同行为时，比较共同观察而非文件结构；
 - 对 target-specific API，只验证各自公开合同，不为了“跨语言一致”强造最小公分母；
-- TS 先行只决定实施顺序，不允许它的 number/GC/module 假设污染 Rust 中立语义；
-- Rust 已进入计划，因此后续状态不得再写“第二目标未指定”。
+- Rust 目标由完整意图规则及相交目标控制决定，不把 TS 的 number/GC/module 或 Rust 的机器整数/Drop/trait 默认反写为公共语义；
+- 当前优先交付 Rust 工程，不要求扩展 TS 后才能推进；已有 TS 产物和固定目标绑定按其原合同继续，新顺序不触发隐式迁移；
+- Rust 编写的编译内核、Rust 源码生成、Cargo 构建及目标行为保持分别取得证据，不能互相代签。
 
 ## 20. 何时重开本设计
 

@@ -4,7 +4,7 @@
 
 ## 来源状态与复用
 
-所列研究资料记录日期为2026-09-22。Rust比较基线为1.98.1；C++既有规则与C++26提案、编译器实现状态分开。稳定页面的URL不使其中每个item变成stable；latest crate页面也不永久固定版本。实际采用必须把所选版本、特性开关、目标与构建选项变成准确输入，不仅保存链接。
+原比较资料记录日期为 2026-09-22，Rust 比较基线为 1.98.1；C++ 既有规则与 C++26 提案、编译器实现状态分开。R38—R41 于 2026-11-06 核对官方在线规范，用于 Rust 目标的退出和 Cargo 构建接合，不作为某个安装工具版本的运行证明。稳定页面的 URL 不使其中每个 item 变成 stable；latest crate 页面也不永久固定版本。实际采用必须把所选版本、特性开关、目标与构建选项变成准确输入，不仅保存链接。
 
 已经取得且前提/用途未改变的来源可以复用，不要求每次全量重新访问。相交版本核查另明确：R01、R02、R03—R05、R07—R08、R22、R25、R30、C16，以及下述ManuallyDrop和有限模型来源用于当前校准；未逐项重新访问其余页面，不声称所有条目都重新做过目标测试。R30返回页标记1.97.1，后续版本的同页未能直接取得；这一具体覆盖不扩大成1.98.1逐字验证。
 
@@ -51,6 +51,10 @@
 | R35 | [Cargo SemVer](https://doc.rust-lang.org/stable/cargo/reference/semver.html) | 一致性规则不保证全部库演进兼容；公开API和依赖迁移 |
 | R36 | [closure类型](https://doc.rust-lang.org/stable/reference/types/closure.html) | 捕获类型、调用trait与开放类型量化不混同；泛型closure |
 | R37 | [ManuallyDrop](https://doc.rust-lang.org/std/mem/struct.ManuallyDrop.html)：当前1.98.1页面说明有效值、销毁、公开访问风险与旧Box问题 | 外壳可移动不复活内部T，派生Debug/Clone等访问Dead字段仍需防止；存储状态/验收 |
+| R38 | [Rust destructors](https://doc.rust-lang.org/reference/destructors.html)：字段声明顺序、drop scope、临时量及不展开终止 | 目标 Drop 不自动保持 Gift U0—U5 的取得逆序、首因或临时结果交付；[Rust 清理降低](../../编译/目标/Rust目标画像与降低.md#5-所有权借用初始化与清理) |
+| R39 | [Cargo resolver](https://doc.rust-lang.org/cargo/reference/resolver.html#feature-resolver-version-2)：按 resolver/用途区分 feature 统一上下文 | 相同 package/version 或 Cargo.lock 不等于相同 host/target 构建单元；[依赖生成消费](../../编译/目标/Rust目标画像与降低.md#rust-dependency-realization) |
+| R40 | [Cargo build scripts](https://doc.rust-lang.org/cargo/reference/build-scripts.html)：host/target 环境、指令输出顺序与可保留 OUT_DIR | 缓存目录和 rerun 声明不证明本次完整产物或更强封闭读集；[构建闭包](../../编译/目标/Rust目标画像与降低.md#9-cargo依赖与构建闭包) |
+| R41 | [Cargo metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html)：固定 format-version 的 package/resolve 机器接口 | 包图不代签所有实际编译单元、执行读取和运行依赖；[构建上下文](../../编译/目标/Rust目标画像与降低.md#rust-dependency-realization) |
 
 ## 可复用库与互操作
 
