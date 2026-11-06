@@ -54,14 +54,16 @@ function assertObservation(
   assert.deepEqual(facts.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
 }
 
-// External-module cases have disjoint lexical scopes, so their source-level
-// imports can share one TypeScript Program without sharing observation identity.
-const moduleScopedCases = cases.filter(({ source }) => !emitCases.includes(source)
-  && /^(?:import\b(?!\s*\()|export\b)/mu.test(source));
-const moduleScopedSources = new Set(moduleScopedCases.map(({ source }) => source));
+// External-module cases have isolated lexical scopes; expression-only scripts
+// declare no global bindings. Both can share one Program without cross-case
+// symbol capture, while each case keeps its own source-path oracle.
+const shareableCases = cases.filter(({ source }) => !emitCases.includes(source)
+  && (/^(?:import\b(?!\s*\()|export\b)/mu.test(source)
+    || /^(?:void\s+import\(|require(?:\(|\.|\[)|module(?:\.|\[))/u.test(source)));
+const shareableSources = new Set(shareableCases.map(({ source }) => source));
 
 for (const { name, source, imports, unresolved } of cases.filter(({ source }) =>
-  !emitCases.includes(source) && !moduleScopedSources.has(source))) {
+  !emitCases.includes(source) && !shareableSources.has(source))) {
   test(`module observation: ${name}`, () => {
     const facts = typeScriptModuleImportFacts(fixtureProgram(source));
     assertObservation(facts, imports, unresolved);
@@ -119,11 +121,11 @@ test('runtime edges agree with verbatim compiler emit for each syntax and type/r
     assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts'], source);
   }
 
-  const groupedInputs = Object.fromEntries(moduleScopedCases.map(({ source }, index) =>
+  const groupedInputs = Object.fromEntries(shareableCases.map(({ source }, index) =>
     [`src/module-case-${index}.ts`, source]));
   const grouped = typeScriptModuleImportFacts(fixtureProgram(groupedInputs));
   let totalImports = 0;
-  for (const [index, { name, imports, unresolved }] of moduleScopedCases.entries()) {
+  for (const [index, { name, imports, unresolved }] of shareableCases.entries()) {
     const path = `src/module-case-${index}.ts`;
     assert.deepEqual(grouped.imports.filter(({ from }) => from === path)
       .map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports, name);
@@ -133,8 +135,8 @@ test('runtime edges agree with verbatim compiler emit for each syntax and type/r
   }
   assert.equal(grouped.imports.length, totalImports, 'no extra module imports');
   assert.deepEqual(grouped.unresolvedFiles,
-    moduleScopedCases.flatMap(({ unresolved }, index) =>
-      unresolved ? [`src/module-case-${index}.ts`] : []),
+    shareableCases.flatMap(({ unresolved }, index) =>
+      unresolved ? [`src/module-case-${index}.ts`] : []).sort(),
     'no extra unresolved files');
 });
 
