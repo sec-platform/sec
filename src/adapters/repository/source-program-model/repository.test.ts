@@ -25,7 +25,7 @@ import {
 test('descriptor operations use exact owned runtime exports, including aliases, without admitting a nested owner', () => {
   const sources = new Map([
     ['src/example/root.ts',
-      "export function live(): void {}\nexport { live as alias };\nexport type { TypeOnly as old } from './type.ts';\nexport * from './star.ts';\nexport { starred as remoteAlias } from './star.ts';\n"],
+      "export function live(): void {}\nexport { live as alias };\nexport type { TypeOnly as old } from './type.ts';\nexport * from './star.ts';\nexport { starred as remoteAlias } from './star.ts';\nexport type * from './type.ts';\nexport declare function declared(): void;\n"],
     ['src/example/type.ts', 'export class TypeOnly {}\n'],
     ['src/example/star.ts', 'export function starred(): void {}\n'],
     ['src/example/nested/old.ts', 'export function old(): void {}\n']
@@ -38,7 +38,7 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
         externalEntrypoints: [],
         capabilityProviders: [{
           capability: 'example.operations',
-          operations: ['live', 'alias', 'starred', 'remoteAlias', 'old'],
+          operations: ['live', 'alias', 'starred', 'remoteAlias', 'old', 'TypeOnly', 'declared'],
           ownerInternalOperations: ['old']
         }]
       })
@@ -91,6 +91,8 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
     }));
   }
   expect(byOperation.get('old')?.status).toBe('absent');
+  expect(byOperation.get('TypeOnly')?.status).toBe('absent');
+  expect(byOperation.get('declared')?.status).toBe('unresolved');
   expect(byOperation.get('old')?.scopePaths).not.toContain('src/example/nested/old.ts');
   const architecture = compileRepositoryModuleArchitectureProjection(workspaceSnapshot.moduleGraph, membership, {
     ...model,
@@ -99,6 +101,14 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
   expect(architecture.violations).toContainEqual(expect.objectContaining({
     code: 'repository-descriptor-operation-export-absent',
     to: 'example.operations:old'
+  }));
+  expect(architecture.violations).toContainEqual(expect.objectContaining({
+    code: 'repository-descriptor-operation-export-absent',
+    to: 'example.operations:TypeOnly'
+  }));
+  expect(architecture.violations).toContainEqual(expect.objectContaining({
+    code: 'repository-descriptor-operation-export-unresolved',
+    to: 'example.operations:declared'
   }));
   expect(observeRepositorySourceProgramDescriptorOperationExports({ ...model })).toBeNull();
   const foreignMembership = compileRepositoryModuleMembershipSnapshot({
@@ -209,54 +219,6 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
     files,
     moduleMembership: fallbackMembership
   }, completeSnapshot)).toThrow();
-});
-
-test('type-only star exports are absent while ambient declarations stay unresolved', () => {
-  const files = [
-    {
-      path: 'src/example/root.ts',
-      source: "export type * from './type.ts';\nexport declare function declared(): void;\n"
-    },
-    { path: 'src/example/type.ts', source: 'export class TypeOnly {}\n' }
-  ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
-  const descriptorPath = 'src/example/module.json';
-  const membership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, ...files.map(({ path }) => path)],
-    descriptorSources: [{
-      descriptorPath,
-      source: JSON.stringify({
-        importGraph: 'runtime',
-        externalEntrypoints: ['src/example/root.ts'],
-        capabilityProviders: [{ capability: 'example', operations: ['TypeOnly', 'declared'] }]
-      })
-    }]
-  });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membership
-  });
-  const observations = observeRepositorySourceProgramDescriptorOperationExports(model);
-  expect(observations?.find(({ operation }) => operation === 'TypeOnly')?.status).toBe('absent');
-  expect(observations?.find(({ operation }) => operation === 'declared')?.status).toBe('unresolved');
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: files.map(({ path }) => path),
-    readSource: path => files.find(file => file.path === path)?.source ?? null
-  });
-  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, {
-    ...model,
-    descriptorOperationExports: observations!
-  });
-  expect(projection.violations).toEqual([
-    expect.objectContaining({
-      code: 'repository-descriptor-operation-export-absent',
-      to: 'example:TypeOnly'
-    }),
-    expect.objectContaining({
-      code: 'repository-descriptor-operation-export-unresolved',
-      to: 'example:declared'
-    })
-  ]);
 });
 
 test('source program model finds capability producers, consumers, literals, and opaque paths deterministically', () => {
