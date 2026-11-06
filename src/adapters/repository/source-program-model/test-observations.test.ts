@@ -464,21 +464,6 @@ test('conditional, table and fixture factories register only their returned case
 });
 
 
-test('lightweight test observations preserve dynamic imports as typed unknowns', () => {
-  const source = [
-    "import { test } from 'bun:test';",
-    "test('dynamic', async () => { const specifier = '../src/example/operation.ts'; await import(specifier); });",
-    ''
-  ].join('\n');
-  const first = compileFixture({ 'tests/dynamic.test.ts': source });
-  const replay = compileFixture({ 'tests/dynamic.test.ts': source });
-
-  expect(first.unknowns).toContainEqual(expect.objectContaining({
-    code: 'test-dynamic-module-unresolved',
-    path: 'tests/dynamic.test.ts'
-  }));
-  expect(replay).toEqual(first);
-});
 
 test('compiler provenance binds registrar wrappers, reachable Effects, terminals and pure siblings', () => {
   const sources = Object.freeze({
@@ -611,6 +596,15 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
 
   const dynamic = projection.registrations.find(({ title }) => title === 'dynamic unknown');
   expect(dynamic?.unknownEdges.some((edge) => edge.startsWith('dynamic-module-unresolved:'))).toBe(true);
+  expect(projection.unknowns).toContainEqual(expect.objectContaining({
+    code: 'test-dynamic-module-unresolved',
+    path: 'tests/provenance.test.ts'
+  }));
+  // Test-observation replay requires an identical signed model, not a second TypeScript compilation.
+  const replay = compileSourceProgramTestObservations({
+    productionModel: model, files, moduleMembership: membership
+  });
+  expect(replay).toEqual(projection);
 });
 
 test('overlapping cyclic test inputs preserve exact reads, negative paths, and fresh revisions', () => {
