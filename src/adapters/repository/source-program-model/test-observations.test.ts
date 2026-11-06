@@ -131,7 +131,45 @@ test('baseline contract census requires two exact compiler generations', () => {
   }));
 });
 
-test('lightweight test observations bind aliased and namespace imports to signed production declarations', () => {
+test('test observations bind production imports and native local-program invocation edges', () => {
+  const negativePath = 'tests/local-program-negative.test.ts';
+  const negativeSources: Readonly<Record<string, string>> = {
+    [negativePath]: [
+      "import { spawnSync as runChild } from 'node:child_process';",
+      "import { exec as spawnSync } from 'node:child_process';",
+      "import process from 'node:process';",
+      "import * as Bun from 'bun';",
+      "const dynamicProgram = process.env.SEC_DYNAMIC_PROGRAM;",
+      "runChild(process.execPath, [dynamicProgram]);",
+      "runChild(process.execPath, ['../outside.ts']);",
+      "runChild('bun', ['src/example/operation.ts']);",
+      "spawnSync(process.execPath, ['src/example/operation.ts']);",
+      "function shadowProcess(process: { execPath: string }) {",
+      "  runChild(process.execPath, ['src/example/operation.ts']);",
+      "}",
+      "function shadowBun(Bun: { spawnSync(command: string[]): void }) {",
+      "  Bun.spawnSync([process.execPath, 'src/example/operation.ts']);",
+      "}",
+      "const options = { cmd: [process.execPath, 'src/example/operation.ts'] };",
+      "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options });",
+      "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] });",
+      "void shadowProcess; void shadowBun;"
+    ].join('\n'),
+    'tests/local-shadow.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "const process = { execPath: '/foreign/runtime' };",
+      "const Bun = { spawnSync(command: string[]) {} };",
+      "spawnSync(process.execPath, ['src/example/operation.ts']);",
+      "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
+    ].join('\n'),
+    'tests/declared-shadow.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "declare const process: { execPath: string };",
+      "declare const Bun: { spawnSync(command: string[]): void };",
+      "spawnSync(process.execPath, ['src/example/operation.ts']);",
+      "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
+    ].join('\n')
+  };
   const projection = compileFixture({
     'tests/alias.test.ts': [
       "import { expect, test } from 'bun:test';",
@@ -152,7 +190,33 @@ test('lightweight test observations bind aliased and namespace imports to signed
       "test('effect', async () => { await readFile('state.json'); await runOperation('subject'); await fetch('https://example.invalid'); });",
       ''
     ].join('\n'),
-    'tests/reexport.test.ts': "export { execute as publicExecute } from '../src/example/operation.ts';\n"
+    'tests/reexport.test.ts': "export { execute as publicExecute } from '../src/example/operation.ts';\n",
+
+    'tests/local-program.test.ts': [
+      "import { spawnSync as launch } from 'node:child_process';",
+      "import process from 'node:process';",
+      "import * as Bun from 'bun';",
+      "import path from 'node:path';",
+      "const program = path.resolve(process.cwd(), 'src/example/operation.ts');",
+      "const helper = path.resolve(process.cwd(), 'tests/helper-program.ts');",
+      "launch(process.execPath, [program, '--check']);",
+      "launch(process.execPath, [helper]);",
+      "Bun.spawnSync([process.execPath, helper]);",
+      "Bun.spawn({ cmd: [process.execPath, '--no-env-file', program], stdout: 'pipe' });"
+    ].join('\n'),
+    'tests/helper-program.ts': 'export const helper = true;',
+    'tests/unit/ambient-program.test.ts': [
+      "import { spawnSync } from 'node:child_process';",
+      "import path from 'node:path';",
+      "import { test } from 'bun:test';",
+      "const unusedFactory = test.skipIf(false);",
+      "test.skipIf(process.platform !== 'win32')('ambient program', () => {",
+      "  const program = path.resolve(import.meta.dir, '../../src/example/operation.ts');",
+      "  spawnSync(process.execPath, [program]);",
+      "  Bun.spawnSync([process.execPath, program]);",
+      "});"
+    ].join('\n'),
+    ...negativeSources
   });
 
   expect(projection.references).toContainEqual(expect.objectContaining({
@@ -163,7 +227,7 @@ test('lightweight test observations bind aliased and namespace imports to signed
     observationClass: 'derived',
     sourceRelation: 'declaration'
   }));
-  expect(projection.registrations).toHaveLength(3);
+  expect(projection.registrations).toHaveLength(4);
   expect(projection.registrations.filter(({ path }) => path === 'tests/alias.test.ts')).toEqual([
     expect.objectContaining({
       path: 'tests/alias.test.ts',
@@ -220,74 +284,7 @@ test('lightweight test observations bind aliased and namespace imports to signed
     transport: 'runtime-built-in-api'
   }));
   expect(projection.observationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
 
-test('compiler observations bind current-Bun local TypeScript program argv', () => {
-  const negativePath = 'tests/local-program-negative.test.ts';
-  const negativeSources: Readonly<Record<string, string>> = {
-    [negativePath]: [
-      "import { spawnSync as runChild } from 'node:child_process';",
-      "import { exec as spawnSync } from 'node:child_process';",
-      "import process from 'node:process';",
-      "import * as Bun from 'bun';",
-      "const dynamicProgram = process.env.SEC_DYNAMIC_PROGRAM;",
-      "runChild(process.execPath, [dynamicProgram]);",
-      "runChild(process.execPath, ['../outside.ts']);",
-      "runChild('bun', ['src/example/operation.ts']);",
-      "spawnSync(process.execPath, ['src/example/operation.ts']);",
-      "function shadowProcess(process: { execPath: string }) {",
-      "  runChild(process.execPath, ['src/example/operation.ts']);",
-      "}",
-      "function shadowBun(Bun: { spawnSync(command: string[]): void }) {",
-      "  Bun.spawnSync([process.execPath, 'src/example/operation.ts']);",
-      "}",
-      "const options = { cmd: [process.execPath, 'src/example/operation.ts'] };",
-      "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options });",
-      "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] });",
-      "void shadowProcess; void shadowBun;"
-    ].join('\n'),
-    'tests/local-shadow.test.ts': [
-      "import { spawnSync } from 'node:child_process';",
-      "const process = { execPath: '/foreign/runtime' };",
-      "const Bun = { spawnSync(command: string[]) {} };",
-      "spawnSync(process.execPath, ['src/example/operation.ts']);",
-      "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
-    ].join('\n'),
-    'tests/declared-shadow.test.ts': [
-      "import { spawnSync } from 'node:child_process';",
-      "declare const process: { execPath: string };",
-      "declare const Bun: { spawnSync(command: string[]): void };",
-      "spawnSync(process.execPath, ['src/example/operation.ts']);",
-      "Bun.spawnSync([process.execPath, 'src/example/operation.ts']);"
-    ].join('\n')
-  };
-  const projection = compileFixture({
-    'tests/local-program.test.ts': [
-      "import { spawnSync as launch } from 'node:child_process';",
-      "import process from 'node:process';",
-      "import * as Bun from 'bun';",
-      "import path from 'node:path';",
-      "const program = path.resolve(process.cwd(), 'src/example/operation.ts');",
-      "const helper = path.resolve(process.cwd(), 'tests/helper-program.ts');",
-      "launch(process.execPath, [program, '--check']);",
-      "launch(process.execPath, [helper]);",
-      "Bun.spawnSync([process.execPath, helper]);",
-      "Bun.spawn({ cmd: [process.execPath, '--no-env-file', program], stdout: 'pipe' });"
-    ].join('\n'),
-    'tests/helper-program.ts': 'export const helper = true;',
-    'tests/unit/ambient-program.test.ts': [
-      "import { spawnSync } from 'node:child_process';",
-      "import path from 'node:path';",
-      "import { test } from 'bun:test';",
-      "const unusedFactory = test.skipIf(false);",
-      "test.skipIf(process.platform !== 'win32')('ambient program', () => {",
-      "  const program = path.resolve(import.meta.dir, '../../src/example/operation.ts');",
-      "  spawnSync(process.execPath, [program]);",
-      "  Bun.spawnSync([process.execPath, program]);",
-      "});"
-    ].join('\n'),
-    ...negativeSources
-  });
 
   expect(projection.localProgramInvocations.map(({ path, target }) => ({ path, target })))
     .toEqual([
@@ -319,6 +316,7 @@ test('compiler observations bind current-Bun local TypeScript program argv', () 
     [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], ...options })"],
     [negativePath, "Bun.spawnSync({ cmd: [process.execPath, 'src/example/operation.ts'], cmd: [process.execPath, 'src/example/operation.ts'] })"]
   ]);
+
 });
 
 test('conditional, table and fixture factories register only their returned cases', () => {
