@@ -113,7 +113,6 @@ struct Context {
 struct Frame {
     semantic: BTreeMap<String, LocalBindingId>,
     values: BTreeMap<String, LocalBindingId>,
-    semantic_barrier: bool,
 }
 
 struct Analyzer<'a> {
@@ -228,9 +227,6 @@ impl Analyzer<'_> {
             if let Some(binding) = names.get(name).filter(|_| !keyed || target.is_some()) {
                 if !keyed || target == Some(*binding) { return Ok(LocalResolution::Resolved { binding: *binding }); }
                 return Ok(LocalResolution::Rejected { code: "ShadowedBinding" });
-            }
-            if domain == "semantic" && frame.semantic_barrier {
-                return Ok(LocalResolution::Needs { code: "NeedsExpectedLambdaSignature" });
             }
             scope = self.arena.scopes[id.0].parent;
         }
@@ -473,10 +469,8 @@ impl Analyzer<'_> {
             "lambda" => {
                 let mut lambda = self.scope(Some(context), occurrence, "lambda")?;
                 lambda.phase = "runtime";
-                if node.get("typeParams").is_none() {
-                    self.frames.get_mut(&lambda.scope).expect("lambda frame").semantic_barrier = true;
-                    self.region(occurrence, "NeedsExpectedLambdaSignature", true)?;
-                }
+                // Expected-signature binders have no source key/name. Only
+                // explicit author binders participate in lexical lookup here.
                 self.semantic_parameters(node, path, "typeParams", lambda, depth)?;
                 self.runtime_parameters(node, path, "params", lambda, depth)?;
                 self.children_except(path, node, lambda, depth, &["typeParams", "params"])

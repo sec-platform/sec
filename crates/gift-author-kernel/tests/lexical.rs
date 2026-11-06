@@ -23,6 +23,10 @@ fn resolved(analysis: &NameAnalysis, path: &str) -> usize {
         ref other => panic!("Expected resolved {path}: {other:?}"),
     }
 }
+fn resolved_binding_path<'a>(analysis: &'a NameAnalysis, path: &str) -> &'a str {
+    let binding = &analysis.lexical.bindings[resolved(analysis, path)];
+    &analysis.lexical.occurrences[binding.occurrence.index()].expanded_path
+}
 fn shared_ref(key: &str) -> Value { json!({"tag":"reference","ref":{"binding":key}}) }
 fn shared_literal() -> Value { json!({"tag":"literal","type":"Int","value":"1"}) }
 fn design(expression: Value, type_params: Value) -> Value {
@@ -121,7 +125,7 @@ fn semantic_value_is_one_binder_in_two_domains_and_keys_are_definition_wide() {
 }
 
 #[test]
-fn semantic_kind_phase_and_omitted_lambda_boundaries_remain_distinct() {
+fn semantic_kind_phase_and_omitted_lambda_lookup_remain_distinct() {
     let analysis = analyze(json!({"F":{"kind":"core:function","body":{"parameters":[],"typeParams":[
         {"name":"T"},{"name":"N","kind":{"value":int()}},{"name":"R","kind":"Region"}],"body":{"op":"record","fields":[
         {"name":"badKind","value":{"op":"lambda","typeParams":[{"name":"T","kind":"Region"}],"params":[{"name":"x","type":{"tag":"param","name":"T"}}],"body":literal()}},
@@ -131,11 +135,11 @@ fn semantic_kind_phase_and_omitted_lambda_boundaries_remain_distinct() {
     ]}}}}));
     assert!(analysis.lexical.problems.iter().any(|problem| problem.code == "BindingKindMismatch"));
     assert!(analysis.lexical.problems.iter().any(|problem| problem.code == "BindingPhaseMismatch"));
-    assert!(analysis.lexical.pending_regions.iter().any(|problem| problem.code == "NeedsExpectedLambdaSignature"));
+    assert!(!analysis.lexical.pending_regions.iter().any(|problem| problem.code == "NeedsExpectedLambdaSignature"));
     let id = resolved(&analysis,"/definitions/F/body/body/fields/1/value/body");
     assert_eq!(analysis.lexical.bindings[id].kind,"Value");
-    let annotation = local_use(&analysis,"/definitions/F/body/body/fields/1/value/params/0/type");
-    assert!(matches!(annotation.resolution,LocalResolution::Needs{code:"NeedsExpectedLambdaSignature"}));
+    assert_eq!(resolved_binding_path(&analysis,"/definitions/F/body/body/fields/1/value/params/0/type"),
+        "/definitions/F/body/typeParams/0");
 }
 
 #[test]
@@ -264,4 +268,103 @@ fn professional_unknown_outer_cannot_supply_a_loop_across_a_known_lambda() {
     let analysis = analyze(json!({"Goal":{"intent:goal":{"roles":{"x":{"typeRef":"local:T","cardinality":"one"}},"clauses":{"c":{"achieve":formula}}}}}));
     assert_eq!(analysis.lexical.exits.len(),2);
     for exit in &analysis.lexical.exits { assert!(matches!(exit.target,ControlResolution::Rejected{code:"InvalidControlTarget"})); }
+}
+
+fn region_type(name: &str) -> Value {
+    json!({"tag":"apply","constructor":{"decl":"local:Box"},"arguments":[{"region":{"parameter":name}}]})
+}
+fn candidate_callback(expected_name: &str, outer: bool, explicit_empty: bool) -> Value {
+    let expected = json!({"tag":"function","typeParams":[{"name":expected_name,"kind":"Region"}],
+        "params":[region_type(expected_name)],"returns":int(),"effects":[]});
+    let mut lambda = json!({"op":"lambda","params":[{"name":"value","type":region_type("r")}],"body":literal()});
+    if explicit_empty { lambda["typeParams"] = json!([]); }
+    let parameters = if outer { json!([{"name":"r","kind":"Region"}]) } else { json!([]) };
+    json!({"F":{"kind":"core:function","body":{"parameters":[],"typeParams":parameters,
+        "body":{"op":"exec:block","statements":[{"op":"let","name":"callback","type":expected,"value":lambda}]}}}})
+}
+const CALLBACK_REGION: &str = "/definitions/F/body/body/statements/0/value/params/0/type/arguments/0/region";
+
+#[test]
+fn omitted_candidate_lambda_preserves_outer_identity_under_expected_alpha_renaming() {
+    for expected_name in ["r", "s"] {
+        let analysis = analyze(candidate_callback(expected_name, true, false));
+        assert_eq!(resolved_binding_path(&analysis, CALLBACK_REGION), "/definitions/F/body/typeParams/0");
+        assert!(analysis.lexical.pending_regions.is_empty());
+        assert_eq!(analysis.lexical.bindings.iter().filter(|binding| binding.kind == "Region").count(),2);
+        assert!(analysis.lexical.bindings.iter().all(|binding| {
+            analysis.lexical.scopes[binding.scope.index()].kind != "lambda" || binding.kind == "runtime_parameter"
+        }));
+        assert!(analysis.unchecked.contains(&"types"));
+    }
+}
+
+#[test]
+fn candidate_expected_private_name_does_not_supply_missing_source_binder() {
+    let analysis = analyze(candidate_callback("r", false, false));
+    assert!(matches!(local_use(&analysis, CALLBACK_REGION).resolution,
+        LocalResolution::Rejected { code:"MissingLocalBinding" }));
+    assert_eq!(analysis.lexical.bindings.iter().filter(|binding| binding.kind == "Region").count(),1);
+}
+
+#[test]
+fn explicit_empty_and_omitted_candidate_lambda_have_the_same_lexical_lookup() {
+    for explicit_empty in [false, true] {
+        let analysis = analyze(candidate_callback("r", true, explicit_empty));
+        assert_eq!(resolved_binding_path(&analysis, CALLBACK_REGION), "/definitions/F/body/typeParams/0");
+        assert!(analysis.lexical.pending_regions.is_empty());
+        assert!(analysis.unchecked.contains(&"types"));
+    }
+}
+
+fn shared_callback(expected_key: &str, expected_name: &str, actual_key: &str, outer: bool) -> Value {
+    let typed = |key: &str| json!({"decl":{"definitionId":"Box"},"arguments":[{"region":{"parameter":key}}]});
+    let expression = json!({"tag":"let","binding":{"key":"callback","name":"callback","type":{"function":{
+        "typeParams":[{"key":expected_key,"name":expected_name,"kind":"Region"}],
+        "parameters":[typed(expected_key)],"returns":{"core":"Int"}}}},
+        "initializer":{"tag":"lambda","params":[{"key":"value","name":"value","type":typed(actual_key)}],"expression":shared_literal()},
+        "continuation":shared_literal()});
+    let parameters = if outer { json!([{"key":"outer-r","name":"r","kind":"Region"}]) } else { json!([]) };
+    json!({"Design":design(expression,parameters)})
+}
+
+#[test]
+fn omitted_shared_lambda_does_not_copy_expected_keys_or_alpha_names() {
+    for (key,name) in [("expected-r","r"),("expected-s","s")] {
+        let analysis = analyze(shared_callback(key,name,"outer-r",true));
+        assert_eq!(resolved_binding_path(&analysis,&format!("{DESIGN}/initializer/params/0/type/arguments/0/region")),
+            "/definitions/Design/body/typeParams/0");
+        assert!(analysis.lexical.problems.is_empty());
+        assert!(analysis.lexical.pending_regions.is_empty());
+        assert_eq!(analysis.lexical.bindings.iter().filter(|binding| binding.source_key.as_deref() == Some(key)).count(),1);
+        assert!(analysis.lexical.bindings.iter().all(|binding| {
+            analysis.lexical.scopes[binding.scope.index()].kind != "lambda" || binding.kind == "runtime_parameter"
+        }));
+    }
+}
+
+#[test]
+fn shared_expected_key_is_inaccessible_and_unknown_outer_remains_local_need() {
+    let private = analyze(shared_callback("private-r","r","private-r",false));
+    assert!(matches!(local_use(&private,&format!("{DESIGN}/initializer/params/0/type/arguments/0/region")).resolution,
+        LocalResolution::Rejected { code:"BindingNotVisible" }));
+    let unknown = analyze(shared_callback("private-r","r","external-r",false));
+    assert!(matches!(local_use(&unknown,&format!("{DESIGN}/initializer/params/0/type/arguments/0/region")).resolution,
+        LocalResolution::Needs { code:"NeedsOuterBindingEnvironment" }));
+    assert!(unknown.lexical.pending_regions.iter().all(|region| region.code == "NeedsOuterBindingEnvironment"));
+}
+
+#[test]
+fn shared_explicit_empty_preserves_lookup_and_explicit_binder_still_shadows() {
+    let mut empty = shared_callback("expected-r","r","outer-r",true);
+    empty["Design"]["body"]["terms"][0]["fields"]["value"]["expression"]["initializer"]["typeParams"] = json!([]);
+    let analysis = analyze(empty);
+    assert_eq!(resolved_binding_path(&analysis,&format!("{DESIGN}/initializer/params/0/type/arguments/0/region")),
+        "/definitions/Design/body/typeParams/0");
+    assert!(analysis.unchecked.contains(&"types"));
+    let mut explicit = shared_callback("expected-r","r","outer-r",true);
+    explicit["Design"]["body"]["terms"][0]["fields"]["value"]["expression"]["initializer"]["typeParams"] =
+        json!([{"key":"inner-r","name":"r","kind":"Scope"}]);
+    let shadowed = analyze(explicit);
+    assert!(matches!(local_use(&shadowed,&format!("{DESIGN}/initializer/params/0/type/arguments/0/region")).resolution,
+        LocalResolution::Rejected { code:"ShadowedBinding" }));
 }
