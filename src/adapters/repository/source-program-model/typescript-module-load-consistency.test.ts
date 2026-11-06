@@ -9,10 +9,11 @@ import {
 } from './typescript-fact-shards.ts';
 import {
   compileTypeScriptSourceProgramModel,
+  compileTypeScriptSourceProgramModelIncremental,
   releaseTypeScriptSourceProgramWorkspace,
   sourceProgramTypeScriptCompilerIdentity
 } from './typescript.ts';
-import { moduleMembership } from './test/typescript-model-input.ts';
+import { moduleMembership, sourceInput } from './test/typescript-model-input.ts';
 
 const targetSource = 'export const value = 1;';
 const targetFile = Object.freeze({
@@ -53,6 +54,33 @@ for (const [name, source, hasDependency, unresolved] of cases) {
       assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), hasDependency ? ['src/b.ts'] : []);
       assert.equal(model.unknowns.some(({ code }) => code === 'dynamic-module-unresolved'), unresolved);
       assert.deepEqual(graph.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
+      if (name === 'dynamic missing operand') {
+        // Separate malformed source paths share one generation/recovery transition.
+        // Their syntax classifiers have fixed inputs in module-import-cases.json.
+        const malformed = sourceInput({
+          'src/incomplete-dynamic.ts': 'void import();',
+          'src/incomplete-await.ts': 'const { value } = await import();',
+          'src/incomplete-require.ts': 'export function run() { return require(); }'
+        });
+        const first = compileTypeScriptSourceProgramModelIncremental(malformed, null);
+        for (const file of malformed.files) {
+          assert.ok(first.model.unknowns.some(({ path, code }) =>
+            path === file.path && code === 'dynamic-module-unresolved'), file.path);
+          assert.equal(first.model.references.some(({ path, kind }) =>
+            path === file.path && kind === 'import'), false, file.path);
+        }
+        const recovered = sourceInput({
+          'src/incomplete-dynamic.ts': 'export const readyDynamic = 1;',
+          'src/incomplete-await.ts': 'export const readyAwait = 1;',
+          'src/incomplete-require.ts': 'export const readyRequire = 1;'
+        });
+        const next = compileTypeScriptSourceProgramModelIncremental(recovered, first.state);
+        assert.deepEqual(next.model.unknowns, []);
+        assert.deepEqual(
+          next.model.declarations.map(({ name }) => name).sort(),
+          ['readyAwait', 'readyDynamic', 'readyRequire']
+        );
+      }
       if (name === 'ordinary same-named function') {
         assert.deepEqual(model.unknowns, []);
         assert.ok(model.references.some(({ kind, name }) => kind === 'call' && name === 'require'));
