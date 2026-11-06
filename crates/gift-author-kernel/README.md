@@ -1,8 +1,8 @@
 # Gift author compiler
 
-This is a Rust implementation of a bounded author-to-TypeScript capability, consumed by the repository's `author` CLI. It reads the existing `gift.author-module/2` encoding. The original source bytes remain authoritative; the model, typed lowering plan, bindings, dependency graph, project members and source map are rebuildable outputs.
+This Rust kernel implements the complete selected `design-converged` structural Reader and a separate bounded `/2` author-to-TypeScript method. Both are consumed by the repository's `author` CLI. The original source bytes remain authoritative; expanded structures, typed lowering plans, bindings, dependency graphs, project members and source maps are rebuildable outputs.
 
-The semantic owner is the [finite ordered record profile](../../docs/领域/状态关系与流/关系查询与维护.md#有限有序记录的独立方法画像), with the existing [scalar and expression rules](../../docs/领域/计算基础/文法类型与求值.md). The method is `gift:finite-ordered-records/2`; it does not reuse the earlier I64 experiment's qualification.
+The `/2` method's semantic owner is the [finite ordered record profile](../../docs/领域/状态关系与流/关系查询与维护.md#有限有序记录的独立方法画像), with the existing [scalar and expression rules](../../docs/领域/计算基础/文法类型与求值.md). The method is `gift:finite-ordered-records/2`; it does not reuse the earlier I64 experiment's qualification.
 
 ## Build and use
 
@@ -19,6 +19,18 @@ The JSON result contains `src/index.ts`, `src/main.ts`, `package.json` and `tsco
 
 ## Supported semantics and failures
 
+Use `author --read --input <file> --kernel <executable> --json` to read a complete `gift.author-module/design-converged` module or `gift.project/design-converged` project. The exact marker selects its Reader; a failure never retries another format. All complete Definition branches come from the existing [parameterized grammar](../../schema/author/first-layer/codec-parameters.json). Short forms consume the original [expansion equations](../../tools/documentation/author_codec_spec.py); complete `kind`, `tag`, `op` and control bodies keep their stopping boundaries. Project input uses its complete shape. A sequence comprehension needing an ordinary Collect binding returns `NeedsSurfaceBinding` until that binding is supplied by its qualified semantic context.
+
+The result is `gift.author-read/1`, explicitly at the `structural` stage. It contains exact source and grammar revisions and a finite node graph with separate source/expanded roots. Children precede parents. Original values retain source JSON Pointers and half-open UTF-8 byte ranges; synthesized nodes retain their source occurrence. Numeric wire values are strings containing original number lexemes, so a JSON transport cannot round them. `iff` expansion shares each original operand without merging distinct same-valued occurrences. The Rust library retains the original bytes. This stage does not establish lexical binding, type/effect correctness, professional interpretation, Method availability, target generation or execution.
+
+Cargo embeds only the manifest's exact resource closure. The runtime reconstructs and verifies its bounded graph and uses `jsonschema 0.60.2` with default HTTP/file resolution disabled and an explicit rejecting retriever. `serde_json` owns syntax and the shared source capture rejects duplicate decoded keys and non-scalar Unicode before map construction. The old `/2` method uses that same capture and retains its own semantic decoder.
+
+The pinned Schema engine has a known upstream numeric-bound defect: a bound such as `9007199254740993` can miscompare an equal decimal token. Its use is qualified for the actual fixed Gift grammar, whose numeric bounds are safe integers. Before provider construction, every Schema node's bounds must be integer literals within `[-(2^53-1), 2^53-1]`; `multipleOf` is not qualified. New grammar outside this capability returns `GrammarCapabilityUnsupported`, without rounding or changing author values. The independent defect reproducer remains in the tests. Exact large-number const/enum/uniqueItems use the library's separate precise comparison path and have their own tests. Upgrading the engine requires requalifying these boundaries; the runtime does not accept arbitrary external Schemas.
+
+Input is bounded to 4 MiB, 200,000 JSON nodes, 128 levels, 16 MiB of retained source-pointer bytes and 65,536 aggregate numeric lexical/exponent work units. Pointer bytes are charged before allocation; derived nodes share immutable origins. Expansion has its own depth, visit and derived-node budgets. Exceeding those budgets returns `ResourceLimit`, retaining the source; it does not declare the language construct invalid. Reader output allocation is charged before copying each unique node, conservatively allowing worst-case JSON escaping and container overhead within the 64 MiB transport limit. No performance or unbounded resource guarantee is claimed.
+
+Without `--read`, the existing `/2` compilation method supports:
+
 - One closed `/2` module, explicit local exports, mathematical Int, Bool, Text, immutable closed records and ordered sequences. Int literals use the existing canonical decimal-string encoding.
 - Pure, finite, acyclic internal first-order functions: literals, lexical variables, constant references, records, sequences, fields, calls, `if`, and exhaustive `Ordering` matches. The primitive binding supports mathematical `IntCompare`, `IntEq`, `IntAdd`, `IntSub`, `IntMul` and `BoolNot`.
 - Predicate Meanings resolve to actual functions with matching named roles and result types. Names alone never supply an interpretation.
@@ -34,6 +46,7 @@ The fixture's inherited view explicitly references `DefaultThreshold`; its fixed
 
 ```powershell
 cargo test --locked --manifest-path crates/gift-author-kernel/Cargo.toml --target-dir .tmp/gift-author-kernel-target
+bun crates/gift-author-kernel/tests/reader-check.ts .tmp/gift-author-kernel-target/debug/gift-author-kernel.exe
 bun crates/gift-author-kernel/tests/target-check.ts .tmp/gift-author-kernel-target/debug/gift-author-kernel.exe
 ```
 

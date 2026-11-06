@@ -22,13 +22,36 @@ const bundle = z.object({
 
 export type AuthorCompilationBundle = z.infer<typeof bundle>;
 
+const nodeId = z.number().int().nonnegative();
+const origin = z.object({ pointer: z.string(), start: nodeId, end: nodeId }).strict().nullable();
+const wireNode = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('null'), origin }).strict(),
+  z.object({ kind: z.literal('bool'), value: z.boolean(), origin }).strict(),
+  z.object({ kind: z.literal('number'), value: z.string(), origin }).strict(),
+  z.object({ kind: z.literal('string'), value: z.string(), origin }).strict(),
+  z.object({ kind: z.literal('array'), value: z.array(nodeId), origin }).strict(),
+  z.object({ kind: z.literal('object'), value: z.record(z.string(), nodeId), origin }).strict()
+]);
+const readOutput = z.object({
+  schema: z.literal('gift.author-read/1'), stage: z.literal('structural'),
+  source_format: z.enum(['gift.author-module/design-converged', 'gift.project/design-converged']),
+  source_revision: z.string(), grammar_revision: z.string(),
+  source_root: nodeId, expanded_root: nodeId, nodes: z.array(wireNode)
+}).strict();
+export type AuthorReadOutput = z.infer<typeof readOutput>;
+
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string): Promise<AuthorCompilationBundle>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: true): Promise<AuthorReadOutput>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: boolean): Promise<AuthorCompilationBundle | AuthorReadOutput>;
+
 /** Explicit local compiler invocation. Generation returns a bundle; it does not write target files,
  * install a compiler, execute target code, or acquire project/default-branch mutation authority. */
 export async function compileAuthorModule(
   workspaceRoot: string,
   inputFile: string,
-  kernelFile: string
-): Promise<AuthorCompilationBundle> {
+  kernelFile: string,
+  readOnly = false
+): Promise<AuthorCompilationBundle | AuthorReadOutput> {
   const inputPath = resolvePathInside(workspaceRoot, inputFile);
   const kernelPath = resolvePathInside(workspaceRoot, kernelFile);
   if (inputPath === null || kernelPath === null) {
@@ -38,7 +61,7 @@ export async function compileAuthorModule(
   if (bytes === null) throw new CodedFailure('AUTHOR-COMPILE-INPUT', 'Gift author source is missing');
   if (bytes.length > 4 * 1024 * 1024) throw new CodedFailure('AUTHOR-COMPILE-LIMIT', 'Gift author source exceeds the input budget');
   const sourceRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  const result = await runCommandBytes(kernelPath, [], {
+  const result = await runCommandBytes(kernelPath, readOnly ? ['--read'] : [], {
     cwd: workspaceRoot, input: bytes, maxStdinBytes: 4 * 1024 * 1024,
     maxStdoutBytes: 64 * 1024 * 1024, maxStderrBytes: 64 * 1024, timeoutMs: 30_000
   });
@@ -52,6 +75,17 @@ export async function compileAuthorModule(
     if (!failure.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author compiler failed without a diagnostic');
     const { code, path, message } = failure.data.diagnostic;
     throw new CodedFailure('AUTHOR-COMPILE-REJECTED', `${code} at ${path || '/'}: ${message}`);
+  }
+  if (readOnly) {
+    const parsed = readOutput.safeParse(value);
+    if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author Reader returned an invalid structural result');
+    const data = parsed.data;
+    if (data.source_revision !== sourceRevision) throw new CodedFailure('AUTHOR-COMPILE-REVISION', 'Reader output does not bind the exact captured author bytes');
+    if (data.source_root >= data.nodes.length || data.expanded_root >= data.nodes.length || data.nodes.some((node, index) => {
+      const children = node.kind === 'array' ? node.value : node.kind === 'object' ? Object.values(node.value) : [];
+      return children.some(child => child >= index) || (node.origin !== null && (node.origin.start > node.origin.end || node.origin.end > bytes.length));
+    })) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Reader graph contains invalid edges or source ranges');
+    return data;
   }
   const parsed = bundle.safeParse(value);
   if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author compiler returned an invalid artifact bundle');

@@ -1,5 +1,9 @@
 //! Pure, bounded author compilation. Files, tools and mutable workspaces belong to the host.
 pub mod model;
+pub mod source;
+pub mod grammar;
+pub mod expansion;
+pub mod reader;
 mod typescript;
 
 use std::collections::{BTreeMap, BTreeSet};

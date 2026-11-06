@@ -10,9 +10,9 @@ await runCli({
   version: packageMetadata.version,
   register: (program) => {
     registerCommands(program);
-    registerAuthorCommands(program, async (root, input, kernel) => {
+    registerAuthorCommands(program, async (root, input, kernel, readOnly) => {
       const { compileAuthorModule } = await import('../../adapters/compilation/author-kernel.ts');
-      return compileAuthorModule(root, input, kernel);
+      return compileAuthorModule(root, input, kernel, readOnly);
     });
     registerSemanticCommands(program, async (root, purpose, inputFile, roots) => {
       const { queryWorkspaceSemantics } = await import('../engineering/semantic-query.ts');

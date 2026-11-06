@@ -2708,6 +2708,11 @@
   ],
   "externals": [
     {
+      "path": "schema/source/project-converged.schema.json",
+      "id": "urn:gift:design-schema:project-converged",
+      "sha256": "772b8a48ea3fcb3f5fdb9d3b753497ccff1ee2ef9f5113901b76e7cd695c6e43"
+    },
+    {
       "path": "schema/author/first-layer/source-occurrence.schema.json",
       "id": "urn:gift:design-schema:first-layer-source-occurrence",
       "sha256": "cfb03759b975b235f745d8abbafea43661d5cc8877074ce922bd4ec94206aa37"

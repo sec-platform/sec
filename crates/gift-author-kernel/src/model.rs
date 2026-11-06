@@ -1,10 +1,8 @@
 //! The supported, strict subset of the existing author-module/2 encoding.
 //! Decoding never obtains files, imports, runtime observations or permissions.
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{Map, Value, value::RawValue};
+use serde::Serialize;
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Diagnostic {
@@ -384,51 +382,8 @@ fn read_definition(v: &Value, path: &str) -> Result<Definition> {
     }
 }
 
-// RawValue retains number lexemes and object members until duplicate checking.
-// Value alone cannot expose duplicates because its map has already collapsed them.
-struct RawObject(Vec<(String, Box<RawValue>)>);
-
-impl<'de> Deserialize<'de> for RawObject {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        struct ObjectVisitor;
-        impl<'de> Visitor<'de> for ObjectVisitor {
-            type Value = RawObject;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a JSON object") }
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> std::result::Result<RawObject, M::Error> {
-                let mut entries = Vec::new();
-                while let Some(entry) = map.next_entry()? { entries.push(entry); }
-                Ok(RawObject(entries))
-            }
-        }
-        deserializer.deserialize_map(ObjectVisitor)
-    }
-}
-
-fn check_unique(raw: &RawValue, path: &str, depth: usize) -> Result<()> {
-    if depth > 128 { return Err(invalid(path, "Author JSON exceeds the decoder nesting limit")); }
-    match raw.get().trim_start().as_bytes().first() {
-        Some(b'{') => {
-            let RawObject(entries) = serde_json::from_str(raw.get()).map_err(|e| invalid(path, e.to_string()))?;
-            let mut seen = BTreeSet::new();
-            for (key, value) in entries {
-                let p = at(path, &key);
-                if !seen.insert(key) { return Err(invalid(&p, "Duplicate JSON object key")); }
-                check_unique(&value, &p, depth + 1)?;
-            }
-        }
-        Some(b'[') => {
-            let entries: Vec<Box<RawValue>> = serde_json::from_str(raw.get()).map_err(|e| invalid(path, e.to_string()))?;
-            for (i, value) in entries.iter().enumerate() { check_unique(value, &at(path, &i.to_string()), depth + 1)?; }
-        }
-        _ => (),
-    }
-    Ok(())
-}
-
 pub fn read_source(bytes: &[u8]) -> Result<Module> {
-    let raw: Box<RawValue> = serde_json::from_slice(bytes).map_err(|e| invalid("", e.to_string()))?;
-    check_unique(&raw, "", 0)?;
-    let value: Value = serde_json::from_slice(bytes).map_err(|e| invalid("", e.to_string()))?;
+    let value = crate::source::decode(bytes)?.to_value();
     let o = object(&value, "")?;
     if string(o, "schema", "")? != "gift.author-module/2" {
         return Err(fail("UnsupportedAuthorSchema", "/schema", "This reader is locked to gift.author-module/2"));
