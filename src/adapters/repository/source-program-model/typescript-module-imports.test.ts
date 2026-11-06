@@ -62,13 +62,29 @@ const shareableCases = cases.filter(({ source }) => !emitCases.includes(source)
     || /^(?:void\s+import\(|require(?:\(|\.|\[)|module(?:\.|\[))/u.test(source)));
 const shareableSources = new Set(shareableCases.map(({ source }) => source));
 
-for (const { name, source, imports, unresolved } of cases.filter(({ source }) =>
-  !emitCases.includes(source) && !shareableSources.has(source))) {
-  test(`module observation: ${name}`, () => {
-    const facts = typeScriptModuleImportFacts(fixtureProgram(source));
-    assertObservation(facts, imports, unresolved);
-  });
-}
+// These are execution cohorts, not a replacement oracle or a second case inventory.
+// Keep each original script intact: top-level `require`, `module` and `load`
+// bindings must not leak into another case's TypeChecker symbol space.
+const remainingCases = cases.filter(({ source }) =>
+  !emitCases.includes(source) && !shareableSources.has(source));
+const joinedNames = [
+  'import type expression',
+  'ordinary same-named parameter',
+  'immutable require alias',
+  'alias cycle is not a module loader',
+  'syntax failure is not a complete graph'
+] as const;
+const isolatedCohorts = [
+  ['immutable alias chain', 'typeof import expression', 'ordinary same-named module'],
+  ['mutable alias is unresolved'],
+  ['destructured commonjs factory'],
+  ['bound require is unresolved'],
+  ['node module namespace immutable alias'],
+  ['destructured commonjs require alias', 'ordinary same-named function'],
+  ['conditional loader identity remains unknown'],
+  ['short circuit loader identity remains unknown'],
+  ['ordinary same-named arrow']
+] as const;
 
 // The oracle consumes the compiler's JavaScript output, independently of the
 // production extractor's source-level modifier rules. It checks side effects,
@@ -121,23 +137,42 @@ test('runtime edges agree with verbatim compiler emit for each syntax and type/r
     assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts'], source);
   }
 
-  const groupedInputs = Object.fromEntries(shareableCases.map(({ source }, index) =>
-    [`src/module-case-${index}.ts`, source]));
-  const grouped = typeScriptModuleImportFacts(fixtureProgram(groupedInputs));
-  let totalImports = 0;
-  for (const [index, { name, imports, unresolved }] of shareableCases.entries()) {
-    const path = `src/module-case-${index}.ts`;
-    assert.deepEqual(grouped.imports.filter(({ from }) => from === path)
-      .map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports, name);
-    assert.deepEqual(grouped.unresolvedFiles.filter((from) => from === path),
-      unresolved ? [path] : [], name);
-    totalImports += imports.length;
+  const selectedNames = [...joinedNames, ...isolatedCohorts.flat()];
+  assert.deepEqual([...selectedNames].sort(),
+    remainingCases.map(({ name }) => name).sort(),
+    'every non-emit import scenario has exactly one grouped carrier');
+
+  const select = (names: readonly string[]) => names.map((name) => {
+    const item = remainingCases.find((candidate) => candidate.name === name);
+    if (item === undefined) throw new Error(`Missing module import case: ${name}`);
+    return item;
+  });
+  // The already-isolated external-module / expression-only group can also
+  // accept these global scripts: no name they declare is read by another case.
+  const joined = [...shareableCases, ...select(joinedNames)];
+  const observeCohort = (items: typeof cases, prefix: string): void => {
+    const sources = Object.fromEntries(items.map(({ source }, index) =>
+      [`src/${prefix}-${index}.ts`, source]));
+    const observed = typeScriptModuleImportFacts(fixtureProgram(sources));
+    let totalImports = 0;
+    for (const [index, { name, imports, unresolved }] of items.entries()) {
+      const path = `src/${prefix}-${index}.ts`;
+      assert.deepEqual(observed.imports.filter(({ from }) => from === path)
+        .map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports, name);
+      assert.deepEqual(observed.unresolvedFiles.filter((from) => from === path),
+        unresolved ? [path] : [], name);
+      totalImports += imports.length;
+    }
+    assert.equal(observed.imports.length, totalImports, 'no extra module imports');
+    assert.deepEqual(observed.unresolvedFiles,
+      items.flatMap(({ unresolved }, index) =>
+        unresolved ? [`src/${prefix}-${index}.ts`] : []).sort(),
+      'no extra unresolved files');
+  };
+  observeCohort(joined, 'module-case');
+  for (const [index, names] of isolatedCohorts.entries()) {
+    observeCohort(select(names), `module-isolated-${index}`);
   }
-  assert.equal(grouped.imports.length, totalImports, 'no extra module imports');
-  assert.deepEqual(grouped.unresolvedFiles,
-    shareableCases.flatMap(({ unresolved }, index) =>
-      unresolved ? [`src/module-case-${index}.ts`] : []).sort(),
-    'no extra unresolved files');
 });
 
 test('declaration files retain dependency impact without inventing runtime evaluation', () => {
