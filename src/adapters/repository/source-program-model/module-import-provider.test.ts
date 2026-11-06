@@ -3,104 +3,110 @@ import assert from 'node:assert/strict';
 
 import { assembleRepositoryModuleGraph as assemble, resolveRepositoryModuleImportCandidates as candidates } from './module-graph.ts';
 import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
+import { sourceProgramModuleImports } from './embedded-programs.ts';
 
-function compileFixture(sources: Readonly<Record<string, string>>) {
-  const paths = Object.keys(sources);
-  return compileSourceProgramRepositoryModuleGraph({
-    files: paths,
-    readSource: (repositoryPath) => sources[repositoryPath] ?? null
-  });
-}
+const workflowPath = '.github/workflows/embedded-program.test.yml';
+const repeatedWorkflowImport = [
+  'name: embedded-program',
+  'on: workflow_dispatch',
+  'jobs:',
+  '  inspect:',
+  '    steps:',
+  '      - uses: actions/github-script@0123456789012345678901234567890123456789',
+  '        with:',
+  '          script: |',
+  "            const crypto = require('node:crypto');",
+  '            await import(process.env.INSPECTOR_MODULE);',
+  '      - uses: actions/github-script@0123456789012345678901234567890123456789',
+  '        with:',
+  '          script: |',
+  "            require('node:crypto');"
+].join('\n');
 
-test('JSON and triple-slash paths resolve present dependencies and reject missing dependencies', () => {
-  const graph = compileFixture({
-    'src/example/main.ts': [
+test('one canonical graph compilation preserves JSON, syntax, unresolved, embedded and reverse-edge obligations', () => {
+  const sources = new Map<string, string>([
+    ['src/example/main.ts', [
       '/// <reference path="./ambient.d.ts" />',
       "import values from './values.json';",
-      'export const value = values;',
-      ''
-    ].join('\n'),
-    'src/example/ambient.d.ts': 'declare const ambient: string;\n',
-    'src/example/values.json': '{"ready":true}\n',
-    'src/missing/main.ts': [
+      'export const value = values;', ''
+    ].join('\n')],
+    ['src/example/ambient.d.ts', 'declare const ambient: string;\n'],
+    ['src/example/values.json', '{"ready":true}\n'],
+    ['src/missing/main.ts', [
       '/// <reference path="./missing.d.ts" />',
       "import values from './missing.json';",
-      'export const value = values;',
-      ''
-    ].join('\n')
-  });
-
-  expect(graph.directDependencies('src/example/main.ts')).toEqual([
-    'src/example/ambient.d.ts',
-    'src/example/values.json'
-  ]);
-  expect(graph.references.filter(({ from }) => from === 'src/missing/main.ts')
-    .map(({ specifier }) => specifier)).toEqual(['./missing.d.ts', './missing.json']);
-  expect(graph.unresolvedFiles).toEqual(['src/missing/main.ts']);
-});
-
-
-test('compiler syntax preserves import kinds and every precompilation reference class', () => {
-  const graph = compileFixture({
-    'src/example/main.ts': [
+      'export const value = values;', ''
+    ].join('\n')],
+    ['src/kinds/main.ts', [
       '/// <reference types="node" />',
       '/// <reference lib="es2022" />',
       "import './shared.ts';",
       "void import('./shared.ts');",
-      "require('./shared.ts');",
-      ''
-    ].join('\n'),
-    'src/example/shared.ts': 'export const value = 1;'
+      "require('./shared.ts');", ''
+    ].join('\n')],
+    ['src/kinds/shared.ts', 'export const value = 1;'],
+    ['src/a.ts', "type Value = import('./b.ts').Value; import { value } from './c.ts'; void import(target);"],
+    ['src/b.ts', 'export type Value = string;'],
+    ['src/c.ts', 'export const value = 1;'],
+    ['src/provider/main.ts', "export { value } from './value.ts';"],
+    ['src/provider/value.ts', 'export const value = true;'],
+    [workflowPath, repeatedWorkflowImport]
+  ]);
+  const embeddedCalls: string[] = [];
+  const graph = compileSourceProgramRepositoryModuleGraph({
+    files: [...sources.keys()],
+    readSource: (path) => sources.get(path) ?? null,
+    readEmbeddedLanguageImports: (path, source) => {
+      embeddedCalls.push(path);
+      return sourceProgramModuleImports(path, source);
+    }
   });
 
-  expect(graph.references.map(({ from: _from, candidateTargets: _candidates, resolvedTarget: _target, ...reference }) => reference)).toEqual([
+  // The independent paths remain separate failure witnesses inside one
+  // TypeScript program and one graph assembly.
+  expect(graph.directDependencies('src/example/main.ts')).toEqual([
+    'src/example/ambient.d.ts', 'src/example/values.json'
+  ]);
+  expect(graph.references.filter(({ from }) => from === 'src/missing/main.ts')
+    .map(({ specifier }) => specifier)).toEqual(['./missing.d.ts', './missing.json']);
+  expect(graph.unresolvedFiles).toContain('src/missing/main.ts');
+
+  expect(graph.references
+    .filter(({ from }) => from === 'src/kinds/main.ts')
+    .map(({ from: _from, candidateTargets: _candidates, resolvedTarget: _target, ...reference }) => reference)
+  ).toEqual([
     { kind: 'dynamic', specifier: './shared.ts', typeOnly: false },
     { kind: 'require', specifier: './shared.ts', typeOnly: false },
     { kind: 'static', specifier: './shared.ts', typeOnly: false },
     { kind: 'static', specifier: 'es2022', typeOnly: true },
     { kind: 'static', specifier: 'node', typeOnly: true }
   ]);
-  expect(graph.directConsumers('src/example/shared.ts')).toEqual(['src/example/main.ts']);
+  expect(graph.directConsumers('src/kinds/shared.ts')).toEqual(['src/kinds/main.ts']);
   for (const query of [graph.directDependencies, graph.directRuntimeDependencies]) {
-    const paths = query('src/example/main.ts');
-    expect(paths).toEqual(['src/example/shared.ts']);
+    const paths = query('src/kinds/main.ts');
+    expect(paths).toEqual(['src/kinds/shared.ts']);
     expect(Reflect.set(paths, 0, 'injected')).toBe(false);
-    expect(query('src/example/main.ts')).toEqual(['src/example/shared.ts']);
+    expect(query('src/kinds/main.ts')).toEqual(['src/kinds/shared.ts']);
   }
-});
 
-test('ordinary TypeScript import facts cannot be replaced by an embedded-language provider', () => {
-  let providerCalls = 0;
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: ['src/example/main.ts', 'src/example/value.ts'],
-    readSource: (repositoryPath) => repositoryPath === 'src/example/main.ts'
-      ? "export { value } from './value.ts';"
-      : 'export const value = true;',
-    readEmbeddedLanguageImports: () => {
-      providerCalls += 1;
-      return [{ kind: 'static', specifier: './foreign.ts', typeOnly: false }];
-    }
-  });
-
-  expect(providerCalls).toBe(0);
-  expect(graph.directDependencies('src/example/main.ts')).toEqual(['src/example/value.ts']);
-});
-
-
-test('canonical frontend joins unresolved, type-only and runtime observations without losing reverse edges', () => {
-  const sources = new Map([
-    ['src/a.ts', "type Value = import('./b.ts').Value; import { value } from './c.ts'; void import(target);"],
-    ['src/b.ts', 'export type Value = string;'],
-    ['src/c.ts', 'export const value = 1;']
-  ]);
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: [...sources.keys()],
-    readSource: (file) => sources.get(file) ?? null
-  });
-  expect(graph.unresolvedFiles).toEqual(['src/a.ts']);
+  expect(graph.unresolvedFiles).toContain('src/a.ts');
   expect(graph.directDependencies('src/a.ts')).toEqual(['src/b.ts', 'src/c.ts']);
   expect(graph.directRuntimeDependencies('src/a.ts')).toEqual(['src/c.ts']);
   expect(graph.directConsumers('src/c.ts')).toEqual(['src/a.ts']);
+
+  // Embedded imports are consumed from YAML, not from a TypeScript parse;
+  // the same imported builtin produces one graph edge for two script steps.
+  expect(embeddedCalls).toContain(workflowPath);
+  expect(embeddedCalls.filter((path) => path.endsWith('.ts'))).toEqual([]);
+  expect(graph.unresolvedFiles).not.toContain(workflowPath);
+  expect(graph.references.filter(({ from }) => from === workflowPath)).toEqual([
+    expect.objectContaining({
+      from: workflowPath, kind: 'require', specifier: 'node:crypto', resolvedTarget: null
+    })
+  ]);
+  expect(graph.directDependencies('src/provider/main.ts')).toEqual(['src/provider/value.ts']);
+  expect(graph.references.filter(({ from }) => from === 'src/provider/main.ts'))
+    .toEqual([expect.objectContaining({ specifier: './value.ts', resolvedTarget: 'src/provider/value.ts' })]);
 });
 
 test('lexical resolution retains ordered candidates, exact first targets and missing-target reverse impact', () => {

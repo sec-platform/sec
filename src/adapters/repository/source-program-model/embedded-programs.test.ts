@@ -2,11 +2,9 @@ import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  compileSourceProgramEmbeddedWorkflowPrograms,
-  sourceProgramModuleImports
+  compileSourceProgramEmbeddedWorkflowPrograms
 } from './embedded-programs.ts';
 import { compileRepositorySourceProgramModel } from './repository.ts';
-import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 
 const workflowPath = '.github/workflows/embedded-program.test.yml';
 const workflowSource = `name: embedded-program
@@ -26,32 +24,6 @@ jobs:
         run: |
           bun -e 'import { inspect } from "./src/inspect.ts"; inspect()'
 `;
-
-test('repository module graph consumes embedded imports instead of parsing YAML as TypeScript', () => {
-  const repeatedImport = workflowSource + `
-  another:
-    steps:
-      - uses: actions/github-script@0123456789012345678901234567890123456789
-        with:
-          script: |
-            require('node:crypto');
-`;
-  const graph = compileSourceProgramRepositoryModuleGraph({
-    files: [workflowPath],
-    readSource: (repositoryPath) => repositoryPath === workflowPath ? repeatedImport : null,
-    readEmbeddedLanguageImports: sourceProgramModuleImports
-  });
-
-  expect(graph.unresolvedFiles).toEqual([]);
-  expect(graph.references).toEqual([
-    expect.objectContaining({
-      from: workflowPath,
-      kind: 'require',
-      specifier: 'node:crypto',
-      resolvedTarget: null
-    })
-  ]);
-});
 
 test('repository model projects embedded programs through existing entrypoint, capability and unknown contracts', () => {
   const file = Object.freeze({
