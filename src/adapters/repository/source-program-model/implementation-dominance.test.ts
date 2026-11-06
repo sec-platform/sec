@@ -163,13 +163,13 @@ test('contract codecs crossing durable recovery boundaries require migration ins
   ))).toBe(true);
 });
 
-test('capability effects belong to declaration spans rather than every export in the file', () => {
+test('declaration-scoped process effects distinguish direct and delegated calls from module initialization', () => {
   const baseMembership = membership({ 'src/process': 'process-owner' });
   const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
     ...descriptor,
     capabilityProviders: Object.freeze([Object.freeze({
       capability: 'process.operations',
-      operations: Object.freeze(['pureValue', 'runProcess']),
+      operations: Object.freeze(['pureValue', 'runProcess', 'delegatedProcess', 'initStatus']),
       effectKinds: Object.freeze([]),
       ownerInternalOperations: Object.freeze([]),
       operationRoles: Object.freeze([])
@@ -177,7 +177,15 @@ test('capability effects belong to declaration spans rather than every export in
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = "import { spawnSync } from 'node:child_process';\nexport function pureValue(): number { return 1; }\nexport function runProcess(command: string) { return spawnSync(command); }\n";
-  const sources = { 'src/process/operations.ts': source };
+  const sources = {
+    'src/process/operations.ts': source,
+    'src/process/delegated.ts': "import { spawnSync } from 'node:child_process';\n"
+      + 'function invoke(command: string) { return spawnSync(command); }\n'
+      + 'export function delegatedProcess(command: string) { return invoke(command); }\n',
+    'src/process/initialization.ts': "import { spawnSync } from 'node:child_process';\n"
+      + "const startup = spawnSync('status');\n"
+      + 'export function initStatus(): number { return startup.status ?? 0; }\n'
+  };
   const { model, ownerIntents } = compileFacts(sources, moduleMembership);
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const pureUnit = compilation.units.find(({ semanticIdentity }) => (
@@ -195,40 +203,11 @@ test('capability effects belong to declaration spans rather than every export in
     effect: 'present',
     external: 'present'
   }));
-});
-
-test('exact call closure propagates capabilities while module initialization remains unknown', () => {
-  const compileOperation = (source: string, operation: string) => {
-    const baseMembership = membership({ 'src/process': 'process-owner' });
-    const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
-      ...descriptor,
-      capabilityProviders: Object.freeze([Object.freeze({
-        capability: 'process.operations',
-        operations: Object.freeze([operation]),
-        effectKinds: Object.freeze([]),
-        ownerInternalOperations: Object.freeze([]),
-        operationRoles: Object.freeze([])
-      })])
-    }));
-    const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-    const sources = { 'src/process/operations.ts': source };
-    const { model, ownerIntents } = compileFacts(sources, moduleMembership);
-    return compileSourceProgramImplementationDominance({ model, ownerIntents });
-  };
-  const delegated = compileOperation(
-    "import { spawnSync } from 'node:child_process';\nfunction invoke(command: string) { return spawnSync(command); }\nexport function runProcess(command: string) { return invoke(command); }\n",
-    'runProcess'
-  );
-  const moduleInitialization = compileOperation(
-    "import { spawnSync } from 'node:child_process';\nconst startup = spawnSync('status');\nexport function pureValue(): number { return startup.status ?? 0; }\n",
-    'pureValue'
-  );
-
-  expect(delegated.units.find(({ semanticIdentity }) => (
-    semanticIdentity === 'provider-operation:process.operations:runProcess'
+  expect(compilation.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:delegatedProcess'
   ))?.frontiers).toEqual(expect.objectContaining({ effect: 'present', external: 'present' }));
-  expect(moduleInitialization.units.find(({ semanticIdentity }) => (
-    semanticIdentity === 'provider-operation:process.operations:pureValue'
+  expect(compilation.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:initStatus'
   ))?.frontiers).toEqual(expect.objectContaining({ effect: 'unknown', unknown: 'present' }));
 });
 
