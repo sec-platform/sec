@@ -6,6 +6,8 @@ pub mod expansion;
 pub mod reader;
 pub mod binding;
 pub mod lexical;
+pub mod semantic_types;
+pub mod header_seeds;
 mod reference_slots;
 mod typescript;
 

@@ -251,6 +251,19 @@ fn definitions(source: &DecodedSource) -> Result<&BTreeMap<String, Node>> {
 /// Analyze fixed captures and explicit in-memory import edges. Each capture slot
 /// is distinct; no global moduleId map or byte deduplication creates identity.
 pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], root: usize) -> Result<NameAnalysis> {
+    Ok(prepare_sources(sources, bindings, root, false)?.names)
+}
+
+pub(crate) struct PreparedNames {
+    pub names: NameAnalysis,
+    pub navigation: Vec<reference_slots::Navigation>,
+    pub budget: Budget,
+}
+
+/// Type/header formation retains this same navigation and its remaining budget.
+/// Ordinary names callers do not execute type formation or retain its inputs.
+pub(crate) fn prepare_sources(sources: &[DecodedSource], bindings: &[ImportBinding], root: usize,
+    retain_navigation: bool) -> Result<PreparedNames> {
     if sources.is_empty() || root >= sources.len() { return Err(fail("InvalidNameInput", "", "Root must select an actual captured module")); }
     if sources.len() > 128 || sources.iter().map(|s| s.bytes().len()).sum::<usize>() > 32 * 1024 * 1024 {
         return Err(fail("ResourceLimit", "", "Name-analysis capture budget exceeded"));
@@ -322,6 +335,7 @@ pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], ro
     let mut exports = Vec::new();
     let mut references = Vec::new();
     let mut lexical = crate::lexical::LexicalArena::default();
+    let mut retained_navigation = Vec::new();
     let reader = reader::shared()?;
     for (index, source) in sources.iter().enumerate() {
         if let Some(entries) = source.expanded().get("imports").and_then(Node::as_object) {
@@ -340,10 +354,10 @@ pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], ro
                 exports.push(ExportResolution { module: ModuleId(index), name: resolver.budget.copy(name)?, resolution });
             }
         }
-        let navigation = reference_slots::collect(reader, source.expanded(), &mut resolver.budget)?;
+        let mut navigation = reference_slots::collect(reader, source.expanded(), &mut resolver.budget)?;
         crate::lexical::analyze_module(reader, &navigation, source, ModuleId(index),
             &resolver.input.declarations[index], &mut lexical, &mut resolver.budget)?;
-        for slot in navigation.references.into_values() {
+        for slot in std::mem::take(&mut navigation.references).into_values() {
             let name = slot.path.strip_prefix("/definitions/").and_then(|path| path.split_once('/')).map(|(name, _)| name.replace("~1", "/").replace("~0", "~"));
             let owner = name.as_ref().and_then(|name| resolver.input.declarations[index].get(name)).copied();
             let dialect_slot = owner.is_some_and(|id| seeds[id.0].kind == "extension:definition" &&
@@ -354,10 +368,15 @@ pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], ro
             references.push(ReferenceResolution { module: ModuleId(index), owner, expanded_path: slot.path,
                 origin: resolver.budget.origin(&slot.node)?, schema_slot: slot.schema, domain, resolution });
         }
+        if retain_navigation {
+            resolver.budget.charge(128)?;
+            retained_navigation.push(navigation);
+        }
     }
-    Ok(NameAnalysis { schema: "gift.author-names/2", stage: "names", identity_scope: "capture-local", input_revision, source_revision,
+    let names = NameAnalysis { schema: "gift.author-names/2", stage: "names", identity_scope: "capture-local", input_revision, source_revision,
         root: ModuleId(root), modules, declarations: seeds, references, exports, reads: resolver.reads.into_iter().collect(), problems, pending_regions, lexical,
-        unchecked: &["declaration-roles", "types", "effects", "capture-lifetimes-and-escape", "initialization-dependencies", "professional-interpretation", "callable-qualification", "module-use-and-lock", "persistent-declaration-lineage", "target"] })
+        unchecked: &["declaration-roles", "types", "effects", "capture-lifetimes-and-escape", "initialization-dependencies", "professional-interpretation", "callable-qualification", "module-use-and-lock", "persistent-declaration-lineage", "target"] };
+    Ok(PreparedNames { names, navigation: retained_navigation, budget: resolver.budget })
 }
 
 pub fn analyze(bytes: &[u8]) -> Result<NameAnalysis> { analyze_sources(&[reader::read(bytes)?], &[], 0) }
