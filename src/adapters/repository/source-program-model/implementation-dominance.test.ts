@@ -54,29 +54,12 @@ function compileFacts(
   });
 }
 
-test('equal declaration bytes without an owner responsibility remain heuristic unknown', () => {
-  const { model, ownerIntents } = compileFacts({
-    'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
-    'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
-    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
-  }, membership({
-    'src/identity': 'identity-owner',
-    'src/consumer': 'consumer-owner'
-  }));
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  expect(compilation.units.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
-  expect(compilation.findings).toEqual([expect.objectContaining({
-    kind: 'identity',
-    disposition: 'unknown',
-    removableUnitIds: []
-  })]);
-});
 
 test('equal public-operation declarations still require an exact evolution obligation', () => {
   const baseMembership = membership({
     'src/identity': 'identity-owner',
-    'src/consumer': 'consumer-owner'
+    'src/consumer': 'consumer-owner',
+    'src/unbound': 'unbound-owner'
   });
   const descriptors = baseMembership.descriptors.map((descriptor) => descriptor.moduleId !== 'identity-owner'
     ? descriptor
@@ -94,7 +77,10 @@ test('equal public-operation declarations still require an exact evolution oblig
   const sources = {
     'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
-    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
+    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n",
+    'src/unbound/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
+    'src/unbound/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
+    'src/unbound/use.ts': "import { compareIdentity } from './primary.ts';\nexport const heuristicAccepted = compareIdentity('a', 'a');\n"
   };
   const { model, ownerIntents } = compileFacts(sources, moduleMembership);
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
@@ -105,28 +91,48 @@ test('equal public-operation declarations still require an exact evolution oblig
     disposition: 'owner-decision-required',
     removableUnitIds: []
   }));
-  expect(compilation.findings.some(({ disposition }) => disposition === 'unknown')).toBe(false);
+  const unboundUnits = compilation.units.filter(({ kind, semanticIdentity }) => (
+    kind === 'identity' && semanticIdentity.startsWith('unbound-responsibility:')
+  ));
+  expect(unboundUnits).toHaveLength(2);
+  expect(unboundUnits.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
+  expect(unboundUnits.map(({ producerPaths }) => producerPaths[0]).sort()).toEqual([
+    'src/unbound/duplicate.ts',
+    'src/unbound/primary.ts'
+  ]);
+  expect(compilation.findings.filter(({ kind, semanticIdentity }) => (
+    kind === 'identity' && semanticIdentity.startsWith('unbound-responsibility:')
+  ))).toEqual([expect.objectContaining({
+    disposition: 'unknown',
+    removableUnitIds: []
+  })]);
 });
 
 test('contract codecs crossing durable recovery boundaries require migration instead of deletion', () => {
   const moduleMembership = membership({
     'src/codec-a': 'codec-a-owner',
-    'src/codec-b': 'codec-b-owner'
+    'src/codec-b': 'codec-b-owner',
+    'src/manual': 'manual-owner',
+    'src/schema': 'schema-owner'
   });
   const sources = {
     'src/codec-a/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n',
-    'src/codec-b/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n'
+    'src/codec-b/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n',
+    'src/manual/decode.ts': 'export function decodePayload(value: string): unknown { return JSON.parse(value); }\n',
+    'src/schema/decode.ts': 'const payloadSchema = { parse: (value: string): unknown => JSON.parse(value) };\nexport function decodePayload(value: string): unknown { return payloadSchema.parse(value); }\n'
   };
-  const descriptors = moduleMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'contract-codec',
-      operations: Object.freeze(['decodeContract']),
-      effectKinds: Object.freeze(['persistent-state' as const]),
+  const descriptors = moduleMembership.descriptors.map((descriptor) => {
+    const heuristicCodec = descriptor.moduleId === 'manual-owner' || descriptor.moduleId === 'schema-owner';
+    return Object.freeze({
+      ...descriptor,
+      capabilityProviders: Object.freeze([Object.freeze({
+      capability: heuristicCodec ? 'payload.codec' : 'contract-codec',
+      operations: Object.freeze([heuristicCodec ? 'decodePayload' : 'decodeContract']),
+      effectKinds: Object.freeze(heuristicCodec ? [] : ['persistent-state' as const]),
       ownerInternalOperations: Object.freeze([]),
       operationRoles: Object.freeze([])
     })]),
-    operationObligations: Object.freeze([Object.freeze({
+    operationObligations: Object.freeze(heuristicCodec ? [] : [Object.freeze({
       operation: Object.freeze({
         kind: 'capability' as const,
         capability: 'contract-codec',
@@ -145,7 +151,8 @@ test('contract codecs crossing durable recovery boundaries require migration ins
       resources: Object.freeze({ aggregateBudgets: Object.freeze([]) }),
       futureSupport: Object.freeze({ condition: 'preserve-obligations' as const })
     })])
-  }));
+    });
+  });
   const membershipWithObligations = Object.freeze({
     ...moduleMembership,
     descriptors
@@ -155,12 +162,25 @@ test('contract codecs crossing durable recovery boundaries require migration ins
 
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'transition-algebra',
+    semanticIdentity: 'operation:contract-codec:decodeContract',
     disposition: 'migration-required',
     removableUnitIds: []
   }));
-  expect(compilation.units.every(({ frontiers }) => (
+  const durableCodecUnits = compilation.units.filter(({ kind, semanticIdentity }) => (
+    kind === 'transition-algebra' && semanticIdentity === 'operation:contract-codec:decodeContract'
+  ));
+  expect(durableCodecUnits).toHaveLength(2);
+  expect(durableCodecUnits.every(({ frontiers }) => (
     frontiers.durable === 'present' && frontiers.recovery === 'present'
   ))).toBe(true);
+  const payloadCodecUnits = compilation.units.filter(({ kind, semanticIdentity }) => (
+    kind === 'contract-codec' && semanticIdentity === 'owner-capability:payload.codec:decodePayload'
+  ));
+  expect(payloadCodecUnits).toHaveLength(2);
+  expect(payloadCodecUnits.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
+  expect(compilation.findings.filter(({ kind, semanticIdentity }) => (
+    kind === 'contract-codec' && semanticIdentity === 'owner-capability:payload.codec:decodePayload'
+  ))).toEqual([expect.objectContaining({ disposition: 'unknown', removableUnitIds: [] })]);
 });
 
 test('declaration-scoped process effects distinguish direct and delegated calls from module initialization', () => {
@@ -209,53 +229,20 @@ test('declaration-scoped process effects distinguish direct and delegated calls 
   expect(compilation.units.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:process.operations:initStatus'
   ))?.frontiers).toEqual(expect.objectContaining({ effect: 'unknown', unknown: 'present' }));
-});
 
-test('codec-shaped names remain unknown when the compiler cannot prove one grammar', () => {
-  const moduleMembership = membership({
-    'src/manual': 'manual-owner',
-    'src/schema': 'schema-owner'
-  });
-  const descriptors = moduleMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'payload.codec',
-      operations: Object.freeze(['decodePayload']),
-      effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })])
-  }));
-  const membershipWithCodec = Object.freeze({ ...moduleMembership, descriptors });
-  const sources = {
-    'src/manual/decode.ts': 'export function decodePayload(value: string): unknown { return JSON.parse(value); }\n',
-    'src/schema/decode.ts': 'const payloadSchema = { parse: (value: string): unknown => JSON.parse(value) };\nexport function decodePayload(value: string): unknown { return payloadSchema.parse(value); }\n'
-  };
-  const { model, ownerIntents } = compileFacts(sources, membershipWithCodec);
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  const codecUnits = compilation.units.filter(({ kind }) => kind === 'contract-codec');
-  expect(codecUnits.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
-  expect(compilation.findings.filter(({ kind }) => kind === 'contract-codec')).toEqual([
-    expect.objectContaining({ disposition: 'unknown', removableUnitIds: [] })
-  ]);
-});
-
-test('a direct process wrapper remains protected by its external provider frontier', () => {
-  const { model, ownerIntents } = compileFacts({
-    'src/process/run.ts': "import { spawnSync } from 'node:child_process';\nexport function run(command: string) { return spawnSync(command); }\n"
-  }, membership({ 'src/process': 'process-consumer' }));
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-  const externalUnits = compilation.units.filter(({ kind }) => kind === 'external-capability-candidate');
-
-  expect(externalUnits).toHaveLength(1);
-  expect(externalUnits[0]!.frontiers.external).toBe('present');
+  const directExternalUnits = compilation.units.filter(({ kind, producerPaths }) => (
+    kind === 'external-capability-candidate' && producerPaths.includes('src/process/operations.ts')
+  ));
+  expect(directExternalUnits).toHaveLength(1);
+  expect(directExternalUnits[0]!.frontiers.external).toBe('present');
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'external-capability-candidate',
+    semanticIdentity: directExternalUnits[0]!.semanticIdentity,
     disposition: 'owner-decision-required',
     removableUnitIds: []
   }));
 });
+
 
 test('duplicate completion candidates without an owner readback fact cannot sign completion', () => {
   const moduleMembership = membership({
