@@ -4,6 +4,8 @@ pub mod source;
 pub mod grammar;
 pub mod expansion;
 pub mod reader;
+pub mod binding;
+mod reference_slots;
 mod typescript;
 
 use std::collections::{BTreeMap, BTreeSet};

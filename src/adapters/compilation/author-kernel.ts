@@ -40,9 +40,35 @@ const readOutput = z.object({
 }).strict();
 export type AuthorReadOutput = z.infer<typeof readOutput>;
 
+const exportHop = z.object({
+  module: nodeId, export: z.string(), via_import: z.string().nullable(),
+  qualification: z.enum(['capture-local', 'pending-lock-and-module-use'])
+}).strict();
+const resolution = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('resolved'), declaration: nodeId, route: z.array(exportHop) }).strict(),
+  z.object({ state: z.literal('needs'), code: z.string(), selector: z.string(), route: z.array(exportHop) }).strict(),
+  z.object({ state: z.literal('rejected'), code: z.string(), selector: z.string(), route: z.array(exportHop) }).strict()
+]);
+const namesOutput = z.object({
+  schema: z.literal('gift.author-names/1'), stage: z.literal('names'), identity_scope: z.literal('capture-local'),
+  input_revision: z.string(), source_revision: z.string(), root: nodeId,
+  modules: z.array(z.object({ id: nodeId, module_id: z.string(), source_revision: z.string(), grammar_revision: z.string() }).strict()),
+  declarations: z.array(z.object({ id: nodeId, module: nodeId, name: z.string(), kind: z.string(), origin }).strict()),
+  references: z.array(z.object({ module: nodeId, owner: nodeId.nullable(), expanded_path: z.string(), origin,
+    schema_slot: z.string(), domain: z.enum(['source-reference', 'declaration-selector', 'profile-selector', 'dialect-consumer']), resolution }).strict()),
+  exports: z.array(z.object({ module: nodeId, name: z.string(), resolution }).strict()),
+  reads: z.array(z.object({ module: nodeId, domain: z.string(), name: z.string() }).strict()),
+  problems: z.array(z.object({ module: nodeId, path: z.string(), code: z.string() }).strict()),
+  pending_regions: z.array(z.object({ module: nodeId, path: z.string(), code: z.string() }).strict()),
+  unchecked: z.array(z.string())
+}).strict();
+export type AuthorNameAnalysis = z.infer<typeof namesOutput>;
+
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string): Promise<AuthorCompilationBundle>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: true): Promise<AuthorReadOutput>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: boolean): Promise<AuthorCompilationBundle | AuthorReadOutput>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: 'names'): Promise<AuthorNameAnalysis>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: boolean | 'names'): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis>;
 
 /** Explicit local compiler invocation. Generation returns a bundle; it does not write target files,
  * install a compiler, execute target code, or acquire project/default-branch mutation authority. */
@@ -50,8 +76,8 @@ export async function compileAuthorModule(
   workspaceRoot: string,
   inputFile: string,
   kernelFile: string,
-  readOnly = false
-): Promise<AuthorCompilationBundle | AuthorReadOutput> {
+  mode: boolean | 'names' = false
+): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis> {
   const inputPath = resolvePathInside(workspaceRoot, inputFile);
   const kernelPath = resolvePathInside(workspaceRoot, kernelFile);
   if (inputPath === null || kernelPath === null) {
@@ -61,7 +87,7 @@ export async function compileAuthorModule(
   if (bytes === null) throw new CodedFailure('AUTHOR-COMPILE-INPUT', 'Gift author source is missing');
   if (bytes.length > 4 * 1024 * 1024) throw new CodedFailure('AUTHOR-COMPILE-LIMIT', 'Gift author source exceeds the input budget');
   const sourceRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  const result = await runCommandBytes(kernelPath, readOnly ? ['--read'] : [], {
+  const result = await runCommandBytes(kernelPath, mode === 'names' ? ['--names'] : mode ? ['--read'] : [], {
     cwd: workspaceRoot, input: bytes, maxStdinBytes: 4 * 1024 * 1024,
     maxStdoutBytes: 64 * 1024 * 1024, maxStderrBytes: 64 * 1024, timeoutMs: 30_000
   });
@@ -76,7 +102,27 @@ export async function compileAuthorModule(
     const { code, path, message } = failure.data.diagnostic;
     throw new CodedFailure('AUTHOR-COMPILE-REJECTED', `${code} at ${path || '/'}: ${message}`);
   }
-  if (readOnly) {
+  if (mode === 'names') {
+    const parsed = namesOutput.safeParse(value);
+    if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author name analyzer returned an invalid result');
+    const data = parsed.data;
+    if (data.source_revision !== sourceRevision || data.modules.some(module => module.source_revision !== sourceRevision)) {
+      throw new CodedFailure('AUTHOR-COMPILE-REVISION', 'Name analysis does not bind the exact captured author bytes');
+    }
+    const validOrigin = (item: z.infer<typeof origin>): boolean => item === null || (item.start <= item.end && item.end <= bytes.length);
+    const validResolution = (item: z.infer<typeof resolution>): boolean =>
+      (item.state !== 'resolved' || item.declaration < data.declarations.length) && item.route.every(hop => hop.module === 0);
+    if (data.root !== 0 || data.modules.length !== 1 || data.modules[0]?.id !== 0 ||
+      data.declarations.some((declaration, index) => declaration.id !== index || declaration.module !== 0 || !validOrigin(declaration.origin)) ||
+      data.references.some(reference => reference.module !== 0 || (reference.owner !== null && reference.owner >= data.declarations.length) ||
+        !validOrigin(reference.origin) || !validResolution(reference.resolution)) ||
+      data.exports.some(item => item.module !== 0 || !validResolution(item.resolution)) ||
+      [...data.reads, ...data.problems, ...data.pending_regions].some(item => item.module !== 0)) {
+      throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Name analysis contains an invalid capture ID, reference or source range');
+    }
+    return data;
+  }
+  if (mode) {
     const parsed = readOutput.safeParse(value);
     if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author Reader returned an invalid structural result');
     const data = parsed.data;

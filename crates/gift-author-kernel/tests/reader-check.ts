@@ -35,6 +35,38 @@ await assert.rejects(compileAuthorModule(root, path.relative(root, invalid), ker
 const legacy = await compileAuthorModule(root, 'crates/gift-author-kernel/fixtures/shared-views.module.json', kernel);
 assert.equal(legacy.artifacts.length, 4);
 await assert.rejects(compileAuthorModule(root, 'crates/gift-author-kernel/fixtures/shared-views.module.json', kernel, true), /UnsupportedAuthorSchema/);
+const namesPath = path.join(work, 'names.json');
+const namesBytes = Buffer.from(JSON.stringify({ schema: 'gift.author-module/design-converged', moduleId: 'module:names', definitions: {
+  T: { kind: 'core:type', body: { type: { tag: 'scalar', name: 'bool' } } },
+  Alias: { kind: 'core:type', body: { type: { tag: 'nominal', ref: { space: 'local', definition: 'T' } } } },
+  '': { 'req:enum-value': {} }
+}, exports: ['T', ''] }));
+writeFileSync(namesPath, namesBytes, { flag: 'wx' });
+const namesRelative = path.relative(root, namesPath);
+const names = await compileAuthorModule(root, namesRelative, kernel, 'names');
+assert.equal(names.stage, 'names');
+assert.equal(names.identity_scope, 'capture-local');
+assert.equal(names.declarations.length, 3);
+assert.equal(names.references.length, 1);
+const nameReference = names.references[0];
+assert.ok(nameReference?.resolution.state === 'resolved');
+assert.equal(names.declarations[nameReference.resolution.declaration]?.name, 'T');
+assert.ok(names.unchecked.includes('types'));
+assert.equal('artifacts' in names, false);
+assert.deepEqual(readFileSync(namesPath), namesBytes);
+const namesCli = await runCommand('bun', ['run', 'sec', '--', 'author', '--names', '--input', namesRelative, '--kernel', kernel, '--json'], {
+  cwd: root, timeoutMs: 30_000, maxStdoutBytes: 4 * 1024 * 1024, maxStderrBytes: 64 * 1024
+});
+assert.equal(namesCli.code, 0, namesCli.stderr);
+assert.deepEqual(JSON.parse(namesCli.stdout), names);
+const conflictingModes = await runCommand('bun', ['run', 'sec', '--', 'author', '--read', '--names', '--input', namesRelative, '--kernel', kernel, '--json'], {
+  cwd: root, timeoutMs: 30_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024
+});
+assert.notEqual(conflictingModes.code, 0);
+await assert.rejects(compileAuthorModule(root, 'crates/gift-author-kernel/fixtures/shared-views.module.json', kernel, 'names'), /UnsupportedAuthorSchema/);
+await assert.rejects(compileAuthorModule(root, path.relative(root, project), kernel, 'names'), /NeedsModuleCapture/);
 writeFileSync(path.join(work, 'evidence.json'), JSON.stringify({ sourceRevision: result.source_revision, grammarRevision: result.grammar_revision,
-  cases: ['exact-source-and-number-lexeme', 'actual-cli', 'project', 'duplicate-key', 'historical-compile', 'no-reader-fallback'], result: 'PASS' }, null, 2));
+  nameInputRevision: names.input_revision,
+  cases: ['exact-source-and-number-lexeme', 'actual-cli', 'project', 'duplicate-key', 'historical-compile', 'no-reader-fallback',
+    'native-name-analysis', 'actual-name-cli', 'exclusive-modes', 'no-name-format-fallback', 'project-needs-capture'], result: 'PASS' }, null, 2));
 console.log(JSON.stringify({ result: 'PASS', evidence: path.join(work, 'evidence.json') }));

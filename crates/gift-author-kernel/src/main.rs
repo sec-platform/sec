@@ -1,16 +1,18 @@
 //! Host transport only: bounded stdin -> pure compiler -> stdout. No project I/O or tool launch.
 use std::io::{self, Read, Write};
-use gift_author_kernel::{MAX_SOURCE_BYTES, compile, reader, model::fail};
+use gift_author_kernel::{MAX_SOURCE_BYTES, binding, compile, reader, model::fail};
 
 fn main() {
     let mut bytes = Vec::new();
     let arguments:Vec<_>=std::env::args_os().skip(1).collect();
     let read_only=arguments.len()==1&&arguments[0]=="--read";
+    let names_only=arguments.len()==1&&arguments[0]=="--names";
     let result = io::stdin().take((MAX_SOURCE_BYTES + 1) as u64).read_to_end(&mut bytes)
         .map_err(|error| gift_author_kernel::model::fail("InputFailure", "", error.to_string()))
         .and_then(|_| {
-            if !arguments.is_empty()&&!read_only { return Err(fail("InputFailure","","Expected no argument or --read")); }
+            if !arguments.is_empty()&&!read_only&&!names_only { return Err(fail("InputFailure","","Expected no argument, --read or --names")); }
             if read_only { reader::read(&bytes).and_then(|v|v.output()).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
+            else if names_only { binding::analyze(&bytes).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
             else { compile(&bytes).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
         }).and_then(|output| {
             if output.len() >= reader::MAX_OUTPUT_BYTES { Err(fail("ResourceLimit","","Author result exceeds the transport budget")) }

@@ -139,6 +139,8 @@ impl DecodedSource {
     pub fn bytes(&self)->&[u8] { &self.bytes }
     pub fn source(&self)->&Node { &self.source }
     pub fn expanded(&self)->&Node { &self.expanded }
+    pub fn source_format(&self)->&str { &self.source_format }
+    pub fn grammar_revision(&self)->&str { &self.grammar_revision }
     pub fn output(&self)->Result<ReadOutput,Diagnostic> {
         fn visit(node:&Node,bytes:&[u8],ids:&mut BTreeMap<usize,usize>,nodes:&mut Vec<WireNode>,budget:&mut OutputBudget)->Result<usize,Diagnostic> {
             if let Some(id)=ids.get(&node.identity()) { return Ok(*id); }
@@ -175,7 +177,9 @@ mod resource_tests {
     }
 }
 
-pub fn read(bytes:&[u8])->Result<DecodedSource,Diagnostic> {
+pub(crate) fn shared()->Result<&'static Reader,Diagnostic> {
     static READER:OnceLock<Result<Reader,Diagnostic>>=OnceLock::new();
-    READER.get_or_init(Reader::new).as_ref().map_err(Clone::clone)?.read(bytes)
+    READER.get_or_init(Reader::new).as_ref().map_err(Clone::clone)
 }
+
+pub fn read(bytes:&[u8])->Result<DecodedSource,Diagnostic> { shared()?.read(bytes) }
