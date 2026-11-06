@@ -430,9 +430,12 @@ const incrementalScenarios: readonly Readonly<{
   after: Readonly<Record<string, string>>; remove?: string; mode: 'incremental' | 'full';
 }>[] = [
   { name: 'isolated new test', after: { 'tests/added.test.ts': addedTestSource }, mode: 'incremental' },
-  { name: 'shared helper', after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
+  // One helper-byte change must exercise the direct and star re-export consumers.
+  { name: 'shared helper', before: {
+    'src/example/barrel.ts': "export * from './helper.ts';\n",
+    'src/example/reexport-consumer.ts': "import { value } from './barrel.ts'; export const reexportResult = value;\n"
+  }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
   { name: 'formerly unresolved import', before: { 'src/example/consumer.ts': "import { value } from './late.ts'; export const result = value;\n" }, after: { 'src/example/late.ts': 'export const value = 2;\n' }, mode: 'full' },
-  { name: 'star re-export', before: { 'src/example/barrel.ts': "export * from './helper.ts';\n", 'src/example/consumer.ts': "import { value } from './barrel.ts'; export const result = value;\n" }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
   { name: 'global augmentation', after: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, mode: 'full' },
   { name: 'added module with changed global input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': 'export const value = 1; declare global { interface Window { value: number } }\n' }, mode: 'full' },
   { name: 'added module with changed triple-slash input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': '/// <reference lib="es2022" />\nexport const value = 1;\n' }, mode: 'full' },
@@ -475,6 +478,8 @@ for (const scenario of incrementalScenarios) {
     expect(sourceProgramCurrentExactReturnProvenances(reused.typeScriptCompilation.model))
       .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
     if (scenario.name === 'shared helper') {
+      expect(reused.typeScriptCompilation.invalidatedPaths)
+        .toContain('src/example/reexport-consumer.ts');
       // An equal-length source-byte change must update the compact projection
       // even though the resolved module graph remains identical.
       const previousProjection = compileVirtualTestImpactProjection({
