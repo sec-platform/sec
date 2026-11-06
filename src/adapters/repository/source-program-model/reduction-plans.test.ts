@@ -275,15 +275,18 @@ test('graph cut admits exact provider receipts and requests syntax only for thei
   )).toThrow('source-program-compilation-cancelled:reduction-plan');
 });
 
-test('graph cut blocks a declaration with same-file type consumers from the canonical Program', () => {
+test('graph cut blocks both same-file type consumers and cross-file aliases or re-exports', () => {
   const fixture = compileGraphCutFixture({
     'src/example/contract.ts': [
       "export type SourceProgramObservationClass = 'observed' | 'unknown';",
       'export interface Observation { readonly observationClass: SourceProgramObservationClass; }',
       ''
-    ].join('\n')
+    ].join('\n'),
+    'src/example/provider.ts': 'export type SharedContract = { readonly value: string };\n',
+    'src/example/facade.ts': "export { type SharedContract } from './provider.ts';\n",
+    'src/example/consumer.ts': "import type { SharedContract } from './facade.ts';\nexport const value: SharedContract = { value: 'ok' };\n"
   });
-  const plan = compileSourceProgramGraphCutReductionPlan(
+  const sameFilePlan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
     compileGraphCutProviderReceipt(fixture, [{
@@ -292,10 +295,25 @@ test('graph cut blocks a declaration with same-file type consumers from the cano
     }]),
     graphCutContext(fixture)
   );
-
-  expect(plan.reductions).toContainEqual(expect.objectContaining({
+  expect(sameFilePlan.reductions).toContainEqual(expect.objectContaining({
     path: 'src/example/contract.ts',
     name: 'SourceProgramObservationClass',
+    status: 'blocked',
+    reason: 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
+  }));
+
+  const crossFilePlan = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    compileGraphCutProviderReceipt(fixture, [{
+      path: 'src/example/provider.ts',
+      name: 'SharedContract'
+    }]),
+    graphCutContext(fixture)
+  );
+  expect(crossFilePlan.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/provider.ts',
+    name: 'SharedContract',
     status: 'blocked',
     reason: 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
   }));
@@ -398,28 +416,4 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
   expect(() => renderSourceProgramGraphCutReductionPatch(plan, fixture.files)).toThrow(
     'Graph-cut patch requires at least one ready reduction'
   );
-});
-
-test('graph cut blocks compiler-resolved cross-file aliases and re-exports', () => {
-  const fixture = compileGraphCutFixture({
-    'src/example/provider.ts': 'export type SharedContract = { readonly value: string };\n',
-    'src/example/facade.ts': "export { type SharedContract } from './provider.ts';\n",
-    'src/example/consumer.ts': "import type { SharedContract } from './facade.ts';\nexport const value: SharedContract = { value: 'ok' };\n"
-  });
-  const plan = compileSourceProgramGraphCutReductionPlan(
-    fixture.model,
-    fixture.files,
-    compileGraphCutProviderReceipt(fixture, [{
-      path: 'src/example/provider.ts',
-      name: 'SharedContract'
-    }]),
-    graphCutContext(fixture)
-  );
-
-  expect(plan.reductions).toContainEqual(expect.objectContaining({
-    path: 'src/example/provider.ts',
-    name: 'SharedContract',
-    status: 'blocked',
-    reason: 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
-  }));
 });
