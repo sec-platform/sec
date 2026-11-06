@@ -1042,15 +1042,14 @@ test('local unknown additions and changed excluded shared inputs remain unresolv
   expect(changed.contextComparable).toBe(false);
   expect(changed.scope.regressedPaths).toEqual([findingTestPath]);
   expect(sourceProgramTestFindingDeltaIsUnresolved(changed)).toBe(true);
-});
 
-test('explicit unknown-debt accounting never suppresses a new known Test Value violation', () => {
-  const sources = { 'src/example/operation.ts': findingProduction,
-    [findingTestPath]: findingTestHeader + findingBehaviorCase };
-  const before = compileTestFindingFixture(sources);
-  const after = compileTestFindingFixture({ ...sources,
+  // Known Test Value violations cannot be waived by inherited shared-input
+  // uncertainty. Reuse the same immutable baseline, not its changed consumer.
+  const knownViolation = compileTestFindingFixture({ ...sources,
     [findingTestPath]: findingTestHeader + "test('public result', () => expect(execute.length).toBe(0));\n" });
-  const delta = compileSourceProgramTestFindingDelta(before, after, [findingTestPath]);
-  expect(delta.entries).toContainEqual(expect.objectContaining({ code: 'test-mirrors-imported-function-arity', status: 'introduced' }));
-  expect(sourceProgramTestFindingDeltaHasRegression(delta, after.tests.findings)).toBe(true);
+  const knownDelta = compileSourceProgramTestFindingDelta(before, knownViolation, [findingTestPath]);
+  expect(knownDelta.entries).toContainEqual(expect.objectContaining({
+    code: 'test-mirrors-imported-function-arity', status: 'introduced'
+  }));
+  expect(sourceProgramTestFindingDeltaHasRegression(knownDelta, knownViolation.tests.findings)).toBe(true);
 });
