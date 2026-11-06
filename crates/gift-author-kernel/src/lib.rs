@@ -10,6 +10,7 @@ pub mod semantic_types;
 pub mod header_seeds;
 pub mod type_constraints;
 pub mod signature_resolution;
+pub mod body_analysis;
 mod reference_slots;
 mod typescript;
 

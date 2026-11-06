@@ -21,6 +21,7 @@ pub(crate) struct Checkpoint {
     nodes: usize,
     binders: usize,
     needs: usize,
+    requested: usize,
 }
 enum Meter<'a> { Shared(&'a mut Budget), Standalone { work: usize, bytes: usize } }
 
@@ -30,15 +31,16 @@ pub struct ConstraintMachine<'a> {
     aliases: BTreeMap<DeclarationId, Alias>,
     meter: Meter<'a>,
     exhausted: bool,
+    requested: Option<Vec<ConstraintNeed>>,
 }
 impl<'a> ConstraintMachine<'a> {
     /// Bounded isolated use, for consumers that already own a formed arena.
     /// The signature frontend uses its original retained Reader/name budget.
     pub fn new(arena: &'a mut TypeArena, work: usize, bytes: usize) -> Self {
-        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Standalone {work,bytes},exhausted:false }
+        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Standalone {work,bytes},exhausted:false,requested:None }
     }
     pub(crate) fn shared(arena: &'a mut TypeArena, budget: &'a mut Budget) -> Self {
-        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Shared(budget),exhausted:false }
+        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Shared(budget),exhausted:false,requested:None }
     }
     pub fn arena(&self)->&TypeArena {self.arena}
     pub fn needs(&self)->&[ConstraintNeed] {&self.needs}
@@ -110,13 +112,15 @@ impl<'a> ConstraintMachine<'a> {
         let mut cost=OwnershipCost::new();
         for variable in &self.arena.inference_variables {cost.merge(variable_cost(variable));}
         self.account(cost)?;
-        Ok(Checkpoint {variables:self.arena.inference_variables.clone(),nodes:self.arena.nodes.len(),binders:self.arena.binders.len(),needs:self.needs.len()})
+        Ok(Checkpoint {variables:self.arena.inference_variables.clone(),nodes:self.arena.nodes.len(),binders:self.arena.binders.len(),needs:self.needs.len(),
+            requested:self.requested.as_ref().map_or(0,Vec::len)})
     }
     pub(crate) fn rollback(&mut self, point: Checkpoint) {
         self.arena.inference_variables=point.variables;
         self.arena.nodes.truncate(point.nodes);
         self.arena.binders.truncate(point.binders);
         self.needs.truncate(point.needs);
+        if let Some(requested)=&mut self.requested {requested.truncate(point.requested);}
     }
     /// Every probe is speculative, including a successful one. Selection can
     /// repeat the selected constraint in the enclosing transaction to commit it.
@@ -128,6 +132,7 @@ impl<'a> ConstraintMachine<'a> {
     }
     pub fn need(&mut self, source: SourceId, code: &'static str) -> Result<Relation> {
         self.work(1)?;
+        if self.requested.is_some() {self.charge(32)?;self.requested.as_mut().unwrap().push(ConstraintNeed {source,code});}
         if !self.needs.iter().any(|item|item.source==source&&item.code==code) {
             self.charge(96)?; self.needs.push(ConstraintNeed {source,code});
         }
@@ -181,6 +186,25 @@ impl<'a> ConstraintMachine<'a> {
     }
     pub fn normalize(&mut self, ty: TypeId, source: SourceId) -> Result<TypeId> {
         self.normalize_inner(ty,source,&mut BTreeSet::new(),0)
+    }
+    pub(crate) fn declaration_body(&mut self,ty:TypeId,source:SourceId)->Result<Option<TypeId>> {
+        let ty=self.normalize(ty,source)?;
+        let SemanticType::Declaration {target,arguments}=self.copy_type(ty)? else{return Ok(Some(ty));};
+        let Some(declaration)=target.declaration else{self.need(source,"NeedsDeclaredTypeQualification")?;return Ok(None);};
+        let Some(alias)=self.aliases.get(&declaration) else{self.need(source,"NeedsProfessionalTypeQualification")?;return Ok(None);};
+        self.charge(alias.binders.len()*32+128)?;
+        let alias=self.aliases[&declaration].clone();
+        if self.has_expansion(&arguments)? {self.need(source,"NeedsSemanticArgumentArity")?;return Ok(None);}
+        if alias.binders.len()!=arguments.len(){return Err(self.error("TypeArity",source,"Representation semantic argument count differs"));}
+        let mut substitution=BTreeMap::new();
+        for (binder,argument) in alias.binders.iter().zip(arguments) {
+            self.charge(96)?;
+            match argument {
+                SemanticArgument::Type(value) if self.arena.binders[binder.index()].kind==SemanticKind::Type=>{substitution.insert(*binder,Replacement::Type(value));},
+                _=>{self.need(source,"NeedsNominalInstantiation")?;return Ok(None);},
+            }
+        }
+        Ok(Some(self.substitute(alias.ty,&substitution,source,0)?))
     }
     /// Formation preserves syntax and bindings. This judgment checks the
     /// complete Type closure before any signature can become type-ready.
@@ -392,6 +416,16 @@ impl<'a> ConstraintMachine<'a> {
                 } else {Err(error)}
             },
         }
+    }
+    /// Body typing may proceed when only the function's effect/capture
+    /// relation remains open. Record this invocation's requests before public
+    /// need deduplication, including repeated requests at the same occurrence.
+    pub(crate) fn compatible_type_shape(&mut self,actual:TypeId,expected:TypeId,source:SourceId)->Result<bool> {
+        let previous=self.requested.take();self.requested=Some(Vec::new());
+        let result=self.compatible(actual,expected,source);
+        let requested=self.requested.take().unwrap();self.requested=previous;
+        result.map(|relation|relation==Relation::Equal||!requested.is_empty()&&requested.iter().all(|need|
+            matches!(need.code,"NeedsEffectClosure"|"NeedsCaptureRelation")))
     }
     fn unify_inner(&mut self,left:TypeId,right:TypeId,source:SourceId,depth:usize)->Result<Relation> {
         self.depth(depth)?;

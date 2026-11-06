@@ -393,7 +393,9 @@ fn review_field_errors_distinguish_known_invalid_nominal_projection_and_unknown_
         "Nominal":function(json!([parameter("x",reference("R"))]),None,json!({"op":"field","record":variable("x"),"name":"field"})),
         "Unknown":constant(json!({"op":"lambda","params":[{"name":"x"}],"body":{"op":"field","record":variable("x"),"name":"field"}}))}));
     assert!(result.problems.iter().any(|p|p.diagnostic.code=="InvalidFieldReceiver"&&p.diagnostic.path.starts_with("/definitions/Bad/")));
-    assert!(result.needs.iter().any(|n|n.code=="NeedsNominalFieldProjection"));
+    assert_eq!(signature(&result,"Nominal").state,SignatureState::TypeReady);
+    assert!(signature(&result,"Nominal").body_type_checked);
+    assert!(is_scalar(result_type(&result,"Nominal"),"bool"));
     assert!(result.needs.iter().any(|n|n.code=="AnnotationRequiredField"));
 }
 
