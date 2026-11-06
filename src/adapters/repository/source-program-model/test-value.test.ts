@@ -75,7 +75,7 @@ function compile(
   });
 }
 
-test('test-value compilation derives behavior, effects, failures, and properties from syntax and call boundaries', () => {
+test('test-value distinguishes behavior evidence and independent oracle obligations', () => {
   const result = compile({
     'src/example/index.ts': [
       'export function publicBehavior(value: number): number {',
@@ -95,24 +95,8 @@ test('test-value compilation derives behavior, effects, failures, and properties
       "test.each(makeRows())('preserves the typed failure boundary over a property set', () => {",
       '  for (const value of [-1, -2]) expect(() => publicBehavior(value)).toThrow();',
       '});'
-    ].join('\n')
-  });
+    ].join('\n'),
 
-  expect(result.records.map(({ semanticClasses }) => semanticClasses)).toEqual([
-    ['behavior', 'durable-state', 'effect'],
-    ['algorithm-property', 'behavior', 'failure-boundary']
-  ]);
-  expect(result.records.every(({ observedProductionPaths }) =>
-    observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
-  expect(result.findings).toEqual([]);
-  expect(result.records.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
-    { status: 'known', count: 2 },
-    { status: 'unknown', reason: 'registration-table-unresolved' }
-  ]);
-});
-
-test('test-value blocks production-derived oracles while retaining fixed independent expectations', () => {
-  const result = compile({
     'src/example/contract.ts': [
       "export interface Contract { status: 'active' }",
       "export function buildContract(): Contract { return { status: 'active' }; }"
@@ -135,11 +119,26 @@ test('test-value blocks production-derived oracles while retaining fixed indepen
       '});'
     ].join('\n')
   });
+  const exampleRecords = result.records.filter(({ path }) => path === 'tests/unit/example.test.ts');
+
+  expect(exampleRecords.map(({ semanticClasses }) => semanticClasses)).toEqual([
+    ['behavior', 'durable-state', 'effect'],
+    ['algorithm-property', 'behavior', 'failure-boundary']
+  ]);
+  expect(exampleRecords.every(({ observedProductionPaths }) =>
+    observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
+  expect(result.findings.filter(({ path }) => path === 'tests/unit/example.test.ts')).toEqual([]);
+  expect(exampleRecords.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
+    { status: 'known', count: 2 },
+    { status: 'unknown', reason: 'registration-table-unresolved' }
+  ]);
+
 
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([{
     code: 'test-oracle-derived-from-production-subject',
     path: 'tests/unit/contract.test.ts'
   }]);
+
 });
 
 test('test-value compilation blocks missing modules and implementation-shape mirrors', () => {
