@@ -16,9 +16,10 @@ function compileTestRetirementFixture(
   currentTestSource?: string,
   currentTestPath = 'tests/obsolete.test.ts',
   ownerRewrite = false,
-  preparedCurrent?: ReturnType<typeof compileSupersessionFixture>
+  preparedCurrent?: ReturnType<typeof compileSupersessionFixture>,
+  preparedBaseline?: ReturnType<typeof compileSupersessionFixture>
 ) {
-  const baseline = compileSupersessionFixture({
+  const baseline = preparedBaseline ?? compileSupersessionFixture({
     'src/example/operation.ts': productionSource,
     'tests/obsolete.test.ts': baselineTestSource
   });
@@ -112,47 +113,42 @@ test('test retirement does not demand deletion of a retained behavior test', () 
   expect(projection.dispositions.some(({ disposition }) => disposition === 'delete')).toBe(false);
 });
 
-test('test retirement cannot merge a success obligation into a failure-only observation', () => {
+test('test retirement distinguishes failure-only replacement from an exact owner rewrite', () => {
   const production = "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n";
   const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
-  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('rejects invalid input', () => expect(() => execute(true)).toThrow('invalid'));\n";
-  const fixture = compileTestRetirementFixture(
-    baseline, production, replacement, 'tests/replacement.test.ts'
+  const failureOnlyReplacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('rejects invalid input', () => expect(() => execute(true)).toThrow('invalid'));\n";
+  const failureOnly = compileTestRetirementFixture(
+    baseline, production, failureOnlyReplacement, 'tests/replacement.test.ts'
   );
   const projection = projectSourceProgramTestRetirementDispositions(
-    fixture.observedProjection,
-    fixture.retirement
+    failureOnly.observedProjection,
+    failureOnly.retirement
   );
 
-  expect(fixture.supersession.status).toBe('owner-decision-required');
-  expect(fixture.supersession.replacements.filter(({ kind }) => kind === 'test')).toEqual([]);
-  expect(fixture.observedProjection.dispositions).toContainEqual(expect.objectContaining({
+  expect(failureOnly.supersession.status).toBe('owner-decision-required');
+  expect(failureOnly.supersession.replacements.filter(({ kind }) => kind === 'test')).toEqual([]);
+  expect(failureOnly.observedProjection.dispositions).toContainEqual(expect.objectContaining({
     path: 'tests/obsolete.test.ts', disposition: 'unknown'
   }));
-  expect(fixture.retirement.proofs).toContainEqual(expect.objectContaining({
+  expect(failureOnly.retirement.proofs).toContainEqual(expect.objectContaining({
     path: 'tests/obsolete.test.ts', status: 'blocked'
   }));
   expect(projection.dispositions).toContainEqual(expect.objectContaining({
     path: 'tests/obsolete.test.ts', disposition: 'unknown'
   }));
-});
 
-test('test retirement does not demand consumer-zero proof after an exact owner rewrite', () => {
-  const baseline = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
-  const replacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
-  const fixture = compileTestRetirementFixture(
-    baseline,
-    "export function execute(invalid = false): string { if (invalid) throw new Error('invalid'); return 'ok'; }\n",
-    replacement,
-    'tests/replacement.test.ts',
-    true
+  // The exact immutable baseline is shared; candidate generations and
+  // owner decisions remain independently compiled and observed.
+  const rewriteReplacement = "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid input', () => { expect(execute()).toBe('ok'); expect(() => execute(true)).toThrow('invalid'); });\n";
+  const rewrite = compileTestRetirementFixture(
+    baseline, production, rewriteReplacement, 'tests/replacement.test.ts',
+    true, undefined, failureOnly.baseline
   );
-
-  expect(fixture.currentTests.dispositions).toContainEqual(expect.objectContaining({
+  expect(rewrite.currentTests.dispositions).toContainEqual(expect.objectContaining({
     path: 'tests/obsolete.test.ts', disposition: 'rewrite'
   }));
-  expect(fixture.retirement.proofs).toEqual([]);
-  expect(fixture.observedProjection.findings.some(({ path, code }) =>
+  expect(rewrite.retirement.proofs).toEqual([]);
+  expect(rewrite.observedProjection.findings.some(({ path, code }) =>
     path === 'tests/obsolete.test.ts' && code === 'test-module-disposition-unknown')).toBe(false);
 });
 
