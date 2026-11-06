@@ -134,8 +134,9 @@ pub struct FunctionType {
     /// None is the shared function type's omitted empty upper bound. Declaration
     /// effect inference is represented separately by header_seeds::EffectRequest.
     pub effects: Option<EffectRow>,
-    /// True only for a declaration/lambda whose omitted effects still require
-    /// body analysis. An independent FunctionType omission is an empty bound.
+    /// The type phase's declaration/lambda inference request. Its current
+    /// resolution belongs to EffectSummarySet, keyed by the real function value
+    /// and environment. An independent FunctionType omission is an empty bound.
     pub pending_effects: bool,
     pub pending_captures: bool,
     pub call_mode: Option<String>,
@@ -796,6 +797,7 @@ impl<'a> Formation<'a> {
     }
     pub(crate) fn effects(&mut self, module: ModuleId, path: &str, depth: usize) -> Result<EffectRow> {
         self.visit(path,depth)?;
+        self.source(module,path)?;
         let node=self.node(module,path)?;
         let explicit_row=node.as_array().is_none();
         let members_path=if explicit_row {self.path(path,"members")?}else{self.budget.copy(path)?};

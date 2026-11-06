@@ -11,6 +11,7 @@ pub mod header_seeds;
 pub mod type_constraints;
 pub mod signature_resolution;
 pub mod body_analysis;
+pub mod effect_analysis;
 mod reference_slots;
 mod typescript;
 

@@ -96,6 +96,9 @@ pub struct NameAnalysis {
 pub(crate) struct Budget { bytes: usize, work: usize }
 impl Budget {
     fn new() -> Self { Self { bytes: 48 * 1024 * 1024, work: 8_000_000 } }
+    pub(crate) fn tighten(&mut self,work:usize,bytes:usize) {
+        self.work=self.work.min(work);self.bytes=self.bytes.min(bytes);
+    }
     pub(crate) fn work(&mut self, amount: usize) -> Result<()> {
         self.work = self.work.checked_sub(amount).ok_or_else(|| fail("ResourceLimit", "", "Name-analysis work budget exceeded"))?;
         Ok(())

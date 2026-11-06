@@ -49,7 +49,11 @@ fn inference_uses_real_bindings_and_publishes_retained_solutions() {
     assert!(is_scalar(result_type(&result,"Use"),"int"));
     assert!(is_scalar(result_type(&result,"Choice"),"text"));
     assert_eq!(signature(&result,"Use").state,SignatureState::TypeReady);
-    assert!(result.needs.iter().any(|n|n.code=="NeedsEffectClosure"));
+    for effects in result.effects.declarations.values() {
+        assert_eq!(effects.state,gift_author_kernel::effect_analysis::EffectState::BodyDerived);
+        assert!(effects.may.is_empty());assert!(effects.internal.is_empty());
+    }
+    assert!(!result.needs.iter().any(|n|n.code=="NeedsEffectClosure"));
     assert!(!result.types.inference_variables.is_empty());
     // A later constraint consumer sees the same solutions, with no MetaId reset.
     let mut arena=result.types;
@@ -242,7 +246,8 @@ fn expected_lambda_binders_are_hygienic_semantic_identities_without_author_locat
         assert_ne!(authored[0].id,derived[0].id);assert!(derived[0].binding.is_none());
         assert_eq!(derived[0].kind,SemanticKind::Region);
         assert!(result.types.nodes.iter().any(|n|matches!(n,SemanticType::Function(f) if f.binders==vec![derived[0].id])));
-        assert!(result.needs.iter().any(|n|n.code=="NeedsLambdaCaptureAndEffectAnalysis"));
+        assert!(result.effects.closures.iter().any(|closure|matches!(closure.code,gift_author_kernel::effect_analysis::CodeIdentity::Lambda(_))));
+        assert!(!result.needs.iter().any(|n|n.code=="NeedsLambdaCaptureAndEffectAnalysis"));
     }
 }
 

@@ -13,6 +13,7 @@ pub struct ConstraintNeed { pub source: SourceId, pub code: &'static str }
 type Variable = InferenceVariable;
 #[derive(Clone)]
 struct Alias { binders: Vec<SemanticBinderId>, ty: TypeId, transparent: bool }
+pub(crate) struct ConstraintState { aliases:BTreeMap<DeclarationId,Alias> }
 
 /// An opaque, session-local checkpoint. Restoring it does not refund work or
 /// allocation accounting. Nested probes must restore in stack order.
@@ -32,15 +33,20 @@ pub struct ConstraintMachine<'a> {
     meter: Meter<'a>,
     exhausted: bool,
     requested: Option<Vec<ConstraintNeed>>,
+    body_arrow: Option<(TypeId,TypeId)>,
 }
 impl<'a> ConstraintMachine<'a> {
+    pub(crate) fn into_state(self)->ConstraintState {ConstraintState {aliases:self.aliases}}
+    pub(crate) fn resume(arena:&'a mut TypeArena,budget:&'a mut Budget,state:ConstraintState)->Self {
+        Self {arena,needs:Vec::new(),aliases:state.aliases,meter:Meter::Shared(budget),exhausted:false,requested:None,body_arrow:None}
+    }
     /// Bounded isolated use, for consumers that already own a formed arena.
     /// The signature frontend uses its original retained Reader/name budget.
     pub fn new(arena: &'a mut TypeArena, work: usize, bytes: usize) -> Self {
-        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Standalone {work,bytes},exhausted:false,requested:None }
+        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Standalone {work,bytes},exhausted:false,requested:None,body_arrow:None }
     }
     pub(crate) fn shared(arena: &'a mut TypeArena, budget: &'a mut Budget) -> Self {
-        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Shared(budget),exhausted:false,requested:None }
+        Self { arena, needs: Vec::new(), aliases: BTreeMap::new(), meter:Meter::Shared(budget),exhausted:false,requested:None,body_arrow:None }
     }
     pub fn arena(&self)->&TypeArena {self.arena}
     pub fn needs(&self)->&[ConstraintNeed] {&self.needs}
@@ -421,11 +427,13 @@ impl<'a> ConstraintMachine<'a> {
     /// relation remains open. Record this invocation's requests before public
     /// need deduplication, including repeated requests at the same occurrence.
     pub(crate) fn compatible_type_shape(&mut self,actual:TypeId,expected:TypeId,source:SourceId)->Result<bool> {
+        let actual=self.normalize(actual,source)?;let expected=self.normalize(expected,source)?;
+        let previous_arrow=self.body_arrow.replace((actual,expected));
         let previous=self.requested.take();self.requested=Some(Vec::new());
         let result=self.compatible(actual,expected,source);
-        let requested=self.requested.take().unwrap();self.requested=previous;
+        let requested=self.requested.take().unwrap();self.requested=previous;self.body_arrow=previous_arrow;
         result.map(|relation|relation==Relation::Equal||!requested.is_empty()&&requested.iter().all(|need|
-            matches!(need.code,"NeedsEffectClosure"|"NeedsCaptureRelation")))
+            matches!(need.code,"NeedsEffectClosure"|"NeedsEffectRowRelation"|"NeedsCaptureRelation"|"NeedsNestedFunctionCompatibility")))
     }
     fn unify_inner(&mut self,left:TypeId,right:TypeId,source:SourceId,depth:usize)->Result<Relation> {
         self.depth(depth)?;
@@ -497,9 +505,13 @@ impl<'a> ConstraintMachine<'a> {
                 let b=self.map_function(b,&rename,source,depth+1)?;
                 pending|=self.arguments_equal(&a.parameters,&b.parameters,source,&mut equations)?;
                 equations.push((a.returns,b.returns));
-                if a.pending_effects||b.pending_effects {pending=true;self.need(source,"NeedsEffectClosure")?;}
-                else {pending|=self.effects_equal(a.effects.as_ref(),b.effects.as_ref(),source,&mut equations)?;}
-                if a.pending_captures||b.pending_captures||capture_keys(&a)!=capture_keys(&b) {pending=true;self.need(source,"NeedsCaptureRelation")?;}
+                let row_pending=if a.pending_effects||b.pending_effects {self.need(source,"NeedsEffectClosure")?;true}
+                    else{self.effects_equal(a.effects.as_ref(),b.effects.as_ref(),source,&mut equations)?};
+                let capture_pending=a.pending_captures||b.pending_captures||capture_keys(&a)!=capture_keys(&b);
+                if capture_pending{self.need(source,"NeedsCaptureRelation")?;}
+                pending|=row_pending||capture_pending;
+                if self.body_arrow.is_some_and(|root|root!=(left,right)&&matches!(self.arena.get(root.0),SemanticType::Function(_))&&
+                    matches!(self.arena.get(root.1),SemanticType::Function(_)))&&(row_pending||capture_pending){self.need(source,"NeedsNestedFunctionCompatibility")?;}
             },
             (Rational,Rational)=>{},
             (Opaque {interface:a},Opaque {interface:b}) if same_declaration(&a,&b)=>{},

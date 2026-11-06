@@ -23,6 +23,7 @@ pub struct ExitFact {
     pub kind: ExitKind,
     pub target: Option<ScopeId>,
     pub value: Option<TypeId>,
+    pub expression: Option<usize>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EffectId(pub usize);
@@ -30,13 +31,13 @@ pub struct EffectId(pub usize);
 pub enum EffectTerm {
     Empty,
     Sequence(Vec<EffectId>),
-    Conditional { condition: EffectId, branches: Vec<EffectId> },
+    Conditional { condition: EffectId, branches: Vec<EffectId>, active: Vec<bool> },
     Read(LocalBindingId),
     Write(LocalBindingId),
     Call(usize),
     Unqualified { code: &'static str, children: Vec<EffectId> },
     Try { body: EffectId, handler: EffectId, qualification: &'static str },
-    Loop { target: Option<ScopeId>, condition: EffectId, body: EffectId },
+    Loop { target: Option<ScopeId>, condition: EffectId, body: EffectId, body_active: bool, condition_false: bool },
 }
 #[derive(Debug)]
 pub struct EffectEquation { pub source: SourceId, pub term: EffectTerm }
@@ -51,6 +52,28 @@ pub struct ExpressionSummary {
     pub latent: Option<EffectId>,
     pub children: Vec<usize>,
     pub captures: Vec<LocalBindingId>,
+    pub value: ValueRelation,
+}
+/// Function-bearing value relations over already checked occurrences. These
+/// edges retain provenance and environments, not another syntax/type tree.
+#[derive(Debug)]
+pub enum ValueRelation {
+    Data, Unknown, Declaration(DeclarationId), Binding(LocalBindingId),
+    Lambda { body: usize, parameters: Vec<LocalBindingId> },
+    Forward(usize), Choose(Vec<usize>),
+    Let { binding: LocalBindingId, initializer: usize, continuation: usize },
+    Region { bindings: Vec<(LocalBindingId,usize)>, result: usize },
+    Loop { condition: usize, body: usize },
+    Record(Vec<(String,usize)>), List { items: Vec<usize>, tail: Option<usize> },
+    Field { receiver: usize, name: String },
+    RecordUpdate { receiver: usize, fields: Vec<(String,usize)> },
+    Variant { name: String, payload: usize },
+    Constructor { ty: TypeId, name: String },
+    Call(usize),
+    Sequence { steps: Vec<usize>, result: Option<usize> },
+    Initialize { binding: LocalBindingId, initializer: usize },
+    Assign { binding: LocalBindingId, value: usize },
+    Match { subject: usize, arms: Vec<(SourceId,usize)> },
 }
 #[derive(Debug)]
 pub struct CallFact {
@@ -58,9 +81,15 @@ pub struct CallFact {
     pub callee: Option<DeclarationId>,
     pub function_type: TypeId,
     pub source_to_formal: Vec<usize>,
+    pub callee_value: usize,
+    pub arguments: Vec<usize>,
 }
 #[derive(Debug)]
 pub struct BindingFact { pub source: SourceId, pub binding: LocalBindingId, pub ty: TypeId }
+#[derive(Clone,Debug,PartialEq,Eq,PartialOrd,Ord)]
+pub enum ValueProjection { Head, Tail, Variant(String) }
+#[derive(Debug)]
+pub struct PatternValueBinding { pub arm: SourceId, pub binding: LocalBindingId, pub projection: Vec<ValueProjection> }
 #[derive(Debug)]
 pub struct BodyProblem { pub source: SourceId, pub diagnostic: Diagnostic }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,13 +110,21 @@ pub struct BodyAnalysis {
     pub coverage: Vec<MatchCoverage>,
     pub problems: Vec<BodyProblem>,
     pub regions: Vec<usize>,
+    pub pattern_values: Vec<PatternValueBinding>,
 }
 struct Frame { source: SourceId, children: Vec<usize>, normal: Option<NormalResult>, extra_effects: Vec<EffectId>, exits: Vec<ExitFact> }
-struct AnalysisPoint { expressions: usize, effects: usize, calls: usize, bindings: usize, coverage: usize }
+struct AnalysisPoint { expressions: usize, effects: usize, calls: usize, bindings: usize, coverage: usize, pattern_values:usize }
 #[derive(Clone,Debug,PartialEq,Eq,PartialOrd,Ord)]
 enum PatternShape { Any, Case(String,Vec<PatternShape>), Atom(String), Unknown }
 struct Constructor { name: String, fields: Vec<TypeId> }
 enum Domain { Closed(Vec<Constructor>), Open, Unknown }
+fn literal_boolean(node:&Node)->Option<bool> {
+    node.get("op").or_else(||node.get("tag")).and_then(Node::as_str).filter(|tag|*tag=="literal")
+        .and_then(|_|node.get("value")).and_then(Node::as_bool)
+}
+fn condition_false(normal:NormalResult,literal:Option<bool>)->bool {
+    matches!(normal,NormalResult::Value(_))&&literal!=Some(true)
+}
 #[derive(Clone)]
 enum Search { Witness(Vec<PatternShape>), Covered, Unknown }
 type PatternState = (Vec<Vec<PatternShape>>,Vec<PatternShape>,Vec<TypeId>);
@@ -105,10 +142,11 @@ fn pattern_text(pattern:&PatternShape)->String {
 fn search_size(search:&Search)->usize {match search {Search::Witness(patterns)=>128+patterns.iter().map(pattern_size).sum::<usize>(),_=>128}}
 impl BodyAnalysis {
     fn checkpoint(&self)->AnalysisPoint { AnalysisPoint {expressions:self.expressions.len(),effects:self.effects.len(),
-        calls:self.calls.len(),bindings:self.bindings.len(),coverage:self.coverage.len()} }
+        calls:self.calls.len(),bindings:self.bindings.len(),coverage:self.coverage.len(),pattern_values:self.pattern_values.len()} }
     fn rollback(&mut self,point:AnalysisPoint) {
         self.expressions.truncate(point.expressions);self.effects.truncate(point.effects);self.calls.truncate(point.calls);
         self.bindings.truncate(point.bindings);self.coverage.truncate(point.coverage);
+        self.pattern_values.truncate(point.pattern_values);
         // Diagnostics contain source identities only and survive failed probes.
     }
 }
@@ -259,7 +297,7 @@ impl<'a> Engine<'a> {
                 let source=match &self.headers[slot].kind {HeaderKind::Function {body,..}|HeaderKind::Constant {initializer:body,..}=>body.source,_=>self.headers[slot].source};
                 let exits=if let Some(root)=self.root_summaries.get(&declaration) {
                     let exits=&self.analysis.expressions[*root].exits;self.solver.charge(exits.len()*128)?;
-                    exits.iter().map(|exit|ExitFact {source:exit.source,kind:exit.kind,target:exit.target,value:None}).collect()
+                    exits.iter().map(|exit|ExitFact {source:exit.source,kind:exit.kind,target:exit.target,value:None,expression:None}).collect()
                 }else{Vec::new()};
                 self.solver.rollback(point.take().unwrap());self.analysis.rollback(body_point.take().unwrap());
                 self.root_summaries.remove(&declaration);
@@ -356,7 +394,7 @@ impl<'a> Engine<'a> {
         let immediate=self.effect(source,EffectTerm::Sequence(effects))?;
         let index=self.analysis.expressions.len();
         self.analysis.expressions.push(ExpressionSummary {source,expected:None,normal:NormalResult::Pending,
-            state:if rejected{BodyState::Rejected}else{BodyState::Pending},exits,immediate,latent:None,children:Vec::new(),captures:Vec::new()});
+            state:if rejected{BodyState::Rejected}else{BodyState::Pending},exits,immediate,latent:None,children:Vec::new(),captures:Vec::new(),value:ValueRelation::Unknown});
         self.analysis.declarations.insert(declaration,DeclarationSummary {source,expression:index});Ok(())
     }
     fn analyze_regions(&mut self)->Result<()> {
@@ -505,17 +543,28 @@ impl<'a> Engine<'a> {
             node.get("operator").and_then(Node::as_str).is_some_and(|op|matches!(op,"&&"|"||"));
         let exit_count=frame.children.iter().map(|i|self.analysis.expressions[*i].exits.len()).sum::<usize>();
         self.solver.charge(frame.children.len()*96+exit_count*128+192)?;
-        let mut exits=Vec::new();let mut effects=Vec::new();let mut continues=true;
+        let mut exits=Vec::new();let mut effects=Vec::new();let mut activations=Vec::new();let mut continues=true;
         let mut child_rejected=false;let mut child_pending=false;
+        let condition=node.get(if operation=="binary"{"left"}else{"condition"}).and_then(literal_boolean);
+        let redundant=self.analysis.coverage.last().filter(|coverage|coverage.source==source);
         for (position,index) in frame.children.iter().enumerate() {
             let child=&self.analysis.expressions[*index];
             child_rejected|=child.state==BodyState::Rejected;
             child_pending|=child.normal==NormalResult::Pending;
-            if continues&&!latent {exits.extend(child.exits.iter().cloned());effects.push(child.immediate);}
+            let branch_active=match operation {
+                "if" if position>0=>condition.is_none_or(|value|position==if value{1}else{2}),
+                "binary" if position>0=>!matches!((node.get("operator").and_then(Node::as_str),condition),(Some("&&"),Some(false))|(Some("||"),Some(true))),
+                "match" if position>0=>redundant.is_none_or(|coverage|!coverage.redundant_arms.contains(&(position-1))),
+                "while" if position>0=>condition!=Some(false),_=>true,
+            };
+            if continues&&!latent {
+                if branch_active{exits.extend(child.exits.iter().cloned());}
+                effects.push(child.immediate);activations.push(branch_active);
+            }
             if !branched&&child.normal==NormalResult::NoNormal {continues=false;}
             if branched&&operation!="try"&&position==0&&child.normal==NormalResult::NoNormal {continues=false;}
         }
-        if continues {effects.extend(frame.extra_effects);exits.extend(frame.exits);}
+        if continues {activations.extend(frame.extra_effects.iter().map(|_|true));effects.extend(frame.extra_effects);exits.extend(frame.exits);}
         let ty=result.ok().flatten();
         let override_normal=match frame.normal {Some(NormalResult::Value(_)) if ty.is_none()=>Some(NormalResult::Pending),other=>other};
         let normal=if !continues&&!latent&&operation!="while" {NormalResult::NoNormal}else{override_normal.unwrap_or_else(||if latent {ty.map(NormalResult::Value).unwrap_or(NormalResult::Pending)}
@@ -535,8 +584,10 @@ impl<'a> Engine<'a> {
             else if operation=="try"&&frame.children.len()>=2 {EffectTerm::Try {body:self.analysis.expressions[frame.children[0]].immediate,
                 handler:self.analysis.expressions[frame.children[1]].immediate,qualification:"NeedsManagedErrorProfile"}}
             else if operation=="while"&&frame.children.len()>=2 {EffectTerm::Loop {target:self.scope_at(module,path,"loop"),
-                condition:self.analysis.expressions[frame.children[0]].immediate,body:self.analysis.expressions[frame.children[1]].immediate}}
-            else if branched&&!effects.is_empty() {EffectTerm::Conditional {condition:effects[0],branches:effects[1..].to_vec()}}
+                condition:self.analysis.expressions[frame.children[0]].immediate,body:self.analysis.expressions[frame.children[1]].immediate,
+                body_active:condition!=Some(false)&&self.analysis.expressions[frame.children[0]].normal!=NormalResult::NoNormal,
+                condition_false:condition_false(self.analysis.expressions[frame.children[0]].normal,condition)}}
+            else if branched&&!effects.is_empty() {EffectTerm::Conditional {condition:effects[0],branches:effects[1..].to_vec(),active:activations[1..].to_vec()}}
             else {EffectTerm::Sequence(effects)};
         let immediate=self.effect(source,term)?;
         let index=self.analysis.expressions.len();
@@ -550,14 +601,100 @@ impl<'a> Engine<'a> {
             self.solver.need(source,"NeedsCaptureEvaluation")?;
             self.analysis.effects[immediate.0].term=EffectTerm::Unqualified {code:"NeedsCaptureEvaluation",children:Vec::new()};
         }
+        let value=if rejected||child_rejected {ValueRelation::Unknown}else{self.value_relation(module,path,&node,operation,&frame.children)?};
         self.analysis.expressions.push(ExpressionSummary {source,expected,normal,state:if rejected||child_rejected{BodyState::Rejected}
-            else if normal==NormalResult::Pending{BodyState::Pending}else{BodyState::TypeChecked},exits,immediate,latent:latent_effect,children:frame.children,captures});
+            else if normal==NormalResult::Pending{BodyState::Pending}else{BodyState::TypeChecked},exits,immediate,latent:latent_effect,children:frame.children,captures,value});
         if let Some(parent)=self.frames.last_mut(){self.solver.charge(32)?;parent.children.push(index);}
         Ok(index)
     }
     fn scope_at(&self,module:ModuleId,path:&str,kind:&str)->Option<ScopeId> {
         let occurrence=self.lexical_occurrences.get(&(module,path.into()))?;
         self.scopes.get(&(*occurrence,kind)).copied()
+    }
+    fn value_relation(&mut self,module:ModuleId,path:&str,node:&Node,operation:&str,children:&[usize])->Result<ValueRelation> {
+        self.solver.charge(children.len()*64+192)?;
+        let first=children.first().copied();let last=children.last().copied();
+        let binding=self.local_binders.get(&(module,path.into())).copied();
+        let usage=self.local_uses.get(&(module,path.into())).and_then(|index|match self.names.lexical.uses[*index].resolution{
+            LocalResolution::Resolved {binding}=>Some(binding),_=>None});
+        match operation {
+            "var" if first.is_some()&&binding.is_some()=>Ok(ValueRelation::Initialize {binding:binding.unwrap(),initializer:first.unwrap()}),
+            "var"=>Ok(usage.map(ValueRelation::Binding).unwrap_or(ValueRelation::Unknown)),
+            "reference" if node.get("ref").is_some_and(|reference|reference.get("binding").is_some())=>Ok(usage.map(ValueRelation::Binding).unwrap_or(ValueRelation::Unknown)),
+            "reference"|"symbol"=>{
+                let reference=self.solver.path(path,"ref")?;
+                if let Some(constructor)=node.get("ref").and_then(|reference|reference.get("constructor")) {
+                    let constructor_path=self.solver.path(&reference,"constructor")?;let type_path=self.solver.path(&constructor_path,"type")?;
+                    if let Some(ty)=self.type_at(module,&type_path) {
+                        let name=constructor.get("name").and_then(Node::as_str).unwrap_or("");self.solver.charge(name.len()*6+96)?;
+                        return Ok(ValueRelation::Constructor {ty,name:name.into()});
+                    }
+                }
+                Ok(self.references.get(&(module,reference)).and_then(|index|match self.names.references[*index].resolution{
+                    Resolution::Resolved {declaration,..}=>Some(ValueRelation::Declaration(declaration)),_=>None}).unwrap_or(ValueRelation::Unknown))
+            },
+            "lambda"=>{
+                let mut parameters=Vec::new();let parent=self.solver.path(path,"params")?;
+                for index in 0..node.get("params").and_then(Node::as_array).map_or(0,|parameters|parameters.len()) {
+                    let parameter=self.solver.path(&parent,&index.to_string())?;
+                    if let Some(binding)=self.local_binders.get(&(module,parameter)){self.solver.charge(32)?;parameters.push(*binding);}
+                }
+                Ok(last.map(|body|ValueRelation::Lambda {body,parameters}).unwrap_or(ValueRelation::Unknown))
+            },
+            "let" if children.len()>=2=>{
+                let binding_path=if node.get("op").is_none(){self.solver.path(path,"binding")?}else{path.into()};
+                Ok(self.local_binders.get(&(module,binding_path)).map(|binding|ValueRelation::Let {binding:*binding,initializer:children[0],continuation:*children.last().unwrap()}).unwrap_or(ValueRelation::Unknown))
+            },
+            "let"=>Ok(match (binding,first){(Some(binding),Some(initializer))=>ValueRelation::Initialize {binding,initializer},_=>ValueRelation::Unknown}),
+            "set"=>Ok(match (usage,last){(Some(binding),Some(value))=>ValueRelation::Assign {binding,value},_=>ValueRelation::Unknown}),
+            "region"=>{
+                let mut bindings=Vec::new();let parent=self.solver.path(path,"bindings")?;
+                for index in 0..node.get("bindings").and_then(Node::as_array).map_or(0,|bindings|bindings.len()) {
+                    let entry=self.solver.path(&parent,&index.to_string())?;let binding_path=self.solver.path(&entry,"binding")?;
+                    if let (Some(binding),Some(initializer))=(self.local_binders.get(&(module,binding_path)),children.get(index)){bindings.push((*binding,*initializer));}
+                }
+                Ok(last.map(|result|ValueRelation::Region {bindings,result}).unwrap_or(ValueRelation::Unknown))
+            },
+            "if"=>Ok(ValueRelation::Choose(children.iter().skip(1).copied().collect())),
+            "try"=>Ok(ValueRelation::Choose(children.to_vec())),
+            "match"=>{
+                let parent=self.solver.path(path,if node.get("op").is_some(){"cases"}else{"arms"})?;let mut arms=Vec::new();
+                for (index,expression) in children.iter().skip(1).enumerate() {
+                    let entry=self.solver.path(&parent,&index.to_string())?;let source=self.source(module,&entry)?;arms.push((source,*expression));
+                }
+                Ok(first.map(|subject|ValueRelation::Match {subject,arms}).unwrap_or(ValueRelation::Unknown))
+            },
+            "record"|"record-update"=>{
+                let fields=node.get("fields").and_then(Node::as_array).unwrap_or(&[]);let offset=usize::from(operation=="record-update");let mut values=Vec::new();
+                for (index,field) in fields.iter().enumerate() {
+                    if let Some(value)=children.get(index+offset) {
+                        let name=field.get("name").and_then(Node::as_str).unwrap_or("");self.solver.charge(name.len()*6+96)?;values.push((name.into(),*value));
+                    }
+                }
+                if operation=="record-update"{Ok(first.map(|receiver|ValueRelation::RecordUpdate {receiver,fields:values}).unwrap_or(ValueRelation::Unknown))}
+                else {Ok(ValueRelation::Record(values))}
+            },
+            "list"|"sequence"=>{
+                let count=node.get("items").and_then(Node::as_array).map_or(0,|items|items.len());
+                Ok(ValueRelation::List {items:children.iter().take(count).copied().collect(),tail:if node.get("tail").is_some(){last}else{None}})
+            },
+            "field"=>{
+                let name=node.get("name").and_then(Node::as_str).unwrap_or("");self.solver.charge(name.len()*6+96)?;
+                Ok(first.map(|receiver|ValueRelation::Field {receiver,name:name.into()}).unwrap_or(ValueRelation::Unknown))
+            },
+            "variant"=>{
+                let name=node.get("constructor").and_then(Node::as_str).unwrap_or("");self.solver.charge(name.len()*6+96)?;
+                Ok(last.map(|payload|ValueRelation::Variant {name:name.into(),payload}).unwrap_or(ValueRelation::Unknown))
+            },
+            "call"=>Ok(self.analysis.calls.last().filter(|call|self.solver.arena.source(call.source).expanded_path==path&&self.solver.arena.source(call.source).module==module)
+                .map(|_|ValueRelation::Call(self.analysis.calls.len()-1)).unwrap_or(ValueRelation::Unknown)),
+            "while"=>Ok(if children.len()>=2 {ValueRelation::Loop {condition:children[0],body:children[1]}}else{ValueRelation::Unknown}),
+            "exec:block"|"do"=>Ok(ValueRelation::Sequence {steps:children.to_vec(),result:if node.get("result").is_some(){last}else{None}}),
+            "scope"|"eval"=>Ok(ValueRelation::Sequence {steps:children.to_vec(),result:None}),
+            "return"=>Ok(last.map(ValueRelation::Forward).unwrap_or(ValueRelation::Data)),
+            "literal"|"unary"|"binary"=>Ok(ValueRelation::Data),
+            _=>Ok(ValueRelation::Unknown),
+        }
     }
     fn owns(&self,module:ModuleId,path:&str,name:&str)->bool {
         self.navigation[module.index()].sites.get(path).is_some_and(|site|site.schemas.iter().any(|schema|
@@ -592,7 +729,7 @@ impl<'a> Engine<'a> {
             "let"|"var"=>{
                 let type_path=self.solver.path(path,"type")?;let annotation=self.type_at(module,&type_path);
                 let value=self.child(module,path,"value",env,visible,annotation,depth)?;
-                let ty=match value.or(annotation){Some(ty)=>ty,None=>self.solver.fresh(SemanticKind::Type,visible.clone())?};
+                let ty=match annotation.or(value){Some(ty)=>ty,None=>self.solver.fresh(SemanticKind::Type,visible.clone())?};
                 self.bind_type(module,path,ty)?;
             },
             "set"=>{
@@ -621,10 +758,17 @@ impl<'a> Engine<'a> {
                 self.child(module,path,"body",env,visible,Some(unit),depth)?;
                 let condition=self.frames.last().unwrap().children.first().copied().unwrap();
                 let child=&self.analysis.expressions[condition];
+                let body=*self.frames.last().unwrap().children.last().unwrap();
+                let body=&self.analysis.expressions[body];
+                let literal=node.get("condition").and_then(literal_boolean);
+                let body_active=child.normal!=NormalResult::NoNormal&&literal!=Some(false);
                 let loop_scope=self.scope_at(module,path,"loop");
-                let has_break=child.exits.iter().any(|exit|exit.kind==ExitKind::Break&&exit.target==loop_scope);
-                self.frames.last_mut().unwrap().normal=Some(if has_break{NormalResult::Value(unit)}else{match child.normal{
-                    NormalResult::Value(_)=>NormalResult::Value(unit),other=>other}});
+                self.solver.work(child.exits.len()+if body_active{body.exits.len()}else{0})?;
+                let has_break=loop_scope.is_some()&&child.exits.iter().chain(body.exits.iter().filter(|_|body_active))
+                    .any(|exit|exit.kind==ExitKind::Break&&exit.target==loop_scope);
+                self.frames.last_mut().unwrap().normal=Some(if child.normal==NormalResult::Pending||body_active&&body.normal==NormalResult::Pending {
+                    NormalResult::Pending
+                }else if has_break||condition_false(child.normal,literal){NormalResult::Value(unit)}else{NormalResult::NoNormal});
             },
             "return"|"break"|"continue"=>{
                 let occurrence=self.lexical_occurrences.get(&(module,path.into())).copied();
@@ -641,7 +785,8 @@ impl<'a> Engine<'a> {
                     else if is_return {if let Some(expected)=expected{self.solver.compatible(unit,expected,source)?;}Some(unit)}else{None};
                 let kind=if is_return{ExitKind::Return}else if node.get("op").and_then(Node::as_str)==Some("break"){ExitKind::Break}else{ExitKind::Continue};
                 self.solver.charge(128)?;
-                let frame=self.frames.last_mut().unwrap();frame.exits.push(ExitFact {source,kind,target,value});
+                let frame=self.frames.last_mut().unwrap();let expression=if node.get("value").is_some(){frame.children.last().copied()}else{None};
+                frame.exits.push(ExitFact {source,kind,target,value,expression});
                 frame.normal=Some(if target.is_none()||is_return&&value.is_none(){NormalResult::Pending}else{NormalResult::NoNormal});
             },
             "eval"=>{self.child(module,path,"value",env,visible,None,depth)?;},
@@ -707,7 +852,7 @@ impl<'a> Engine<'a> {
                 let annotation=self.type_at(module,&annotation_path);
                 let value=self.child(module,path,if shared {"initializer"}else{"value"},env,visible,annotation,depth)?;
                 let Some(binding)=self.local_binders.get(&(module,binding_path)).copied() else {return Err(fail("ReaderInvariant",path,"Missing lexical let binder"));};
-                let value=match value.or(annotation){Some(value)=>value,None=>self.solver.fresh(SemanticKind::Type,visible.clone())?};
+                let value=match annotation.or(value){Some(value)=>value,None=>self.solver.fresh(SemanticKind::Type,visible.clone())?};
                 self.solver.charge(env.len()*96+96)?;
                 let mut inner=env.clone();inner.insert(binding,value);
                 let continuation_expected=self.continuation_expected(expected);
@@ -799,7 +944,8 @@ impl<'a> Engine<'a> {
                 let value=self.child(module,path,"error",env,visible,None,depth)?;
                 self.solver.need(source,"NeedsManagedErrorProfile")?;
                 self.extra_effect(source,EffectTerm::Unqualified {code:"NeedsManagedErrorProfile",children:Vec::new()})?;
-                self.frames.last_mut().unwrap().exits.push(ExitFact {source,kind:ExitKind::UnqualifiedRaise,target:None,value});
+                let expression=self.frames.last().unwrap().children.last().copied();
+                self.frames.last_mut().unwrap().exits.push(ExitFact {source,kind:ExitKind::UnqualifiedRaise,target:None,value,expression});
                 None
             },
             "try"=>self.try_value(module,path,&node,env,visible,expected,source,depth)?,
@@ -888,7 +1034,7 @@ impl<'a> Engine<'a> {
             let entry=self.solver.path(&parent,&index.to_string())?;let binding_path=self.solver.path(&entry,"binding")?;
             let type_path=self.solver.path(&binding_path,"type")?;let annotation=self.type_at(module,&type_path);
             let value=self.child(module,&entry,"initializer",&inner,visible,annotation,depth)?;
-            let ty=match value.or(annotation){Some(ty)=>ty,None=>self.solver.fresh(SemanticKind::Type,visible.clone())?};
+            let ty=match annotation.or(value){Some(ty)=>ty,None=>self.solver.fresh(SemanticKind::Type,visible.clone())?};
             let binding=self.bind_type(module,&binding_path,ty)?;self.solver.charge(96)?;inner.insert(binding,ty);
         }
         let result_expected=self.continuation_expected(expected);
@@ -979,14 +1125,19 @@ impl<'a> Engine<'a> {
             },_=>Domain::Unknown,
         })
     }
-    fn pattern(&mut self,module:ModuleId,path:&str,node:&Node,ty:TypeId,env:&mut BTreeMap<LocalBindingId,TypeId>,visible:&BTreeSet<SemanticBinderId>,source:SourceId,depth:usize)->Result<PatternShape> {
+    fn pattern_value_binding(&mut self,arm:SourceId,binding:LocalBindingId,projection:&[ValueProjection])->Result<()> {
+        self.solver.charge(projection.iter().map(|part|match part{ValueProjection::Variant(name)=>name.len()*6+96,_=>96}).sum::<usize>()+128)?;
+        self.analysis.pattern_values.push(PatternValueBinding {arm,binding,projection:projection.to_vec()});Ok(())
+    }
+    fn pattern(&mut self,module:ModuleId,path:&str,node:&Node,ty:TypeId,env:&mut BTreeMap<LocalBindingId,TypeId>,visible:&BTreeSet<SemanticBinderId>,source:SourceId,arm:SourceId,projection:&[ValueProjection],depth:usize)->Result<PatternShape> {
         self.solver.work(1)?;if depth>128{self.solver.need(source,"NeedsPatternCoverageBudget")?;return Ok(PatternShape::Unknown);}
         match node.get("tag").and_then(Node::as_str).unwrap_or("") {
             "wildcard"=>Ok(PatternShape::Any),
             "bind"=>{
                 let binding_path=self.solver.path(path,"binding")?;let type_path=self.solver.path(&binding_path,"type")?;
                 if let Some(annotation)=self.type_at(module,&type_path){self.solver.compatible(ty,annotation,source)?;}
-                let binding=self.bind_type(module,&binding_path,ty)?;self.solver.charge(96)?;env.insert(binding,ty);Ok(PatternShape::Any)
+                let binding=self.bind_type(module,&binding_path,ty)?;self.solver.charge(96)?;env.insert(binding,ty);
+                self.pattern_value_binding(arm,binding,projection)?;Ok(PatternShape::Any)
             },
             "literal"=>{
                 let Some(literal)=self.literal(module,path,node,source)? else{return Ok(PatternShape::Unknown);};
@@ -1028,6 +1179,8 @@ impl<'a> Engine<'a> {
                     for (field,ty) in [("head",item),("tail",ty)] {
                         let binding_path=self.solver.path(path,field)?;let binding=self.bind_type(module,&binding_path,ty)?;
                         self.solver.charge(96)?;env.insert(binding,ty);
+                        self.solver.charge(projection.len()*128+128)?;let mut path=projection.to_vec();path.push(if field=="head"{ValueProjection::Head}else{ValueProjection::Tail});
+                        self.pattern_value_binding(arm,binding,&path)?;
                     }
                 }
                 Ok(PatternShape::Case(name.into(),if cons{vec![PatternShape::Any,PatternShape::Any]}else{vec![]}))
@@ -1041,9 +1194,13 @@ impl<'a> Engine<'a> {
                 let patterns=node.get("patterns").and_then(Node::as_array).unwrap_or(&[]);
                 if patterns.len()!=constructor.fields.len(){return Err(fail("PatternArity",path,"Constructor pattern arity differs"));}
                 let parent=self.solver.path(path,"patterns")?;let mut result=Vec::new();
+                let normalized=self.solver.normalize(ty,source)?;
+                let list=matches!(self.solver.arena.get(normalized),SemanticType::List(_)|SemanticType::Sequence {ordered:true,..});
                 for (index,(pattern,ty)) in patterns.iter().zip(constructor.fields).enumerate() {
                     let child=self.solver.path(&parent,&index.to_string())?;
-                    result.push(self.pattern(module,&child,pattern,ty,env,visible,source,depth+1)?);
+                    self.solver.charge(projection.len()*128+name.len()*6+128)?;let mut path=projection.to_vec();
+                    path.push(if list&&index==0{ValueProjection::Head}else if list{ValueProjection::Tail}else{ValueProjection::Variant(name.into())});
+                    result.push(self.pattern(module,&child,pattern,ty,env,visible,source,arm,&path,depth+1)?);
                 }
                 self.solver.charge(name.len()*6+result.len()*128+96)?;Ok(PatternShape::Case(name.into(),result))
             },
@@ -1059,10 +1216,11 @@ impl<'a> Engine<'a> {
         let mut matrix=Vec::new();let mut redundant=Vec::new();let mut cache=BTreeMap::new();let mut active=BTreeSet::new();
         for (index,arm) in node.get(field).and_then(Node::as_array).unwrap_or(&[]).iter().enumerate() {
             let entry=self.solver.path(&parent,&index.to_string())?;
+            let arm_source=self.source(module,&entry)?;
             self.solver.charge(env.len()*96+128)?;let mut inner=env.clone();
             let pattern=if shared {
                 let pattern_path=self.solver.path(&entry,"pattern")?;
-                self.pattern(module,&pattern_path,arm.get("pattern").unwrap(),ty,&mut inner,visible,source,depth+1)?
+                self.pattern(module,&pattern_path,arm.get("pattern").unwrap(),ty,&mut inner,visible,source,arm_source,&[],depth+1)?
             }else {
                 let name=arm.get("constructor").and_then(Node::as_str).unwrap_or("");
                 match self.domain(module,ty,source)? {
@@ -1070,6 +1228,7 @@ impl<'a> Engine<'a> {
                         let constructor=constructors.into_iter().find(|constructor|constructor.name==name).ok_or_else(||fail("UnknownConstructor",&entry,name))?;
                         let payload=if let Some(payload)=constructor.fields.first(){*payload}else{self.scalar("unit")?};
                         let binding=self.bind_type(module,&entry,payload)?;inner.insert(binding,payload);
+                        self.pattern_value_binding(arm_source,binding,&[ValueProjection::Variant(name.into())])?;
                         self.solver.charge(name.len()*6+128)?;PatternShape::Case(name.into(),constructor.fields.iter().map(|_|PatternShape::Any).collect())
                     },_=>{self.solver.need(source,"NeedsMatchSubjectType")?;PatternShape::Unknown},
                 }
@@ -1254,7 +1413,10 @@ impl<'a> Engine<'a> {
         if let Some(function)=function {
             let returns=function.returns;let function_type=self.solver.insert(SemanticType::Function(function))?;
             self.solver.charge(192+mapping.len()*32)?;
-            let index=self.analysis.calls.len();self.analysis.calls.push(CallFact {source,callee:declaration,function_type,source_to_formal:mapping});
+            let children=&self.frames.last().unwrap().children;
+            self.solver.charge(children.len()*32)?;
+            let callee_value=children[0];let arguments=children[1..].to_vec();
+            let index=self.analysis.calls.len();self.analysis.calls.push(CallFact {source,callee:declaration,function_type,source_to_formal:mapping,callee_value,arguments});
             self.extra_effect(source,EffectTerm::Call(index))?;
             Ok(if complete{Some(returns)}else{None})
         }else{

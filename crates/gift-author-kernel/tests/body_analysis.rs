@@ -211,7 +211,7 @@ fn ordinary_and_nominal_records_share_field_and_update_constraints() {
 fn contains_call(analysis:&SignatureResolution,effect:gift_author_kernel::body_analysis::EffectId)->bool {
     match &analysis.bodies.effects[effect.0].term {
         EffectTerm::Call(_)=>true,EffectTerm::Sequence(children)|EffectTerm::Unqualified {children,..}=>children.iter().any(|child|contains_call(analysis,*child)),
-        EffectTerm::Conditional {condition,branches}=>contains_call(analysis,*condition)||branches.iter().any(|child|contains_call(analysis,*child)),
+        EffectTerm::Conditional {condition,branches,..}=>contains_call(analysis,*condition)||branches.iter().any(|child|contains_call(analysis,*child)),
         EffectTerm::Try {body,handler,..}=>contains_call(analysis,*body)||contains_call(analysis,*handler),
         EffectTerm::Loop {condition,body,..}=>contains_call(analysis,*condition)||contains_call(analysis,*body),_=>false,
     }
@@ -229,6 +229,8 @@ fn lambda_creation_and_short_circuit_keep_distinct_effect_occurrences() {
     assert!(!contains_call(&analysis,lambda.immediate));
     assert!(contains_call(&analysis,lambda.latent.unwrap()));
     assert!(analysis.bodies.effects.iter().any(|effect|matches!(&effect.term,EffectTerm::Conditional {branches,..} if branches.iter().any(|branch|contains_call(&analysis,*branch)))));
+    assert!(analysis.bodies.effects.iter().any(|effect|matches!(&effect.term,EffectTerm::Conditional {branches,active,..}
+        if branches.iter().zip(active).any(|(branch,active)|!active&&contains_call(&analysis,*branch)))));
     assert_eq!(analysis.bodies.calls.len(),2);
 }
 
@@ -437,4 +439,36 @@ fn review_repair_no_normal_prefix_does_not_constrain_unreachable_results_to_oute
         assert_eq!(signature(&analysis,"F").state,SignatureState::Rejected);
         assert!(analysis.bodies.problems.iter().any(|problem|matches!(problem.diagnostic.code.as_str(),"NotCallableType"|"TypeMismatch")));
     }
+}
+
+#[test]
+fn review_repair_loop_normal_results_follow_reachable_false_or_break_exits() {
+    let abrupt_condition = |exit: &str| json!({"op":"try","errorName":"e",
+        "body":block(json!([{"op":exit}]),None), "onError":block(json!([{"op":exit}]),None)});
+    let definitions = [
+        ("TrueBreak", boolean(true), block(json!([{"op":"break"}]),None), true),
+        ("TrueContinue", boolean(true), block(json!([{"op":"continue"}]),None), false),
+        ("TrueReturn", boolean(true), block(json!([{"op":"return"}]),None), false),
+        ("UnknownCondition", variable("flag"), block(json!([{"op":"continue"}]),None), true),
+        ("ConditionBreak", abrupt_condition("break"), block(json!([{"op":"continue"}]),None), true),
+        ("ConditionReturn", abrupt_condition("return"), block(json!([{"op":"break"}]),None), false),
+    ];
+    for (name, condition, body, can_leave) in definitions {
+        let analysis=analyze(json!({name:function(json!([parameter("flag",scalar("bool"))]),Some(scalar("unit")),
+            block(json!([{"op":"while","condition":condition,"body":body}]),None))}));
+        assert_eq!(signature(&analysis,name).state,SignatureState::TypeReady,"{name}: {:?}",analysis.problems);
+        let loop_path=format!("/definitions/{name}/body/body/statements/0");
+        let result=analysis.bodies.expressions.iter().find(|expression|
+            analysis.types.source(expression.source).expanded_path==loop_path).unwrap();
+        assert_eq!(matches!(result.normal,NormalResult::Value(_)),can_leave,"{name}: {:?}",result.normal);
+        if !can_leave {assert_eq!(result.normal,NormalResult::NoNormal,"{name}");}
+        assert!(!result.exits.iter().any(|exit|matches!(exit.kind,ExitKind::Break|ExitKind::Continue)),
+            "The original loop consumes its own control targets");
+    }
+    let analysis=analyze(json!({"Bad":function(json!([]),Some(scalar("unit")),block(json!([
+        {"op":"while","condition":boolean(true),"body":block(json!([{"op":"continue"}]),None)},
+        {"op":"eval","value":{"op":"call","callee":boolean(true),"arguments":[]}}
+    ]),None))}));
+    assert_eq!(signature(&analysis,"Bad").state,SignatureState::Rejected);
+    assert!(analysis.bodies.problems.iter().any(|problem|problem.diagnostic.code=="NotCallableType"));
 }
