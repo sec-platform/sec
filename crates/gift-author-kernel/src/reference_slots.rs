@@ -6,7 +6,7 @@ use crate::{binding::Budget, grammar, model::{Diagnostic, fail}, reader::Reader,
 
 const NAMES: &str = "urn:gift:design-schema:first-layer-names";
 const REQUIREMENT: &str = "urn:gift:design-schema:requirement-structure-1-converged-base";
-const SHARED: &str = "urn:gift:design-schema:shared-semantic-structure-1-converged-base";
+pub(crate) const SHARED: &str = "urn:gift:design-schema:shared-semantic-structure-1-converged-base";
 const INTENT: &str = "urn:gift:design-schema:intent-body-1-converged-base";
 const PATTERN: &str = "urn:gift:design-schema:semantic-pattern-1-converged-base";
 
@@ -19,7 +19,18 @@ pub(crate) struct Slot {
     pub kind: SlotKind,
     pub node: Node,
 }
-type Slots = BTreeMap<String, Slot>;
+/// Selected Schema navigation, shared by module and lexical name consumers.
+/// A site is one expanded occurrence, even when its Node is shared elsewhere.
+pub(crate) struct Site {
+    pub node: Node,
+    pub schemas: BTreeSet<String>,
+}
+#[derive(Default)]
+pub(crate) struct Navigation {
+    pub references: BTreeMap<String, Slot>,
+    pub sites: BTreeMap<String, Site>,
+}
+type Slots = Navigation;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Address { resource: String, pointer: String }
@@ -78,15 +89,20 @@ impl Navigator<'_> {
         self.budget.text(&uri)?;
         let slot = Slot { path: path.into(), schema: uri, kind, node: node.clone() };
         self.budget.text(path)?;
-        Ok(BTreeMap::from([(path.into(), slot)]))
+        Ok(Navigation { references: BTreeMap::from([(path.into(), slot)]), sites: BTreeMap::new() })
     }
     fn merge(&mut self, into: &mut Slots, from: Slots) -> Result<(), Diagnostic> {
-        for (path, slot) in from {
-            if let Some(old) = into.get(&path) {
+        for (path, slot) in from.references {
+            if let Some(old) = into.references.get(&path) {
                 if old.kind != slot.kind {
                     return Err(fail("AmbiguousReferenceSlots", &path, "Applicable Schema branches disagree about the reference domain"));
                 }
-            } else { into.insert(path, slot); }
+            } else { into.references.insert(path, slot); }
+        }
+        for (path, site) in from.sites {
+            if let Some(old) = into.sites.get_mut(&path) {
+                old.schemas.extend(site.schemas);
+            } else { into.sites.insert(path, site); }
         }
         Ok(())
     }
@@ -95,7 +111,7 @@ impl Navigator<'_> {
         if depth > 256 { return Err(fail("ResourceLimit", "", "Name navigation depth budget exceeded")); }
         // A schema-only cycle at one occurrence contributes no additional slots.
         let key = (address.clone(), node.identity());
-        if !self.active.insert(key.clone()) { return Ok(Slots::new()); }
+        if !self.active.insert(key.clone()) { return Ok(Slots::default()); }
         let result = self.walk_inner(address, node, path, depth);
         self.active.remove(&key);
         result
@@ -109,17 +125,24 @@ impl Navigator<'_> {
             return self.slot(address, node, path, SlotKind::Definition);
         }
         // These exact owners define ordinary JSON data, not another author region.
-        if address.resource == grammar::MODULE && address.pointer == "/$defs/Json" { return Ok(Slots::new()); }
+        if (address.resource == grammar::MODULE || address.resource == REQUIREMENT) && address.pointer == "/$defs/Json" { return Ok(Slots::default()); }
         let reader = self.reader;
         let schema = reader.graph().get(&address.resource).and_then(|root| root.pointer(&address.pointer))
             .ok_or_else(|| fail("GrammarDrift", "", "Name navigation references an absent Schema node"))?;
-        if !schema.is_object() { return Ok(Slots::new()); }
+        if !schema.is_object() { return Ok(Slots::default()); }
         if matches!(address.resource.as_str(), INTENT | PATTERN) && node.as_str().is_some() &&
             schema.get("oneOf").and_then(Value::as_array).is_some_and(|branches| branches.iter().any(|branch|
                 branch.get("$ref").and_then(Value::as_str) == Some("urn:gift:design-schema:first-layer-names#/$defs/StructuredSourceRef"))) {
             return self.slot(address, node, path, SlotKind::Profile);
         }
-        let mut result = Slots::new();
+        let mut result = Slots::default();
+        if node.as_object().is_some() || node.as_array().is_some() {
+            self.budget.text(path)?;
+            self.budget.charge(192)?;
+            let uri = address.uri();
+            self.budget.text(&uri)?;
+            result.sites.insert(path.into(), Site { node: node.clone(), schemas: BTreeSet::from([uri]) });
+        }
         if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
             let target = address.reference(reference)?;
             let slots = self.walk(&target, node, path, depth + 1)?;
@@ -142,9 +165,12 @@ impl Navigator<'_> {
                     count += 1;
                     let slots = self.walk(&branch, node, path, depth + 1)?;
                     if let Some(old) = &selected {
-                        if old.len() != slots.len() || old.iter().any(|(p,s)| slots.get(p).is_none_or(|n| n.kind != s.kind)) {
+                        if old.references.len() != slots.references.len() || old.references.iter().any(|(p,s)| slots.references.get(p).is_none_or(|n| n.kind != s.kind)) {
                             return Err(fail("AmbiguousReferenceSlots", path, "Valid alternatives disagree between reference slots and ordinary data"));
                         }
+                        // Applicable branches may add complementary structural
+                        // addresses, but must agree on the reference domains.
+                        if let Some(selected) = &mut selected { self.merge(selected, slots)?; }
                     } else { selected = Some(slots); }
                 }
                 if count == 0 || (union == "oneOf" && count != 1) {
@@ -202,8 +228,8 @@ impl Navigator<'_> {
     }
 }
 
-pub(crate) fn collect(reader: &Reader, node: &Node, budget: &mut Budget) -> Result<Vec<Slot>, Diagnostic> {
+pub(crate) fn collect(reader: &Reader, node: &Node, budget: &mut Budget) -> Result<Navigation, Diagnostic> {
     let address = Address { resource: grammar::MODULE.into(), pointer: String::new() };
     Navigator { reader, budget, weights: BTreeMap::new(), active: BTreeSet::new() }
-        .walk(&address, node, "", 0).map(|slots| slots.into_values().collect())
+        .walk(&address, node, "", 0)
 }

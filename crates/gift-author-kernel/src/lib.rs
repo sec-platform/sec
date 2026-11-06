@@ -5,6 +5,7 @@ pub mod grammar;
 pub mod expansion;
 pub mod reader;
 pub mod binding;
+pub mod lexical;
 mod reference_slots;
 mod typescript;
 

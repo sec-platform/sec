@@ -49,8 +49,35 @@ const resolution = z.discriminatedUnion('state', [
   z.object({ state: z.literal('needs'), code: z.string(), selector: z.string(), route: z.array(exportHop) }).strict(),
   z.object({ state: z.literal('rejected'), code: z.string(), selector: z.string(), route: z.array(exportHop) }).strict()
 ]);
+const lexicalPhase = z.enum(['static', 'runtime', 'unknown']);
+const lexicalDomain = z.enum(['semantic', 'value']);
+const binderResolution = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('resolved'), binding: nodeId }).strict(),
+  z.object({ state: z.literal('needs'), code: z.string() }).strict(),
+  z.object({ state: z.literal('rejected'), code: z.string() }).strict()
+]);
+const controlResolution = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('resolved'), scope: nodeId }).strict(),
+  z.object({ state: z.literal('needs'), code: z.string() }).strict(),
+  z.object({ state: z.literal('rejected'), code: z.string() }).strict()
+]);
+const lexicalProblem = z.object({ occurrence: nodeId, code: z.string() }).strict();
+const lexicalOutput = z.object({
+  occurrences: z.array(z.object({ id: nodeId, module: nodeId, owner: nodeId.nullable(),
+    expanded_path: z.string(), origin, schema_slot: z.string() }).strict()),
+  scopes: z.array(z.object({ id: nodeId, parent: nodeId.nullable(), occurrence: nodeId,
+    kind: z.enum(['definition', 'function', 'lambda', 'block', 'let', 'branch', 'match_arm', 'handler', 'try_body', 'loop', 'semantic']) }).strict()),
+  bindings: z.array(z.object({ id: nodeId, scope: nodeId, occurrence: nodeId, source_key: z.string().nullable(),
+    name: z.string(), kind: z.enum(['runtime_parameter', 'let', 'var', 'pattern', 'handler', 'Type', 'Value', 'Region', 'Scope', 'EffectRow', 'constructor', 'pack']),
+    domains: z.array(lexicalDomain).min(1).max(2), phase: lexicalPhase, mutable: z.boolean() }).strict()),
+  uses: z.array(z.object({ occurrence: nodeId, scope: nodeId, domain: lexicalDomain, selector: z.string(),
+    phase: lexicalPhase, expected_kind: z.string().nullable(), resolution: binderResolution }).strict()),
+  exits: z.array(z.object({ occurrence: nodeId, kind: z.enum(['return', 'break', 'continue']), target: controlResolution }).strict()),
+  captures: z.array(z.object({ scope: nodeId, binding: nodeId, occurrence: nodeId }).strict()),
+  problems: z.array(lexicalProblem), pending_regions: z.array(lexicalProblem)
+}).strict();
 const namesOutput = z.object({
-  schema: z.literal('gift.author-names/1'), stage: z.literal('names'), identity_scope: z.literal('capture-local'),
+  schema: z.literal('gift.author-names/2'), stage: z.literal('names'), identity_scope: z.literal('capture-local'),
   input_revision: z.string(), source_revision: z.string(), root: nodeId,
   modules: z.array(z.object({ id: nodeId, module_id: z.string(), source_revision: z.string(), grammar_revision: z.string() }).strict()),
   declarations: z.array(z.object({ id: nodeId, module: nodeId, name: z.string(), kind: z.string(), origin }).strict()),
@@ -60,9 +87,54 @@ const namesOutput = z.object({
   reads: z.array(z.object({ module: nodeId, domain: z.string(), name: z.string() }).strict()),
   problems: z.array(z.object({ module: nodeId, path: z.string(), code: z.string() }).strict()),
   pending_regions: z.array(z.object({ module: nodeId, path: z.string(), code: z.string() }).strict()),
+  lexical: lexicalOutput,
   unchecked: z.array(z.string())
 }).strict();
 export type AuthorNameAnalysis = z.infer<typeof namesOutput>;
+
+/** Validate the native wire against the captured bytes. This checks transport
+ * integrity only; it does not issue lexical, type, runtime or effect authority. */
+export function parseAuthorNameAnalysis(value: unknown, bytes: Uint8Array): AuthorNameAnalysis {
+  const parsed = namesOutput.safeParse(value);
+  if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author name analyzer returned an invalid result');
+  const data = parsed.data;
+  const sourceRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  if (data.source_revision !== sourceRevision || data.modules.some(module => module.source_revision !== sourceRevision)) {
+    throw new CodedFailure('AUTHOR-COMPILE-REVISION', 'Name analysis does not bind the exact captured author bytes');
+  }
+  const validOrigin = (item: z.infer<typeof origin>): boolean => item === null || (item.start <= item.end && item.end <= bytes.length);
+  const validOwner = (owner: number | null): boolean => owner === null || owner < data.declarations.length;
+  const validResolution = (item: z.infer<typeof resolution>): boolean =>
+    (item.state !== 'resolved' || item.declaration < data.declarations.length) && item.route.every(hop => hop.module === 0);
+  if (data.root !== 0 || data.modules.length !== 1 || data.modules[0]?.id !== 0 ||
+    data.declarations.some((declaration, index) => declaration.id !== index || declaration.module !== 0 || !validOrigin(declaration.origin)) ||
+    data.references.some(reference => reference.module !== 0 || !validOwner(reference.owner) ||
+      !validOrigin(reference.origin) || !validResolution(reference.resolution)) ||
+    data.exports.some(item => item.module !== 0 || !validResolution(item.resolution)) ||
+    [...data.reads, ...data.problems, ...data.pending_regions].some(item => item.module !== 0)) {
+    throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Name analysis contains an invalid capture ID, reference or source range');
+  }
+  const arena = data.lexical;
+  const occurrenceExists = (id: number): boolean => id < arena.occurrences.length;
+  const scopeExists = (id: number): boolean => id < arena.scopes.length;
+  const bindingExists = (id: number): boolean => id < arena.bindings.length;
+  if (arena.occurrences.some((item, index) => item.id !== index || item.module !== 0 || !validOwner(item.owner) || !validOrigin(item.origin)) ||
+    arena.scopes.some((item, index) => item.id !== index || !occurrenceExists(item.occurrence) || (item.parent !== null && item.parent >= index)) ||
+    arena.bindings.some((item, index) => item.id !== index || !scopeExists(item.scope) || !occurrenceExists(item.occurrence) ||
+      new Set(item.domains).size !== item.domains.length) ||
+    arena.uses.some(item => !scopeExists(item.scope) || !occurrenceExists(item.occurrence) ||
+      (item.resolution.state === 'resolved' && !bindingExists(item.resolution.binding))) ||
+    arena.exits.some(item => !occurrenceExists(item.occurrence) || (item.target.state === 'resolved' &&
+      (!scopeExists(item.target.scope) || (item.kind === 'return'
+        ? !['function', 'lambda'].includes(arena.scopes[item.target.scope]!.kind)
+        : arena.scopes[item.target.scope]!.kind !== 'loop')))) ||
+    arena.captures.some(item => !scopeExists(item.scope) || arena.scopes[item.scope]?.kind !== 'lambda' ||
+      !bindingExists(item.binding) || !occurrenceExists(item.occurrence)) ||
+    [...arena.problems, ...arena.pending_regions].some(item => !occurrenceExists(item.occurrence))) {
+    throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Lexical analysis contains an invalid arena ID, edge, control target or source range');
+  }
+  return data;
+}
 
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string): Promise<AuthorCompilationBundle>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: true): Promise<AuthorReadOutput>;
@@ -86,7 +158,6 @@ export async function compileAuthorModule(
   const bytes = readOptionalRetainedOrdinaryFile(inputPath, 'Gift author source');
   if (bytes === null) throw new CodedFailure('AUTHOR-COMPILE-INPUT', 'Gift author source is missing');
   if (bytes.length > 4 * 1024 * 1024) throw new CodedFailure('AUTHOR-COMPILE-LIMIT', 'Gift author source exceeds the input budget');
-  const sourceRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   const result = await runCommandBytes(kernelPath, mode === 'names' ? ['--names'] : mode ? ['--read'] : [], {
     cwd: workspaceRoot, input: bytes, maxStdinBytes: 4 * 1024 * 1024,
     maxStdoutBytes: 64 * 1024 * 1024, maxStderrBytes: 64 * 1024, timeoutMs: 30_000
@@ -103,25 +174,9 @@ export async function compileAuthorModule(
     throw new CodedFailure('AUTHOR-COMPILE-REJECTED', `${code} at ${path || '/'}: ${message}`);
   }
   if (mode === 'names') {
-    const parsed = namesOutput.safeParse(value);
-    if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author name analyzer returned an invalid result');
-    const data = parsed.data;
-    if (data.source_revision !== sourceRevision || data.modules.some(module => module.source_revision !== sourceRevision)) {
-      throw new CodedFailure('AUTHOR-COMPILE-REVISION', 'Name analysis does not bind the exact captured author bytes');
-    }
-    const validOrigin = (item: z.infer<typeof origin>): boolean => item === null || (item.start <= item.end && item.end <= bytes.length);
-    const validResolution = (item: z.infer<typeof resolution>): boolean =>
-      (item.state !== 'resolved' || item.declaration < data.declarations.length) && item.route.every(hop => hop.module === 0);
-    if (data.root !== 0 || data.modules.length !== 1 || data.modules[0]?.id !== 0 ||
-      data.declarations.some((declaration, index) => declaration.id !== index || declaration.module !== 0 || !validOrigin(declaration.origin)) ||
-      data.references.some(reference => reference.module !== 0 || (reference.owner !== null && reference.owner >= data.declarations.length) ||
-        !validOrigin(reference.origin) || !validResolution(reference.resolution)) ||
-      data.exports.some(item => item.module !== 0 || !validResolution(item.resolution)) ||
-      [...data.reads, ...data.problems, ...data.pending_regions].some(item => item.module !== 0)) {
-      throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Name analysis contains an invalid capture ID, reference or source range');
-    }
-    return data;
+    return parseAuthorNameAnalysis(value, bytes);
   }
+  const sourceRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   if (mode) {
     const parsed = readOutput.safeParse(value);
     if (!parsed.success) throw new CodedFailure('AUTHOR-COMPILE-PROTOCOL', 'Author Reader returned an invalid structural result');

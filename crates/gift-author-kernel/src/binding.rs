@@ -87,6 +87,7 @@ pub struct NameAnalysis {
     pub reads: Vec<NameRead>,
     pub problems: Vec<NameProblem>,
     pub pending_regions: Vec<PendingRegion>,
+    pub lexical: crate::lexical::LexicalArena,
     pub unchecked: &'static [&'static str],
 }
 
@@ -104,8 +105,8 @@ impl Budget {
         Ok(())
     }
     pub(crate) fn text(&mut self, text: &str) -> Result<()> { self.charge(text.len().saturating_mul(6).saturating_add(128)) }
-    fn copy(&mut self, text: &str) -> Result<String> { self.text(text)?; Ok(text.into()) }
-    fn origin(&mut self, node: &Node) -> Result<Option<Origin>> {
+    pub(crate) fn copy(&mut self, text: &str) -> Result<String> { self.text(text)?; Ok(text.into()) }
+    pub(crate) fn origin(&mut self, node: &Node) -> Result<Option<Origin>> {
         if let Some(origin) = node.origin() { self.text(&origin.pointer)?; Ok(Some(origin.clone())) } else { Ok(None) }
     }
     pub(crate) fn child_path(&mut self, parent: &str, key: &str) -> Result<String> {
@@ -320,6 +321,7 @@ pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], ro
     let mut resolver = Resolver { input: prepared, budget, reads: BTreeSet::new() };
     let mut exports = Vec::new();
     let mut references = Vec::new();
+    let mut lexical = crate::lexical::LexicalArena::default();
     let reader = reader::shared()?;
     for (index, source) in sources.iter().enumerate() {
         if let Some(entries) = source.expanded().get("imports").and_then(Node::as_object) {
@@ -338,7 +340,10 @@ pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], ro
                 exports.push(ExportResolution { module: ModuleId(index), name: resolver.budget.copy(name)?, resolution });
             }
         }
-        for slot in reference_slots::collect(reader, source.expanded(), &mut resolver.budget)? {
+        let navigation = reference_slots::collect(reader, source.expanded(), &mut resolver.budget)?;
+        crate::lexical::analyze_module(reader, &navigation, source, ModuleId(index),
+            &resolver.input.declarations[index], &mut lexical, &mut resolver.budget)?;
+        for slot in navigation.references.into_values() {
             let name = slot.path.strip_prefix("/definitions/").and_then(|path| path.split_once('/')).map(|(name, _)| name.replace("~1", "/").replace("~0", "~"));
             let owner = name.as_ref().and_then(|name| resolver.input.declarations[index].get(name)).copied();
             let dialect_slot = owner.is_some_and(|id| seeds[id.0].kind == "extension:definition" &&
@@ -350,9 +355,9 @@ pub fn analyze_sources(sources: &[DecodedSource], bindings: &[ImportBinding], ro
                 origin: resolver.budget.origin(&slot.node)?, schema_slot: slot.schema, domain, resolution });
         }
     }
-    Ok(NameAnalysis { schema: "gift.author-names/1", stage: "names", identity_scope: "capture-local", input_revision, source_revision,
-        root: ModuleId(root), modules, declarations: seeds, references, exports, reads: resolver.reads.into_iter().collect(), problems, pending_regions,
-        unchecked: &["lexical-binders", "declaration-roles", "types", "effects", "professional-interpretation", "callable-qualification", "module-use-and-lock", "persistent-declaration-lineage", "target"] })
+    Ok(NameAnalysis { schema: "gift.author-names/2", stage: "names", identity_scope: "capture-local", input_revision, source_revision,
+        root: ModuleId(root), modules, declarations: seeds, references, exports, reads: resolver.reads.into_iter().collect(), problems, pending_regions, lexical,
+        unchecked: &["declaration-roles", "types", "effects", "capture-lifetimes-and-escape", "initialization-dependencies", "professional-interpretation", "callable-qualification", "module-use-and-lock", "persistent-declaration-lineage", "target"] })
 }
 
 pub fn analyze(bytes: &[u8]) -> Result<NameAnalysis> { analyze_sources(&[reader::read(bytes)?], &[], 0) }
