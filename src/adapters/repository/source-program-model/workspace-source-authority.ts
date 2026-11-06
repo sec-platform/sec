@@ -499,12 +499,27 @@ function exactSingleLine(bytes: Uint8Array, label: string): string {
   return value;
 }
 
-function exactGitIndexObjectFormat(bytes: Uint8Array): GitIndexObjectFormat {
-  const value = exactSingleLine(bytes, 'Git object format');
-  if (value !== 'sha1' && value !== 'sha256') {
-    throw new Error(`Staged index object format is unsupported: ${value}`);
+/** Decode native output only; retained session/file readback owns its authority. */
+export function decodeStagedIndexLocation(bytes: Uint8Array): Readonly<{
+  repositoryRoot: string;
+  indexPath: string;
+  objectFormat: GitIndexObjectFormat;
+}> {
+  const source = exactUtf8(bytes, 'Staged index location');
+  const lines = (source.endsWith('\r\n') ? source.slice(0, -2)
+    : source.endsWith('\n') ? source.slice(0, -1) : source).split(/\r?\n/u);
+  if (lines.length !== 3 || lines.some(line => line.length === 0 || /[\r\n\0]/u.test(line))) {
+    throw new Error('Staged index location is not exactly three nonempty lines');
   }
-  return value;
+  const objectFormat = lines[2];
+  if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+    throw new Error(`Staged index object format is unsupported: ${objectFormat}`);
+  }
+  return Object.freeze({
+    repositoryRoot: path.resolve(lines[0]!),
+    indexPath: path.resolve(lines[1]!),
+    objectFormat
+  });
 }
 
 function stagedIndexEntries(
@@ -538,23 +553,13 @@ function stagedIndexEntries(
 async function observeStagedIndex(
   session: GitReadSession
 ): Promise<StagedIndexObservation> {
-  const repositoryRootCommand = await session.run([
-    'rev-parse', '--path-format=absolute', '--show-toplevel'
+  const locationCommand = await session.run([
+    'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-path', 'index',
+    '--show-object-format'
   ]);
-  const indexPathCommand = await session.run([
-    'rev-parse', '--path-format=absolute', '--git-path', 'index'
-  ]);
-  const objectFormatCommand = await session.run([
-    'rev-parse', '--show-object-format'
-  ]);
-  const repositoryRoot = path.resolve(exactSingleLine(
-    exactCompletedGitOutput(repositoryRootCommand, 'resolve the staged repository root'),
-    'Staged repository root'
-  ));
-  const indexPath = path.resolve(exactSingleLine(
-    exactCompletedGitOutput(indexPathCommand, 'resolve the staged index path'),
-    'Staged index path'
-  ));
+  const { repositoryRoot, indexPath, objectFormat } = decodeStagedIndexLocation(
+    exactCompletedGitOutput(locationCommand, 'resolve the staged index location')
+  );
   if (repositoryRoot !== path.resolve(session.cwd)) {
     throw new Error('Staged index repository root differs from the retained Git working directory');
   }
@@ -572,9 +577,6 @@ async function observeStagedIndex(
     throw new Error('Staged index is not one retained ordinary file');
   }
   const indexBytes = retained.bytes;
-  const objectFormat = exactGitIndexObjectFormat(
-    exactCompletedGitOutput(objectFormatCommand, 'resolve the staged object format')
-  );
   const records = stagedIndexEntries(indexBytes, objectFormat);
   if (session.consumeRecords(records.length) !== null) {
     throw new Error('Staged index membership exceeded the Git session record budget');

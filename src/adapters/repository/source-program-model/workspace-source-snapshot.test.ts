@@ -17,6 +17,7 @@ import {
   settleCompilerDependencyFixtureOperation
 } from '../../toolchain/dependencies/test/runtime.ts';
 import { materializeTypeScriptExecutionGeneration } from '../../toolchain/typescript/execution-generation.ts';
+import { decodeStagedIndexLocation } from './workspace-source-authority.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   acquireStagedIndexWorkspaceSourceSnapshot,
@@ -169,6 +170,28 @@ test('working tree and exact Git tree issue one transport-neutral source generat
   expect(exact.physicalObservationReceipt).toMatchObject({ kind: 'git-tree', commitSha });
 });
 
+test('staged index location decoding rejects ambiguous native output', () => {
+  const root = path.resolve('native location with spaces');
+  const index = path.join(root, '.git', 'index');
+  for (const objectFormat of ['sha1', 'sha256'] as const) {
+    for (const eol of ['\n', '\r\n']) {
+      for (const trailing of ['', eol]) {
+        expect(decodeStagedIndexLocation(Buffer.from([root, index, objectFormat].join(eol) + trailing)))
+          .toEqual({ repositoryRoot: root, indexPath: index, objectFormat });
+      }
+    }
+  }
+  for (const invalid of [
+    `${root}\n${index}`, `${root}\n${index}\nsha1\nextra\n`,
+    `${root}\n\nsha1\n`, `${root}\n${index}\nsha1\n\n`,
+    `${root}\0\n${index}\nsha1\n`, `${root}\rbroken\n${index}\nsha1\n`,
+    `${root}\n${index}\nsha512\n`, `${root}\n${index}\n sha1\n`
+  ]) {
+    expect(() => decodeStagedIndexLocation(Buffer.from(invalid))).toThrow();
+  }
+  expect(() => decodeStagedIndexLocation(Buffer.from([0xff]))).toThrow();
+});
+
 test('staged index snapshot binds exact index bytes and blocks later index drift', async () => {
   const { repositoryRoot } = await createRepository();
   await withAuthorityGitReadSession({
@@ -182,6 +205,11 @@ test('staged index snapshot binds exact index bytes and blocks later index drift
       .rejects.toThrow('not owner-issued');
     const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session });
     expect(snapshot.physicalObservationReceipt?.kind).toBe('staged-index-observation');
+    const processesBeforeReadback = session.processCount;
+    await readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session);
+    // This repeated fence must fit the original operation budget without relying
+    // on a warm normalization result to skip otherwise-required observations.
+    expect(session.processCount - processesBeforeReadback).toBe(1);
     await writeFile(
       path.join(repositoryRoot, 'src', 'example', 'value.ts'),
       'export const value = 2;\n'
