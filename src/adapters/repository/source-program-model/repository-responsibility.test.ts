@@ -561,7 +561,7 @@ test('source program accepts a terminal issuer only through its unique same-capa
 });
 
 function compileCausalReaderFixture(
-  readerBody: string,
+  readerSources: Readonly<Record<string, string>>,
   additionalSources: Readonly<Record<string, string>> = Object.freeze({})
 ) {
   const sources = {
@@ -570,7 +570,7 @@ function compileCausalReaderFixture(
       'export function parseRepairPlanJson(source: string): RepairPlan { return JSON.parse(source) as RepairPlan; }'
     ].join('\n'),
     'src/adapters/filesystem/files.ts': 'export async function readJson<T>(_path: string): Promise<T> { throw new Error(); }\n',
-    'src/adapters/workspace/required-artifact-read.ts': readerBody,
+    ...readerSources,
     ...additionalSources
   };
   const descriptorSources = [{
@@ -598,12 +598,12 @@ function compileCausalReaderFixture(
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
-      causalRelations: [{
+      causalRelations: Object.keys(readerSources).map((path) => ({
         subject: 'semantic.repair-plan',
         relation: 'reads-back',
-        symbol: { path: 'src/adapters/workspace/required-artifact-read.ts', name: 'readRequiredRepairPlan' },
+        symbol: { path, name: 'readRequiredRepairPlan' },
         operation: null
-      }]
+      }))
     })
   }];
   const files = Object.entries(sources).map(([path, source]) => Object.freeze({
@@ -625,157 +625,146 @@ function compileCausalReaderFixture(
   });
 }
 
-test('causal relation projection rejects generic persisted reads and accepts the canonical owner parser', () => {
-  const canonical = compileCausalReaderFixture([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan { return parseRepairPlanJson(source); }'
-  ].join('\n'));
-  expect(canonical.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass'
-  }));
-
-  const generic = compileCausalReaderFixture([
-    "import type { RepairPlan } from '../../semantics/repair/types.ts';",
-    "import { readJson } from '../../adapters/filesystem/files.ts';",
-    'async function readRequiredRepairPlan(path: string): Promise<RepairPlan> { return readJson<RepairPlan>(path); }'
-  ].join('\n'));
-  expect(generic.candidates).toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass',
-    subject: 'semantic.repair-plan:parser/readback',
-    observationClass: 'derived'
-  }));
-});
-
-test('causal readback provenance preserves a terminal parser return across a fail-only guard', () => {
-  const guarded = compileCausalReaderFixture([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function bytesOrNull(): string | null { return null; }',
-    'function readRequiredRepairPlan(_path: string): RepairPlan {',
-    '  const bytes = bytesOrNull();',
-    "  if (bytes === null) throw new Error('missing');",
-    '  return parseRepairPlanJson(bytes);',
-    '}'
-  ].join('\n'));
-  expect(guarded.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass'
-  }));
-
-  const mutatingBranch = compileCausalReaderFixture([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    "  if (source.length === 0) source = '{}';",
-    '  return parseRepairPlanJson(source);',
-    '}'
-  ].join('\n'));
-  expect(mutatingBranch.candidates).toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass'
-  }));
-});
-
-test('causal readback provenance follows stable relays and owner helpers', () => {
-  const stableRelay = compileCausalReaderFixture([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'async function readRequiredRepairPlan(source: string): Promise<RepairPlan> {',
-    "  const parsed = source.length > 0 ? await (parseRepairPlanJson(source)) : await parseRepairPlanJson('{}');",
-    '  return (parsed as RepairPlan)!;',
-    '}'
-  ].join('\n'));
-  expect(stableRelay.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass'
-  }));
-
-  const ownerHelper = compileCausalReaderFixture([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readThroughOwner(source: string): RepairPlan { return parseRepairPlanJson(source); }',
-    'function readRequiredRepairPlan(source: string): RepairPlan { return readThroughOwner(source); }'
-  ].join('\n'));
-  expect(ownerHelper.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass'
-  }));
-
-  const crossFileReexport = compileCausalReaderFixture([
-    "import { readThroughOwner } from '../../semantics/repair/runtime/index.ts';",
-    "import type { RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan { return readThroughOwner(source); }'
-  ].join('\n'), {
+test('causal readback provenance accepts canonical parser, fail-only guard and owner relays by exact reader path', () => {
+  const readerSources = {
+    'src/adapters/workspace/canonical.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan { return parseRepairPlanJson(source); }'
+      ].join('\n'),
+    'src/adapters/workspace/guarded.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function bytesOrNull(): string | null { return null; }',
+        'function readRequiredRepairPlan(_path: string): RepairPlan {',
+        '  const bytes = bytesOrNull();',
+        "  if (bytes === null) throw new Error('missing');",
+        '  return parseRepairPlanJson(bytes);',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/stable-relay.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'async function readRequiredRepairPlan(source: string): Promise<RepairPlan> {',
+        "  const parsed = source.length > 0 ? await (parseRepairPlanJson(source)) : await parseRepairPlanJson('{}');",
+        '  return (parsed as RepairPlan)!;',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/owner-helper.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readThroughOwner(source: string): RepairPlan { return parseRepairPlanJson(source); }',
+        'function readRequiredRepairPlan(source: string): RepairPlan { return readThroughOwner(source); }'
+      ].join('\n'),
+    'src/adapters/workspace/cross-file-reexport.ts': [
+        "import { readThroughOwner } from '../../semantics/repair/runtime/index.ts';",
+        "import type { RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan { return readThroughOwner(source); }'
+      ].join('\n')
+  };
+  const model = compileCausalReaderFixture(readerSources, {
     'src/semantics/repair/runtime/read.ts': [
       "import { parseRepairPlanJson, type RepairPlan } from '../types.ts';",
       'export function readThroughOwner(source: string): RepairPlan { return parseRepairPlanJson(source); }'
     ].join('\n'),
     'src/semantics/repair/runtime/index.ts': "export { readThroughOwner } from './read.ts';\n"
   });
-  expect(crossFileReexport.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'causal-relation-owner-bypass'
-  }));
+  for (const path of Object.keys(readerSources)) {
+    expect(model.declarations).toContainEqual(expect.objectContaining({
+      path,
+      name: 'readRequiredRepairPlan'
+    }));
+    expect(model.candidates.filter(({ code, paths }) => (
+      paths.includes(path)
+      && (code === 'causal-relation-owner-bypass' || code === 'causal-identity-unresolved')
+    ))).toEqual([]);
+  }
 });
 
-test('causal readback provenance rejects non-return calls, bypass branches, mutation, and unresolved calls', () => {
-  const expectBypass = (readerBody: string): void => {
-    expect(compileCausalReaderFixture(readerBody).candidates).toContainEqual(expect.objectContaining({
+test('causal readback provenance rejects each generic read, mutation, bypass and unresolved return independently', () => {
+  const readerSources = {
+    'src/adapters/workspace/generic.ts': [
+        "import type { RepairPlan } from '../../semantics/repair/types.ts';",
+        "import { readJson } from '../../adapters/filesystem/files.ts';",
+        'async function readRequiredRepairPlan(path: string): Promise<RepairPlan> { return readJson<RepairPlan>(path); }'
+      ].join('\n'),
+    'src/adapters/workspace/mutating-branch.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        "  if (source.length === 0) source = '{}';",
+        '  return parseRepairPlanJson(source);',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-01.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        "import { readJson } from '../../adapters/filesystem/files.ts';",
+        'async function readRequiredRepairPlan(path: string): Promise<RepairPlan> {',
+        '  const generic = await readJson<RepairPlan>(path);',
+        "  parseRepairPlanJson('{}');",
+        '  return generic;',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-02.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        '  let parsed: RepairPlan;',
+        '  parsed = parseRepairPlanJson(source);',
+        '  return parsed;',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-03.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        '  if (source.length > 0) return parseRepairPlanJson(source);',
+        "  return { status: 'branch-bypass' };",
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-04.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        '  try { return parseRepairPlanJson(source); }',
+        "  catch { return { status: 'catch-bypass' }; }",
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-05.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        '  let parsed = parseRepairPlanJson(source);',
+        "  parsed = { status: 'reassigned' };",
+        '  return parsed;',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-06.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        "  const parsers: Record<string, (value: string) => RepairPlan> = { canonical: parseRepairPlanJson };",
+        "  return parsers[source]?.(source) ?? { status: 'dynamic' };",
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-07.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan {',
+        "  if (source.length === 0) throw new Error('empty');",
+        '  parseRepairPlanJson(source);',
+        '  return readRequiredRepairPlan(source.slice(1));',
+        '}'
+      ].join('\n'),
+    'src/adapters/workspace/bypass-08.ts': [
+        "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
+        'function readRequiredRepairPlan(source: string): RepairPlan | undefined {',
+        '  if (source.length > 0) return parseRepairPlanJson(source);',
+        '}'
+      ].join('\n')
+  };
+  const model = compileCausalReaderFixture(readerSources);
+  for (const path of Object.keys(readerSources)) {
+    expect(model.declarations).toContainEqual(expect.objectContaining({
+      path,
+      name: 'readRequiredRepairPlan'
+    }));
+    expect(model.candidates.filter(({ code, paths }) => (
+      code === 'causal-relation-owner-bypass' && paths.includes(path)
+    ))).toEqual([expect.objectContaining({
       code: 'causal-relation-owner-bypass',
       subject: 'semantic.repair-plan:parser/readback',
-      observationClass: 'derived'
-    }));
-  };
-
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    "import { readJson } from '../../adapters/filesystem/files.ts';",
-    'async function readRequiredRepairPlan(path: string): Promise<RepairPlan> {',
-    '  const generic = await readJson<RepairPlan>(path);',
-    "  parseRepairPlanJson('{}');",
-    '  return generic;',
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    '  let parsed: RepairPlan;',
-    '  parsed = parseRepairPlanJson(source);',
-    '  return parsed;',
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    '  if (source.length > 0) return parseRepairPlanJson(source);',
-    "  return { status: 'branch-bypass' };",
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    '  try { return parseRepairPlanJson(source); }',
-    "  catch { return { status: 'catch-bypass' }; }",
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    '  let parsed = parseRepairPlanJson(source);',
-    "  parsed = { status: 'reassigned' };",
-    '  return parsed;',
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    "  const parsers: Record<string, (value: string) => RepairPlan> = { canonical: parseRepairPlanJson };",
-    "  return parsers[source]?.(source) ?? { status: 'dynamic' };",
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan {',
-    "  if (source.length === 0) throw new Error('empty');",
-    '  parseRepairPlanJson(source);',
-    '  return readRequiredRepairPlan(source.slice(1));',
-    '}'
-  ].join('\n'));
-  expectBypass([
-    "import { parseRepairPlanJson, type RepairPlan } from '../../semantics/repair/types.ts';",
-    'function readRequiredRepairPlan(source: string): RepairPlan | undefined {',
-    '  if (source.length > 0) return parseRepairPlanJson(source);',
-    '}'
-  ].join('\n'));
+      observationClass: 'derived',
+      paths: expect.arrayContaining([path])
+    })]);
+  }
 });
