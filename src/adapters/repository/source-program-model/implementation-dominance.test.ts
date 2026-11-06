@@ -229,20 +229,24 @@ test('declaration-scoped process effects distinguish direct and delegated calls 
   expect(compilation.units.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:process.operations:initStatus'
   ))?.frontiers).toEqual(expect.objectContaining({ effect: 'unknown', unknown: 'present' }));
+});
 
-  const directExternalUnits = compilation.units.filter(({ kind, producerPaths }) => (
-    kind === 'external-capability-candidate' && producerPaths.includes('src/process/operations.ts')
-  ));
-  expect(directExternalUnits).toHaveLength(1);
-  expect(directExternalUnits[0]!.frontiers.external).toBe('present');
+
+test('a direct process wrapper remains protected by its external provider frontier', () => {
+  const { model, ownerIntents } = compileFacts({
+    'src/process/run.ts': "import { spawnSync } from 'node:child_process';\nexport function run(command: string) { return spawnSync(command); }\n"
+  }, membership({ 'src/process': 'process-consumer' }));
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
+  const externalUnits = compilation.units.filter(({ kind }) => kind === 'external-capability-candidate');
+
+  expect(externalUnits).toHaveLength(1);
+  expect(externalUnits[0]!.frontiers.external).toBe('present');
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'external-capability-candidate',
-    semanticIdentity: directExternalUnits[0]!.semanticIdentity,
     disposition: 'owner-decision-required',
     removableUnitIds: []
   }));
 });
-
 
 test('duplicate completion candidates without an owner readback fact cannot sign completion', () => {
   const moduleMembership = membership({
