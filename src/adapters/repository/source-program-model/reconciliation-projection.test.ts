@@ -913,16 +913,28 @@ test('Git LF and Windows checkout line endings have one semantic reconciliation 
   expect(declaration?.span.end).toBe(windowsSource.indexOf('\r\nconst key'));
 });
 
-test('cross-revision matching retains duplicate declaration names at their exact semantic addresses', () => {
+test('cross-revision pairing preserves duplicate names and reordered overloads', () => {
   const descriptor = Object.freeze({ root: 'src/example', source: Object.freeze({}) });
+  const overloads = [
+    'export function run(value: string): string;',
+    'export function run(value: number): number;',
+    'export function run(value: string | number): string | number { return value; }'
+  ].join('\n');
+  const reorderedOverloads = [
+    'export function run(value: number): number;',
+    'export function run(value: string): string;',
+    'export function run(value: string | number): string | number { return value; }'
+  ].join('\n');
   const before = compileFixture({
     'src/example/first.ts': 'export const value = 1;\n',
     'src/example/second.ts': 'export const value = 2;\n',
+    'src/example/service.ts': `${overloads}\n`,
     'src/example/marker.ts': 'export const marker = false;\n'
   }, [descriptor]);
   const after = compileFixture({
     'src/example/first.ts': 'export const value = 1;\n',
     'src/example/second.ts': 'export const value = 2;\n',
+    'src/example/service.ts': `${reorderedOverloads}\n`,
     'src/example/marker.ts': 'export const marker = true;\n'
   }, [descriptor]);
   const projection = reconcile(before, after);
@@ -935,30 +947,6 @@ test('cross-revision matching retains duplicate declaration names at their exact
     before: expect.objectContaining({ path: 'src/example/marker.ts', name: 'marker' }),
     after: expect.objectContaining({ path: 'src/example/marker.ts', name: 'marker' })
   }));
-});
-
-test('cross-revision matching retains overload groups before classifying real changes', () => {
-  const descriptor = Object.freeze({ root: 'src/example', source: Object.freeze({}) });
-  const overloads = [
-    'export function run(value: string): string;',
-    'export function run(value: number): number;',
-    'export function run(value: string | number): string | number { return value; }'
-  ].join('\n');
-  const before = compileFixture({
-    'src/example/service.ts': `${overloads}\n`,
-    'src/example/marker.ts': 'export const marker = false;\n'
-  }, [descriptor]);
-  const reorderedOverloads = [
-    'export function run(value: number): number;',
-    'export function run(value: string): string;',
-    'export function run(value: string | number): string | number { return value; }'
-  ].join('\n');
-  const after = compileFixture({
-    'src/example/service.ts': `${reorderedOverloads}\n`,
-    'src/example/marker.ts': 'export const marker = true;\n'
-  }, [descriptor]);
-  const projection = reconcile(before, after);
-
   expect(projection.changes.filter(({ before: prior, after: current }) => (
     prior?.path === 'src/example/service.ts' || current?.path === 'src/example/service.ts'
   ))).toEqual([]);
