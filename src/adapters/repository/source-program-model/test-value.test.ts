@@ -200,7 +200,7 @@ test('test-value compilation blocks missing modules and implementation-shape mir
   ]);
 });
 
-test('caller-authored DELETE and MERGE cannot bypass Source Program supersession proof', () => {
+test('caller-authored DELETE/MERGE cannot bypass proof and owner REWRITE stays exact', () => {
   const files = {
     'src/example/index.ts': [
       'export function publicBehavior(value: number): number {',
@@ -305,20 +305,11 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
       extra: true
     }]
   })).toThrow('unknown field');
-});
 
-test('repository rewrite decisions bind stable paths and reasons to exact current evidence', () => {
+  // The same current model already includes the real replacement registration.
+  // Owner REWRITE has a distinct adopted-census path; it cannot issue DELETE/MERGE.
   const deletedPath = 'tests/unit/deleted.test.ts';
   const replacementPath = 'tests/unit/replacement.test.ts';
-  const files = {
-    'src/example/index.ts': 'export const value = 1;\n',
-    [replacementPath]: [
-      "import { expect, test } from 'bun:test';",
-      "import { value } from '../../src/example/index.ts';",
-      "test('replacement', () => expect(value).toBe(1));"
-    ].join('\n')
-  };
-  const baselineTestPaths = [deletedPath];
   const baselineEvidence = [Object.freeze({
     path: deletedPath,
     baselineRevision: sha256('baseline-revision'),
@@ -327,18 +318,9 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
     observationDigest: sha256('baseline-observation'),
     census: Object.freeze({ producerCount: 0, consumerCount: 2, externalContractCount: 0 })
   })];
-  const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
-    path, source, contentDigest: rawSha256(source)
-  }));
-  const sourceRevision = sourceRevisionFor(sourceFiles);
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision, files: sourceFiles, moduleMembership,
-    typescriptModel: compileExactTypeScriptModel(sourceFiles, sourceRevision), unknowns: []
-  });
-  const input = { repositoryRoot, files: sourceFiles, model, baselineTestPaths, baselineEvidence };
-  const observed = compileSourceProgramTestValue(input);
+  const observedRewrite = compileSourceProgramTestValue({ ...input, baselineEvidence });
   const batch = Object.freeze({
-    baselineDigest: observed.baselineDigest,
+    baselineDigest: observedRewrite.baselineDigest,
     owner: 'repository-test-value',
     decisions: Object.freeze([Object.freeze({
       path: deletedPath,
@@ -347,41 +329,42 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
     })])
   });
   const dispositions = compileSourceProgramTestRewriteDispositions({
-    compilation: observed,
+    compilation: observedRewrite,
     baselineEvidence,
     batches: [batch]
   });
-  const compiled = compileSourceProgramTestValue({ ...input, dispositions });
+  const compiledRewrite = compileSourceProgramTestValue({ ...input, baselineEvidence, dispositions });
 
   expect(dispositions).toEqual([expect.objectContaining({
     path: deletedPath,
     disposition: 'rewrite',
     evidence: expect.objectContaining({
       owner: 'repository-test-value',
-      sourceRevision: observed.sourceRevision,
-      replacementTestIds: [observed.records[0]!.testId],
+      sourceRevision: observedRewrite.sourceRevision,
+      replacementTestIds: [observedRewrite.records[0]!.testId],
       census: baselineEvidence[0]!.census,
       ownerDecisionDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
     })
   })]);
-  expect(compiled.findings.some(({ code, path }) =>
+  expect(compiledRewrite.findings.some(({ code, path }) =>
     path === deletedPath && code === 'test-module-disposition-unknown')).toBe(false);
   expect(compileSourceProgramTestRewriteDispositions({
-    compilation: observed,
+    compilation: observedRewrite,
     baselineEvidence,
     batches: [{ ...batch, baselineDigest: sha256('another-baseline') }]
   })).toEqual([]);
   expect(() => compileSourceProgramTestRewriteDispositions({
-    compilation: observed,
+    compilation: observedRewrite,
     baselineEvidence,
     batches: [{
       ...batch,
       decisions: [{ ...batch.decisions[0]!, replacementPaths: ['tests/unit/missing.test.ts'] }]
     }]
   })).toThrow('no current test registrations');
+
 });
 
-test('baseline Git census stays UNKNOWN without Source Program retirement proof', () => {
+test('baseline Git census remains UNKNOWN and checksum-valid forged Supersession cannot authorize MERGE', () => {
   const retainedPath = 'tests/unit/retained.test.ts';
   const retainedSource = "import { expect, test } from 'bun:test';\ntest('retained', () => expect(1).toBe(1));\n";
   const candidateFiles = {
@@ -509,52 +492,13 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     { code: 'test-module-disposition-unknown', path: 'tests/unit/provider.test.ts' }
   ]);
   expect(result.baselineEvidenceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
 
-test('checksum-valid caller Supersession JSON cannot authorize a missing-test MERGE', () => {
-  const candidateFiles = {
-    'src/example/index.ts': 'export const value = 1;\n',
-    'tests/unit/replacement.test.ts': [
-      "import { expect, test } from 'bun:test';",
-      "import { value } from '../../src/example/index.ts';",
-      "test('observes behavior and failure', () => expect(value).toBe(1));"
-    ].join('\n')
-  };
-  const baselinePath = 'tests/unit/retired.test.ts';
-  const baselineSource = [
-    "import { expect, test } from 'bun:test';",
-    "test('old observation', () => expect(1).toBe(1));"
-  ].join('\n');
-  const baselineFiles = [Object.freeze({
-    path: baselinePath,
-    source: baselineSource,
-    contentDigest: rawSha256(baselineSource)
-  })];
-  const baselineRevision = sourceRevisionFor(baselineFiles);
-  const candidateSourceFiles = Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const candidateRevision = sourceRevisionFor(candidateSourceFiles);
-  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles, candidateRevision);
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: candidateRevision, files: candidateSourceFiles,
-    moduleMembership, typescriptModel: candidateModel, unknowns: []
-  });
-  const initial = compileSourceProgramTestValue({
-    repositoryRoot, files: candidateSourceFiles, model,
-    baselineTestPaths: [baselinePath],
-    baselineEvidence: compileSourceProgramTestBaselineEvidence({
-      baselineTestPaths: [baselinePath],
-      baselineModel: compileExactTypeScriptModel(baselineFiles, baselineRevision),
-      candidateModel,
-      baselineRevision
-    })
-  });
-  const replacement = initial.records[0];
+  // No new TypeScript generation is needed: this exact baseline/candidate pair
+  // already has an unresolved removed module and a real replacement registration.
+  const forgedBaselinePath = baselinePaths[0]!;
+  const replacement = result.records.find(({ path }) => path === 'tests/unit/replacement.test.ts');
   expect(replacement).toBeDefined();
-  expect(initial.dispositions[0]?.disposition).toBe('unknown');
+  expect(result.dispositions.find(({ path }) => path === forgedBaselinePath)?.disposition).toBe('unknown');
   const canonicalReceipt = Object.freeze({
     status: 'superseded' as const,
     authorityScope: 'whole-program' as const,
@@ -568,9 +512,9 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
       intentEvidenceDigest: sha256('baseline-intent')
     }),
     current: Object.freeze({
-      sourceRevision: initial.sourceRevision,
+      sourceRevision: result.sourceRevision,
       modelDigest: sha256('current-model'),
-      testCompilationDigest: initial.compilationDigest,
+      testCompilationDigest: result.compilationDigest,
       intentEvidenceDigest: sha256('current-intent')
     }),
     lifecycleCost: Object.freeze({
@@ -594,7 +538,7 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
       baselineId: sha256('baseline-test'),
       currentIds: Object.freeze([replacement!.testId]),
       owner: null,
-      baselinePaths: Object.freeze([baselinePath]),
+      baselinePaths: Object.freeze([forgedBaselinePath]),
       currentPaths: Object.freeze([replacement!.path]),
       proof: 'strict-observation-superset' as const
     })]),
@@ -605,9 +549,9 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
     receiptDigest: sha256(canonicalReceipt)
   });
 
-  expect(() => reconcileSourceProgramTestValueWithSupersession(initial, receipt))
+  expect(() => reconcileSourceProgramTestValueWithSupersession(result, receipt))
     .toThrow('Supersession authority requires an owner-issued receipt');
-  expect(initial.dispositions[0]?.disposition).toBe('unknown');
+  expect(result.dispositions[0]?.disposition).toBe('unknown');
 
   const forged = Object.freeze({
     ...receipt,
@@ -616,18 +560,20 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
       testCompilationDigest: sha256('different-compilation')
     })
   });
-  expect(reconcileSourceProgramTestValueWithSupersession(initial, forged))
+  expect(reconcileSourceProgramTestValueWithSupersession(result, forged))
     .toMatchObject({
-      dispositions: initial.dispositions,
-      findings: initial.findings,
+      dispositions: result.dispositions,
+      findings: result.findings,
       supersessionReceiptDigest: null
     });
-  expect(reconcileSourceProgramTestValueWithSupersession(initial, Object.freeze({
+  expect(reconcileSourceProgramTestValueWithSupersession(result, Object.freeze({
     ...receipt,
     status: 'owner-decision-required'
   }))).toMatchObject({
-    dispositions: initial.dispositions,
-    findings: initial.findings,
+    dispositions: result.dispositions,
+    findings: result.findings,
     supersessionReceiptDigest: null
   });
+
 });
+
