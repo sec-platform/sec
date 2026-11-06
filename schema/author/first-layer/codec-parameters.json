@@ -941,6 +941,24 @@
           }
         },
         {
+          "pointer": "/$defs/Expr/oneOf/16/properties/body",
+          "expected": {
+            "$ref": "#/$defs/Expr"
+          },
+          "replacement": {
+            "$ref": "#/$defs/ExecBody"
+          }
+        },
+        {
+          "pointer": "/$defs/Expr/oneOf/16/properties/onError",
+          "expected": {
+            "$ref": "#/$defs/Expr"
+          },
+          "replacement": {
+            "$ref": "#/$defs/ExecBody"
+          }
+        },
+        {
           "pointer": "/$defs/Expr/oneOf/13/properties/operation",
           "expected": {
             "$ref": "#/$defs/Identifier"

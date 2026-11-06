@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 import argparse, json, re, sys
 sys.dont_write_bytecode = True
-import collections, html
+import collections, hashlib, html
 from source_inventory import (load, decode, local_path, capture_source_bytes, source_bytes,
     source_manifest_from_capture, assert_source_capture_current, EXCLUDED_FROM_SOURCE_HASH,
     requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH, baseline)
@@ -242,6 +242,66 @@ def check_scoped_example(root: Path, project_path: Path, project, captured):
                 raise ValueError('example root export missing: ' + repr(selected['export']))
 
 
+def check_design_supplies(captured):
+    """Check the existing first-layer design supply closures, never production trust.
+
+    Membership comes from each content declaration, not the directory or links.
+    This consumes only captured bytes; it does not reacquire files or rewrite metadata.
+    """
+    folder = 'schema/author/first-layer/'
+    algorithm = ('sha256(prefix || sorted(length64be(nameUTF8)||nameUTF8||length64be(bytes)||bytes)); '
+                 'prefix UTF8 Gift design supply content closure plus NUL')
+    for stem in ('semantic-supply', 'surface-supply'):
+        content_name, supply_name = folder + stem + '-content.json', folder + stem + '.json'
+        if content_name not in captured and supply_name not in captured:
+            continue
+        def fail(reason):
+            raise ValueError(content_name + ': design supply ' + reason)
+        if content_name not in captured or supply_name not in captured:
+            fail('pair is incomplete')
+        content = decode(captured[content_name], content_name)
+        supply = decode(captured[supply_name], supply_name)
+        if (not isinstance(content, dict)
+                or set(content) != {'purpose', 'digestAlgorithm', 'members', 'digest'}
+                or not isinstance(content['purpose'], str)
+                or content['digestAlgorithm'] != algorithm
+                or not isinstance(content['members'], list)):
+            fail('unsupported content declaration or algorithm')
+        members = {}
+        for member in content['members']:
+            if not isinstance(member, dict) or set(member) != {'path', 'bytes', 'sha256'}:
+                fail('invalid member metadata')
+            name = member['path']
+            if (not isinstance(name, str) or not name or any(c in name for c in '\\:\x00')
+                    or any(part in ('', '.', '..') for part in name.split('/'))
+                    or any(0xD800 <= ord(c) <= 0xDFFF for c in name)):
+                fail('invalid member path: ' + repr(name))
+            path = folder + name
+            if name in members or path in (content_name, supply_name):
+                fail('duplicate or self-containing member: ' + name)
+            if path not in captured:
+                fail('member missing from capture: ' + path)
+            data = captured[path]
+            if (type(member['bytes']) is not int or member['bytes'] != len(data)
+                    or member['sha256'] != hashlib.sha256(data).hexdigest()):
+                fail('member metadata drift: ' + path)
+            members[name] = data
+        digest = hashlib.sha256(b'Gift design supply content closure\0')
+        for name, data in sorted(members.items(), key=lambda item: item[0].encode('utf-8')):
+            encoded = name.encode('utf-8')
+            digest.update(len(encoded).to_bytes(8, 'big'))
+            digest.update(encoded)
+            digest.update(len(data).to_bytes(8, 'big'))
+            digest.update(data)
+        expected = 'sha256:' + digest.hexdigest()
+        if content['digest'] != expected:
+            fail('content digest drift')
+        if (not isinstance(supply, dict) or supply.get('schema') != 'gift.author-dialect-supply/1'
+                or not isinstance(supply.get('dialect'), dict)
+                or supply['dialect'].get('digest') != expected):
+            fail('manifest digest drift: ' + supply_name)
+
+
 def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
     root = root.resolve()
     errors = []
@@ -252,6 +312,7 @@ def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
               {name:data for name,data in captured.items() if name not in EXCLUDED_FROM_SOURCE_HASH})
     def read(path):return source_bytes(root,path,captured)
     def source_json(path):return decode(read(path),str(path))
+    check_design_supplies(captured)
     if 'schema/author/first-layer/names.schema.json' in captured:
         from codec_parameters import build_graph
         # Bind the finite complete-base transformation to this same source set.

@@ -13,6 +13,95 @@ import source_inventory as s
 from .test_check_documentation_identity import declaration
 
 
+class DesignSupplyClosure(TestCase):
+    def setUp(self):
+        import hashlib
+        self.folder = 'schema/author/first-layer/'
+        self.content_name = self.folder + 'semantic-supply-content.json'
+        self.supply_name = self.folder + 'semantic-supply.json'
+        # Independent literal framing vector: UTF-8 byte order z before é,
+        # six name bytes for é.txt, and raw CRLF/NUL content, not JSON or hashes.
+        framed = (b'Gift design supply content closure\0'
+                  b'\0\0\0\0\0\0\0\x05z.txt\0\0\0\0\0\0\0\x01\0'
+                  b'\0\0\0\0\0\0\0\x06\xc3\xa9.txt\0\0\0\0\0\0\0\x03a\r\n')
+        self.digest = 'sha256:' + hashlib.sha256(framed).hexdigest()
+        self.content = {
+            'purpose': 'design fixture, not production trust',
+            'digestAlgorithm': 'sha256(prefix || sorted(length64be(nameUTF8)||nameUTF8||length64be(bytes)||bytes)); prefix UTF8 Gift design supply content closure plus NUL',
+            'members': [{'path': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+                        for name, data in [('é.txt', b'a\r\n'), ('z.txt', b'\0')]],
+            'digest': self.digest}
+        self.supply = {'schema': 'gift.author-dialect-supply/1', 'dialect': {'digest': self.digest}}
+        self.capture = {self.folder + 'é.txt': b'a\r\n', self.folder + 'z.txt': b'\0'}
+        self.sync()
+
+    def sync(self):
+        self.capture[self.content_name] = json.dumps(self.content).encode()
+        self.capture[self.supply_name] = json.dumps(self.supply).encode()
+
+    def test_fixed_byte_vector_and_member_order_use_only_capture(self):
+        with patch.object(Path, 'read_bytes', side_effect=AssertionError('second read')):
+            check_docs.check_design_supplies(self.capture)
+            self.content['members'].reverse()
+            self.sync()
+            check_docs.check_design_supplies(self.capture)
+
+    def test_raw_content_drift_and_each_metadata_field_are_checked(self):
+        self.capture[self.folder + 'é.txt'] = b'b\r\n'
+        with self.assertRaisesRegex(ValueError, 'member metadata drift'):
+            check_docs.check_design_supplies(self.capture)
+        self.capture[self.folder + 'é.txt'] = b'a\r\n'
+        for key, wrong in [('bytes', 4), ('bytes', True), ('sha256', '0' * 64)]:
+            before = self.content['members'][0][key]
+            self.content['members'][0][key] = wrong
+            self.sync()
+            with self.subTest(key=key, wrong=wrong), self.assertRaisesRegex(ValueError, 'member metadata drift'):
+                check_docs.check_design_supplies(self.capture)
+            self.content['members'][0][key] = before
+
+    def test_content_and_manifest_digests_are_independent_checks(self):
+        self.content['digest'] = 'sha256:' + '0' * 64
+        self.sync()
+        with self.assertRaisesRegex(ValueError, 'content digest drift'):
+            check_docs.check_design_supplies(self.capture)
+        self.content['digest'] = self.digest
+        self.supply['dialect']['digest'] = 'sha256:' + '0' * 64
+        self.sync()
+        with self.assertRaisesRegex(ValueError, 'manifest digest drift'):
+            check_docs.check_design_supplies(self.capture)
+
+    def test_paths_duplicates_missing_members_and_self_reference_rejected(self):
+        for name in ('../x', '/x', 'a/../b', 'a//b', './x', 'a\\b', 'C:/x', '\ud800'):
+            self.content['members'][0]['path'] = name
+            self.sync()
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'invalid member path'):
+                check_docs.check_design_supplies(self.capture)
+        self.content['members'][0]['path'] = 'missing.txt'
+        self.sync()
+        with self.assertRaisesRegex(ValueError, 'member missing from capture'):
+            check_docs.check_design_supplies(self.capture)
+        self.content['members'][0]['path'] = 'é.txt'
+        self.content['members'].append(self.content['members'][0].copy())
+        self.sync()
+        with self.assertRaisesRegex(ValueError, 'duplicate or self-containing'):
+            check_docs.check_design_supplies(self.capture)
+        self.content['members'].pop()
+        self.content['members'][0]['path'] = 'semantic-supply.json'
+        self.sync()
+        with self.assertRaisesRegex(ValueError, 'duplicate or self-containing'):
+            check_docs.check_design_supplies(self.capture)
+
+    def test_pair_and_algorithm_cannot_be_silently_skipped(self):
+        check_docs.check_design_supplies({})
+        for missing in (self.content_name, self.supply_name):
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, 'pair is incomplete'):
+                check_docs.check_design_supplies({k: v for k, v in self.capture.items() if k != missing})
+        self.content['digestAlgorithm'] = 'different framing'
+        self.sync()
+        with self.assertRaisesRegex(ValueError, 'unsupported content declaration or algorithm'):
+            check_docs.check_design_supplies(self.capture)
+
+
 class ProjectionModes(TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory(prefix='gift-projection-modes-')
@@ -45,6 +134,14 @@ class ProjectionModes(TestCase):
         with patch.object(s,'read_ordinary',side_effect=read):
             check_docs.verify(self.root)
         self.assertEqual(reads.count('docs/产品/产品要求与工作约束.md'),2)
+
+    def test_verification_consumes_design_supplies_from_its_capture(self):
+        def reject(captured):
+            self.assertEqual(captured['docs/产品/产品要求与工作约束.md'], self.authority.read_bytes())
+            raise ValueError('captured supply rejected')
+        with patch.object(check_docs, 'check_design_supplies', side_effect=reject):
+            with self.assertRaisesRegex(ValueError, 'captured supply rejected'):
+                check_docs.verify(self.root)
 
     def test_semantic_consumers_share_original_bytes_and_final_drift_is_rejected(self):
         original=self.authority.read_bytes()

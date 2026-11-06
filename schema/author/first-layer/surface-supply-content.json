@@ -9,8 +9,8 @@
     },
     {
       "path": "codec-parameters.json",
-      "bytes": 35484,
-      "sha256": "a0f25f1aac48d8dcd92d3ec00b4a79c09eb9bcf5e0df4b465cc9736329974271"
+      "bytes": 93497,
+      "sha256": "b33f23bf20bc254587d655a40135175c1e671560e88cd72757c7cf7d2261e69a"
     },
     {
       "path": "complete-types.schema.json",
@@ -43,5 +43,5 @@
       "sha256": "d80c2424bb4fd9ac37e15603b5119c8187ead31b0170088f78152db23c443388"
     }
   ],
-  "digest": "sha256:5503ad5df48a7dde111cf598ebc8bd75718f6e83a4b37f389186d4046980ecb7"
+  "digest": "sha256:eed019c6e34dbd887205bff256f30c5ca1f4506f2a4070ae14b640df828ec746"
 }
