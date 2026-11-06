@@ -110,6 +110,9 @@ test('descriptor operations use exact owned runtime exports, including aliases, 
     code: 'repository-descriptor-operation-export-unresolved',
     to: 'example.operations:declared'
   }));
+  expect(architecture.violations.filter(({ to }) => (
+    typeof to === 'string' && to.startsWith('example.operations:')
+  ))).toHaveLength(3);
   expect(observeRepositorySourceProgramDescriptorOperationExports({ ...model })).toBeNull();
   const foreignMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)],
