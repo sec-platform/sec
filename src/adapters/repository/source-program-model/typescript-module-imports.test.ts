@@ -12,8 +12,11 @@ const cases: readonly {
 
 const targetSource = 'export type Value = string; export type A = string; export type B = number; export const value = 1;';
 
-function fixtureProgram(source: string, fileName = 'src/a.ts') {
-  const sources = new Map([[fileName, source], ['src/b.ts', targetSource]]);
+function fixtureProgram(source: string | Readonly<Record<string, string>>, fileName = 'src/a.ts') {
+  const sources = new Map<string, string>([
+    ...(typeof source === 'string' ? [[fileName, source] as const] : Object.entries(source)),
+    ['src/b.ts', targetSource] as const
+  ]);
   const files = new Map([...sources].map(([file, text]) => [file,
     ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true)]));
   const host: ts.CompilerHost = {
@@ -51,7 +54,14 @@ function assertObservation(
   assert.deepEqual(facts.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
 }
 
-for (const { name, source, imports, unresolved } of cases.filter(({ source }) => !emitCases.includes(source))) {
+// External-module cases have disjoint lexical scopes, so their source-level
+// imports can share one TypeScript Program without sharing observation identity.
+const moduleScopedCases = cases.filter(({ source }) => !emitCases.includes(source)
+  && /^(?:import\b(?!\s*\()|export\b)/mu.test(source));
+const moduleScopedSources = new Set(moduleScopedCases.map(({ source }) => source));
+
+for (const { name, source, imports, unresolved } of cases.filter(({ source }) =>
+  !emitCases.includes(source) && !moduleScopedSources.has(source))) {
   test(`module observation: ${name}`, () => {
     const facts = typeScriptModuleImportFacts(fixtureProgram(source));
     assertObservation(facts, imports, unresolved);
@@ -108,6 +118,24 @@ test('runtime edges agree with verbatim compiler emit for each syntax and type/r
     }), source);
     assert.deepEqual(graph.directConsumers('src/b.ts'), ['src/a.ts'], source);
   }
+
+  const groupedInputs = Object.fromEntries(moduleScopedCases.map(({ source }, index) =>
+    [`src/module-case-${index}.ts`, source]));
+  const grouped = typeScriptModuleImportFacts(fixtureProgram(groupedInputs));
+  let totalImports = 0;
+  for (const [index, { name, imports, unresolved }] of moduleScopedCases.entries()) {
+    const path = `src/module-case-${index}.ts`;
+    assert.deepEqual(grouped.imports.filter(({ from }) => from === path)
+      .map(({ kind, specifier, typeOnly }) => ({ kind, specifier, typeOnly })), imports, name);
+    assert.deepEqual(grouped.unresolvedFiles.filter((from) => from === path),
+      unresolved ? [path] : [], name);
+    totalImports += imports.length;
+  }
+  assert.equal(grouped.imports.length, totalImports, 'no extra module imports');
+  assert.deepEqual(grouped.unresolvedFiles,
+    moduleScopedCases.flatMap(({ unresolved }, index) =>
+      unresolved ? [`src/module-case-${index}.ts`] : []),
+    'no extra unresolved files');
 });
 
 test('declaration files retain dependency impact without inventing runtime evaluation', () => {
