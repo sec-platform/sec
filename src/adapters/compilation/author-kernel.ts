@@ -4,6 +4,15 @@ import { CodedFailure } from '../../contracts/failure.ts';
 import { resolvePathInside } from '../../contracts/relative-path.ts';
 import { runCommandBytes } from '../runtime-state/physical/runtime/process.ts';
 import { readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
+import {
+  analyzeAuthorModule,
+  captureLocalNameAnalysisSchema as namesOutput,
+  captureLocalNameResolutionSchema as resolution,
+  type AuthorAnalysisOptions,
+  type AuthorAnalysisResult
+} from './author-analysis-transport.ts';
+
+export type { AuthorAnalysisResult } from './author-analysis-transport.ts';
 
 // Transport validation only. Rust owns interpretation; this host never parses or rewrites author JSON.
 const artifact = z.object({ path: z.string(), content: z.string() }).strict();
@@ -40,56 +49,6 @@ const readOutput = z.object({
 }).strict();
 export type AuthorReadOutput = z.infer<typeof readOutput>;
 
-const exportHop = z.object({
-  module: nodeId, export: z.string(), via_import: z.string().nullable(),
-  qualification: z.enum(['capture-local', 'pending-lock-and-module-use'])
-}).strict();
-const resolution = z.discriminatedUnion('state', [
-  z.object({ state: z.literal('resolved'), declaration: nodeId, route: z.array(exportHop) }).strict(),
-  z.object({ state: z.literal('needs'), code: z.string(), selector: z.string(), route: z.array(exportHop) }).strict(),
-  z.object({ state: z.literal('rejected'), code: z.string(), selector: z.string(), route: z.array(exportHop) }).strict()
-]);
-const lexicalPhase = z.enum(['static', 'runtime', 'unknown']);
-const lexicalDomain = z.enum(['semantic', 'value']);
-const binderResolution = z.discriminatedUnion('state', [
-  z.object({ state: z.literal('resolved'), binding: nodeId }).strict(),
-  z.object({ state: z.literal('needs'), code: z.string() }).strict(),
-  z.object({ state: z.literal('rejected'), code: z.string() }).strict()
-]);
-const controlResolution = z.discriminatedUnion('state', [
-  z.object({ state: z.literal('resolved'), scope: nodeId }).strict(),
-  z.object({ state: z.literal('needs'), code: z.string() }).strict(),
-  z.object({ state: z.literal('rejected'), code: z.string() }).strict()
-]);
-const lexicalProblem = z.object({ occurrence: nodeId, code: z.string() }).strict();
-const lexicalOutput = z.object({
-  occurrences: z.array(z.object({ id: nodeId, module: nodeId, owner: nodeId.nullable(),
-    expanded_path: z.string(), origin, schema_slot: z.string() }).strict()),
-  scopes: z.array(z.object({ id: nodeId, parent: nodeId.nullable(), occurrence: nodeId,
-    kind: z.enum(['definition', 'function', 'lambda', 'block', 'let', 'branch', 'match_arm', 'handler', 'try_body', 'loop', 'semantic']) }).strict()),
-  bindings: z.array(z.object({ id: nodeId, scope: nodeId, occurrence: nodeId, source_key: z.string().nullable(),
-    name: z.string(), kind: z.enum(['runtime_parameter', 'let', 'var', 'pattern', 'handler', 'Type', 'Value', 'Region', 'Scope', 'EffectRow', 'constructor', 'pack']),
-    domains: z.array(lexicalDomain).min(1).max(2), phase: lexicalPhase, mutable: z.boolean() }).strict()),
-  uses: z.array(z.object({ occurrence: nodeId, scope: nodeId, domain: lexicalDomain, selector: z.string(),
-    phase: lexicalPhase, expected_kind: z.string().nullable(), resolution: binderResolution }).strict()),
-  exits: z.array(z.object({ occurrence: nodeId, kind: z.enum(['return', 'break', 'continue']), target: controlResolution }).strict()),
-  captures: z.array(z.object({ scope: nodeId, binding: nodeId, occurrence: nodeId }).strict()),
-  problems: z.array(lexicalProblem), pending_regions: z.array(lexicalProblem)
-}).strict();
-const namesOutput = z.object({
-  schema: z.literal('gift.author-names/2'), stage: z.literal('names'), identity_scope: z.literal('capture-local'),
-  input_revision: z.string(), source_revision: z.string(), root: nodeId,
-  modules: z.array(z.object({ id: nodeId, module_id: z.string(), source_revision: z.string(), grammar_revision: z.string() }).strict()),
-  declarations: z.array(z.object({ id: nodeId, module: nodeId, name: z.string(), kind: z.string(), origin }).strict()),
-  references: z.array(z.object({ module: nodeId, owner: nodeId.nullable(), expanded_path: z.string(), origin,
-    schema_slot: z.string(), domain: z.enum(['source-reference', 'declaration-selector', 'profile-selector', 'dialect-consumer']), resolution }).strict()),
-  exports: z.array(z.object({ module: nodeId, name: z.string(), resolution }).strict()),
-  reads: z.array(z.object({ module: nodeId, domain: z.string(), name: z.string() }).strict()),
-  problems: z.array(z.object({ module: nodeId, path: z.string(), code: z.string() }).strict()),
-  pending_regions: z.array(z.object({ module: nodeId, path: z.string(), code: z.string() }).strict()),
-  lexical: lexicalOutput,
-  unchecked: z.array(z.string())
-}).strict();
 export type AuthorNameAnalysis = z.infer<typeof namesOutput>;
 
 /** Validate the native wire against the captured bytes. This checks transport
@@ -140,7 +99,8 @@ export function compileAuthorModule(workspaceRoot: string, inputFile: string, ke
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: true): Promise<AuthorReadOutput>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: boolean): Promise<AuthorCompilationBundle | AuthorReadOutput>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: 'names'): Promise<AuthorNameAnalysis>;
-export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: boolean | 'names'): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: 'analyze', options?: AuthorAnalysisOptions): Promise<AuthorAnalysisResult>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: boolean | 'names' | 'analyze'): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis | AuthorAnalysisResult>;
 
 /** Explicit local compiler invocation. Generation returns a bundle; it does not write target files,
  * install a compiler, execute target code, or acquire project/default-branch mutation authority. */
@@ -148,13 +108,15 @@ export async function compileAuthorModule(
   workspaceRoot: string,
   inputFile: string,
   kernelFile: string,
-  mode: boolean | 'names' = false
-): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis> {
+  mode: boolean | 'names' | 'analyze' = false,
+  options: AuthorAnalysisOptions = {}
+): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis | AuthorAnalysisResult> {
   const inputPath = resolvePathInside(workspaceRoot, inputFile);
   const kernelPath = resolvePathInside(workspaceRoot, kernelFile);
   if (inputPath === null || kernelPath === null) {
     throw new CodedFailure('AUTHOR-COMPILE-PATH', 'Author input and compiler must be workspace-relative paths without parent traversal');
   }
+  if (mode === 'analyze') return analyzeAuthorModule(workspaceRoot, inputPath, kernelPath, options);
   const bytes = readOptionalRetainedOrdinaryFile(inputPath, 'Gift author source');
   if (bytes === null) throw new CodedFailure('AUTHOR-COMPILE-INPUT', 'Gift author source is missing');
   if (bytes.length > 4 * 1024 * 1024) throw new CodedFailure('AUTHOR-COMPILE-LIMIT', 'Gift author source exceeds the input budget');

@@ -198,7 +198,14 @@ pub fn rebuild(captured: &[(&str,&[u8])]) -> Result<BTreeMap<String,Value>> {
 }
 
 pub fn revision() -> String {
-    let mut h=Sha256::new(); let inputs:BTreeMap<_,_>=CAPTURE.iter().copied().collect();
+    capture_revision(CAPTURE)
+}
+pub fn rules_revision()->String {
+    static REVISION:std::sync::OnceLock<String>=std::sync::OnceLock::new();
+    REVISION.get_or_init(||capture_revision(RULE_CAPTURE)).clone()
+}
+fn capture_revision(capture:&[(&str,&[u8])])->String {
+    let mut h=Sha256::new(); let inputs:BTreeMap<_,_>=capture.iter().copied().collect();
     for (path,bytes) in inputs { h.update((path.len() as u64).to_be_bytes());h.update(path.as_bytes());h.update((bytes.len() as u64).to_be_bytes());h.update(bytes); }
     format!("sha256:{:x}",h.finalize())
 }

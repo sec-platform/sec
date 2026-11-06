@@ -68,10 +68,24 @@ pub(crate) struct PreparedHeaders {
     pub collection: HeaderCollection,
     pub navigation: Vec<crate::reference_slots::Navigation>,
     pub budget: binding::Budget,
+    pub input: std::sync::Arc<crate::captured_input::CapturedInput>,
 }
 
 pub(crate) fn prepare_sources(sources: &[DecodedSource], imports: &[ImportBinding], root: usize) -> Result<PreparedHeaders, Diagnostic> {
     let binding::PreparedNames { names, navigation, mut budget } = binding::prepare_sources(sources,imports,root,true)?;
+    let input=crate::captured_input::CapturedInput::legacy(sources,imports,root,&names.input_revision,&mut budget)?;
+    form_headers(input,names,navigation,budget)
+}
+
+pub(crate) fn prepare_input(input:crate::captured_input::PreparedInput)->Result<PreparedHeaders,Diagnostic> {
+    let crate::captured_input::PreparedInput {capture,budget}=input;
+    let binding::PreparedNames {mut names,navigation,budget}=binding::prepare_sources_budget(&capture.sources,&capture.imports,capture.root,true,budget,Some(&capture.qualified_imports))?;
+    names.input_revision=capture.basis().into();
+    form_headers(capture,names,navigation,budget)
+}
+
+fn form_headers(input:std::sync::Arc<crate::captured_input::CapturedInput>,names:NameAnalysis,navigation:Vec<crate::reference_slots::Navigation>,mut budget:binding::Budget)->Result<PreparedHeaders,Diagnostic> {
+    let sources=input.sources();
     let mut formation=Formation::new(&names,sources,&navigation,&mut budget)?;
     formation.form_all()?;
     let mut headers=Vec::new();
@@ -148,7 +162,7 @@ pub(crate) fn prepare_sources(sources: &[DecodedSource], imports: &[ImportBindin
         headers.push(HeaderSeed {declaration:declaration.id,module,source,kind});
     }
     let types=formation.arena;
-    Ok(PreparedHeaders {collection:HeaderCollection {names,types,headers},navigation,budget})
+    Ok(PreparedHeaders {collection:HeaderCollection {names,types,headers},navigation,budget,input})
 }
 
 fn optional_text(formation: &mut Formation<'_>, node: &crate::source::Node, field: &str) -> Result<Option<String>,Diagnostic> {

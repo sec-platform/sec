@@ -7,15 +7,18 @@ fn main() {
     let arguments:Vec<_>=std::env::args_os().skip(1).collect();
     let read_only=arguments.len()==1&&arguments[0]=="--read";
     let names_only=arguments.len()==1&&arguments[0]=="--names";
-    let result = io::stdin().take((MAX_SOURCE_BYTES + 1) as u64).read_to_end(&mut bytes)
+    let analyze=arguments.len()==1&&arguments[0]=="--analyze";
+    let max_input=if analyze{gift_author_kernel::project_input::MAX_REQUEST_BYTES}else{MAX_SOURCE_BYTES};
+    let result = io::stdin().take((max_input + 1) as u64).read_to_end(&mut bytes)
         .map_err(|error| gift_author_kernel::model::fail("InputFailure", "", error.to_string()))
         .and_then(|_| {
-            if !arguments.is_empty()&&!read_only&&!names_only { return Err(fail("InputFailure","","Expected no argument, --read or --names")); }
-            if read_only { reader::read(&bytes).and_then(|v|v.output()).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
+            if !arguments.is_empty()&&!read_only&&!names_only&&!analyze { return Err(fail("InputFailure","","Expected no argument, --read, --names or --analyze")); }
+            if analyze {gift_author_kernel::project_input::analyze_request(&bytes)}
+            else if read_only { reader::read(&bytes).and_then(|v|v.output()).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
             else if names_only { binding::analyze(&bytes).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
             else { compile(&bytes).and_then(|v|serde_json::to_vec(&v).map_err(|e|fail("OutputFailure","",e.to_string()))) }
         }).and_then(|output| {
-            if output.len() >= reader::MAX_OUTPUT_BYTES { Err(fail("ResourceLimit","","Author result exceeds the transport budget")) }
+            if output.len() >= if analyze{gift_author_kernel::project_input::MAX_RESULT_BYTES}else{reader::MAX_OUTPUT_BYTES} { Err(fail("ResourceLimit","","Author result exceeds the transport budget")) }
             else { Ok(output) }
         });
     let (output, code) = match result {

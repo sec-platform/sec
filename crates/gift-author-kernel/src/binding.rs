@@ -1,6 +1,7 @@
 //! Capture-local name analysis. No nominal identity, ModuleUse, type or callable
 //! qualification is issued here. Every result ID belongs to input_revision.
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
 use serde::Serialize;
 use crate::{model::{Diagnostic, fail}, reader::{self, DecodedSource}, reference_slots::{self, SlotKind}, source::{Node, Origin, pointer}};
 
@@ -93,18 +94,25 @@ pub struct NameAnalysis {
 
 /// Conservative retained/output allocation and repeated validation-work limits.
 /// Exhaustion is ResourceLimit, never a statement that the author is invalid.
-pub(crate) struct Budget { bytes: usize, work: usize }
+struct BudgetCounters {bytes:AtomicUsize,work:AtomicUsize}
+pub(crate) struct Budget {counters:Arc<BudgetCounters>}
+pub(crate) struct BudgetObserver {counters:Arc<BudgetCounters>}
+impl BudgetObserver {pub(crate) fn remaining(&self)->(usize,usize) {(self.counters.work.load(Ordering::Relaxed),self.counters.bytes.load(Ordering::Relaxed))}}
 impl Budget {
-    fn new() -> Self { Self { bytes: 48 * 1024 * 1024, work: 8_000_000 } }
+    pub(crate) fn new() -> Self { Self {counters:Arc::new(BudgetCounters {bytes:AtomicUsize::new(48*1024*1024),work:AtomicUsize::new(8_000_000)})} }
+    pub(crate) fn observer(&self)->BudgetObserver {BudgetObserver {counters:Arc::clone(&self.counters)}}
     pub(crate) fn tighten(&mut self,work:usize,bytes:usize) {
-        self.work=self.work.min(work);self.bytes=self.bytes.min(bytes);
+        self.counters.work.store(self.counters.work.load(Ordering::Relaxed).min(work),Ordering::Relaxed);
+        self.counters.bytes.store(self.counters.bytes.load(Ordering::Relaxed).min(bytes),Ordering::Relaxed);
     }
     pub(crate) fn work(&mut self, amount: usize) -> Result<()> {
-        self.work = self.work.checked_sub(amount).ok_or_else(|| fail("ResourceLimit", "", "Name-analysis work budget exceeded"))?;
+        let remaining=self.counters.work.load(Ordering::Relaxed).checked_sub(amount).ok_or_else(|| fail("ResourceLimit", "", "Name-analysis work budget exceeded"))?;
+        self.counters.work.store(remaining,Ordering::Relaxed);
         Ok(())
     }
     pub(crate) fn charge(&mut self, amount: usize) -> Result<()> {
-        self.bytes = self.bytes.checked_sub(amount).ok_or_else(|| fail("ResourceLimit", "", "Name-analysis allocation budget exceeded"))?;
+        let remaining=self.counters.bytes.load(Ordering::Relaxed).checked_sub(amount).ok_or_else(|| fail("ResourceLimit", "", "Name-analysis allocation budget exceeded"))?;
+        self.counters.bytes.store(remaining,Ordering::Relaxed);
         Ok(())
     }
     pub(crate) fn text(&mut self, text: &str) -> Result<()> { self.charge(text.len().saturating_mul(6).saturating_add(128)) }
@@ -267,11 +275,15 @@ pub(crate) struct PreparedNames {
 /// Ordinary names callers do not execute type formation or retain its inputs.
 pub(crate) fn prepare_sources(sources: &[DecodedSource], bindings: &[ImportBinding], root: usize,
     retain_navigation: bool) -> Result<PreparedNames> {
+    prepare_sources_budget(sources,bindings,root,retain_navigation,Budget::new(),None)
+}
+
+pub(crate) fn prepare_sources_budget(sources:&[DecodedSource],bindings:&[ImportBinding],root:usize,
+    retain_navigation:bool,mut budget:Budget,qualified:Option<&BTreeSet<(usize,String)>>)->Result<PreparedNames> {
     if sources.is_empty() || root >= sources.len() { return Err(fail("InvalidNameInput", "", "Root must select an actual captured module")); }
     if sources.len() > 128 || sources.iter().map(|s| s.bytes().len()).sum::<usize>() > 32 * 1024 * 1024 {
         return Err(fail("ResourceLimit", "", "Name-analysis capture budget exceeded"));
     }
-    let mut budget = Budget::new();
     let mut modules = Vec::new();
     let mut seeds = Vec::new();
     let mut tables = Vec::new();
@@ -279,6 +291,7 @@ pub(crate) fn prepare_sources(sources: &[DecodedSource], bindings: &[ImportBindi
     let mut pending_regions = Vec::new();
     let mut conflicting_aliases = BTreeSet::new();
     for (index, source) in sources.iter().enumerate() {
+        budget.work(source.bytes().len()/16+1)?;
         if source.source_format() != "gift.author-module/design-converged" {
             return Err(fail("NeedsModuleCapture", "", "Name analysis needs captured modules; a project describes capture requests"));
         }
@@ -339,14 +352,14 @@ pub(crate) fn prepare_sources(sources: &[DecodedSource], bindings: &[ImportBindi
     let mut references = Vec::new();
     let mut lexical = crate::lexical::LexicalArena::default();
     let mut retained_navigation = Vec::new();
-    let reader = reader::shared()?;
     for (index, source) in sources.iter().enumerate() {
+        let reader=source.reader();
         if let Some(entries) = source.expanded().get("imports").and_then(Node::as_object) {
             for (alias, import) in entries {
                 resolver.read(index, "import-slot", alias)?;
                 if !resolver.input.imports.contains_key(&(index, alias.clone())) {
                     pending_regions.push(PendingRegion { module: ModuleId(index), path: resolver.budget.child_path("/imports", alias)?, code: "NeedsModuleCapture" });
-                } else if required_text(import, "mode")? == "locked" {
+                } else if required_text(import, "mode")? == "locked" && !qualified.is_some_and(|edges|edges.contains(&(index,alias.clone()))) {
                     pending_regions.push(PendingRegion { module: ModuleId(index), path: resolver.budget.child_path("/imports", alias)?, code: "NeedsLockQualification" });
                 }
             }
@@ -376,9 +389,22 @@ pub(crate) fn prepare_sources(sources: &[DecodedSource], bindings: &[ImportBindi
             retained_navigation.push(navigation);
         }
     }
-    let names = NameAnalysis { schema: "gift.author-names/2", stage: "names", identity_scope: "capture-local", input_revision, source_revision,
+    if let Some(qualified)=qualified {
+        for resolution in exports.iter_mut().map(|export|&mut export.resolution).chain(references.iter_mut().map(|reference|&mut reference.resolution)) {
+            for hop in resolution.route_mut() {
+                resolver.budget.work(1+4*(qualified.len()+1).ilog2() as usize)?;
+                let known=if let Some(alias)=&hop.via_import {
+                    resolver.budget.text(alias)?;
+                    qualified.contains(&(hop.module.0,alias.clone()))
+                }else{true};
+                if known {hop.qualification="module-use";}
+            }
+        }
+    }
+    let names = NameAnalysis { schema: "gift.author-names/2", stage: "names", identity_scope: if qualified.is_some(){"module-use"}else{"capture-local"}, input_revision, source_revision,
         root: ModuleId(root), modules, declarations: seeds, references, exports, reads: resolver.reads.into_iter().collect(), problems, pending_regions, lexical,
-        unchecked: &["declaration-roles", "types", "effects", "capture-lifetimes-and-escape", "initialization-dependencies", "professional-interpretation", "callable-qualification", "module-use-and-lock", "persistent-declaration-lineage", "target"] };
+        unchecked: if qualified.is_some(){&["declaration-roles", "types", "effects", "capture-lifetimes-and-escape", "initialization-dependencies", "professional-interpretation", "callable-qualification", "persistent-declaration-lineage", "target"]}
+            else{&["declaration-roles", "types", "effects", "capture-lifetimes-and-escape", "initialization-dependencies", "professional-interpretation", "callable-qualification", "module-use-and-lock", "persistent-declaration-lineage", "target"]} };
     Ok(PreparedNames { names, navigation: retained_navigation, budget: resolver.budget })
 }
 

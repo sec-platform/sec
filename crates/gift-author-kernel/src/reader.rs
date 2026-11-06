@@ -11,26 +11,28 @@ impl jsonschema::Retrieve for NoRetrieval {
     }
 }
 
-pub struct Reader {
+#[derive(Clone)]
+pub struct Reader(Arc<ReaderState>);
+struct ReaderState {
     graph:BTreeMap<String,Value>,
     registry:jsonschema::Registry<'static>,
     validators:Mutex<BTreeMap<String,Arc<jsonschema::Validator<SourceJson>>>>,
 }
 impl Reader {
-    pub fn graph(&self)->&BTreeMap<String,Value> { &self.graph }
+    pub fn graph(&self)->&BTreeMap<String,Value> { &self.0.graph }
     pub fn new()->Result<Self,Diagnostic> {
         let graph=grammar::rebuild(grammar::CAPTURE)?;
         for (resource,schema) in &graph { grammar::qualify_numeric_constraints(resource,schema)?; }
         let registry=jsonschema::Registry::new().draft(jsonschema::Draft::Draft202012).retriever(NoRetrieval)
             .extend(graph.iter().map(|(k,v)|(k.clone(),v.clone())))
             .and_then(|b|b.prepare()).map_err(|e|fail("GrammarDrift","",e.to_string()))?;
-        Ok(Self { graph,registry,validators:Mutex::new(BTreeMap::new()) })
+        Ok(Self(Arc::new(ReaderState { graph,registry,validators:Mutex::new(BTreeMap::new()) })))
     }
     pub fn validator(&self,schema:&str)->Result<Arc<jsonschema::Validator<SourceJson>>,Diagnostic> {
-        let mut validators=self.validators.lock().map_err(|_|fail("ReaderInvariant","","Validator cache poisoned"))?;
+        let mut validators=self.0.validators.lock().map_err(|_|fail("ReaderInvariant","","Validator cache poisoned"))?;
         if let Some(v)=validators.get(schema) { return Ok(v.clone()); }
         let validator=jsonschema::options_for::<SourceJson>().with_draft(jsonschema::Draft::Draft202012)
-            .with_registry(&self.registry).with_retriever(NoRetrieval)
+            .with_registry(&self.0.registry).with_retriever(NoRetrieval)
             .with_pattern_options(jsonschema::PatternOptions::fancy_regex().backtrack_limit(100_000))
             .build(&json!({"$ref":schema})).map_err(|e|fail("GrammarDrift","",e.to_string()))?;
         let validator=Arc::new(validator); validators.insert(schema.into(),validator.clone()); Ok(validator)
@@ -39,7 +41,7 @@ impl Reader {
         let source=source::decode(bytes)?;
         let marker=source.get("schema").and_then(Node::as_str).ok_or_else(||fail("InvalidAuthorSource","/schema","Expected an exact author format marker"))?.to_owned();
         let (schema,expanded)=match marker.as_str() {
-            "gift.author-module/design-converged" => (grammar::MODULE,Expansion::new(&self.graph,None)?.expand("module_value",&source)?),
+            "gift.author-module/design-converged" => (grammar::MODULE,Expansion::new(self.graph(),None)?.expand("module_value",&source)?),
             "gift.project/design-converged" => (grammar::PROJECT,source.clone()),
             _=>return Err(fail("UnsupportedAuthorSchema","/schema","This Reader requires the exact design-converged module or project marker")),
         };
@@ -60,7 +62,7 @@ impl Reader {
             };
             return Err(fail("InvalidAuthorSource",&path,message));
         }
-        Ok(DecodedSource { bytes:Arc::from(bytes), source, expanded, source_format:marker, grammar_revision:grammar::revision() })
+        Ok(DecodedSource { bytes:Arc::from(bytes), source, expanded, source_format:marker, grammar_revision:grammar::revision(),reader:self.clone() })
     }
 }
 
@@ -85,12 +87,14 @@ fn locate<'a>(mut node:&'a Node,pointer:&str)->Option<&'a Node> {
     Some(node)
 }
 
+#[derive(Clone)]
 pub struct DecodedSource {
     bytes:Arc<[u8]>,
     source:Node,
     expanded:Node,
     source_format:String,
     grammar_revision:String,
+    reader:Reader,
 }
 
 #[derive(Serialize)]
@@ -136,6 +140,7 @@ impl OutputBudget {
     }
 }
 impl DecodedSource {
+    pub fn reader(&self)->&Reader {&self.reader}
     pub fn bytes(&self)->&[u8] { &self.bytes }
     pub fn source(&self)->&Node { &self.source }
     pub fn expanded(&self)->&Node { &self.expanded }
@@ -172,7 +177,7 @@ mod resource_tests {
         let original=Node::boolean(true).with_origin(Some(Origin { pointer:"a".repeat(1024*1024),start:0,end:4 }));
         let derived:Vec<_>=(0..128).map(|_|Node::boolean(true).from_source(&original)).collect();
         assert!(derived.iter().all(|n|std::ptr::eq(n.origin().unwrap(),original.origin().unwrap())));
-        let source=DecodedSource { bytes:Arc::from(b"true".as_slice()),source:original,expanded:Node::array(derived),source_format:"gift.author-module/design-converged".into(),grammar_revision:"test".into() };
+        let source=DecodedSource { bytes:Arc::from(b"true".as_slice()),source:original,expanded:Node::array(derived),source_format:"gift.author-module/design-converged".into(),grammar_revision:"test".into(),reader:Reader::new().unwrap() };
         assert_eq!(source.output().err().unwrap().code,"ResourceLimit");
     }
 }

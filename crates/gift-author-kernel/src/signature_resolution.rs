@@ -23,6 +23,7 @@ pub struct Signature {
 pub struct SignatureProblem { pub declaration: DeclarationId, pub diagnostic: Diagnostic }
 #[derive(Debug)]
 pub struct SignatureResolution {
+    input:std::sync::Arc<crate::captured_input::CapturedInput>,
     pub names: NameAnalysis,
     pub types: TypeArena,
     pub headers: Vec<HeaderSeed>,
@@ -37,6 +38,7 @@ pub struct SignatureResolution {
 /// The original retained session after BodyAnalysis. Fields remain private so
 /// closing effects cannot be invoked on caller-forged qualified inputs.
 pub struct PreparedAnalysis {
+    input:std::sync::Arc<crate::captured_input::CapturedInput>,
     names:NameAnalysis,types:TypeArena,headers:Vec<HeaderSeed>,signatures:Vec<Signature>,
     needs:Vec<ConstraintNeed>,problems:Vec<SignatureProblem>,dependencies:BTreeMap<DeclarationId,BTreeSet<DeclarationId>>,
     annotation_cycles:Vec<Vec<DeclarationId>>,bodies:BodyAnalysis,budget:Budget,constraints:ConstraintState,
@@ -46,17 +48,23 @@ pub struct BodyView<'a> {
     pub signatures:&'a [Signature],pub bodies:&'a BodyAnalysis,
 }
 impl PreparedAnalysis {
+    pub fn input(&self)->&crate::captured_input::CapturedInput {&self.input}
     pub fn body_view(&self)->BodyView<'_> {BodyView {names:&self.names,types:&self.types,headers:&self.headers,signatures:&self.signatures,bodies:&self.bodies}}
-    pub fn close_effects(mut self,limits:EffectLimits)->Result<SignatureResolution> {
+    pub fn close_effects(self,limits:EffectLimits)->Result<SignatureResolution> {self.close_effects_retained(limits).map(|(result,_)|result)}
+    pub(crate) fn close_effects_retained(mut self,limits:EffectLimits)->Result<(SignatureResolution,Budget)> {
         self.budget.tighten(limits.work,limits.bytes);
         let mut solver=ConstraintMachine::resume(&mut self.types,&mut self.budget,self.constraints);
         let mut effects=effect_analysis::close(&self.names,&self.headers,&self.signatures,&self.bodies,&self.needs,&mut solver)?;
         let generated=std::mem::take(&mut solver.needs);
         self.needs=finalize_needs(&mut solver,self.needs,generated,&mut effects)?;
-        Ok(SignatureResolution {names:self.names,types:self.types,headers:self.headers,signatures:self.signatures,
-            needs:self.needs,problems:self.problems,dependencies:self.dependencies,annotation_cycles:self.annotation_cycles,bodies:self.bodies,effects})
+        drop(solver);
+        Ok((SignatureResolution {input:self.input,names:self.names,types:self.types,headers:self.headers,signatures:self.signatures,
+            needs:self.needs,problems:self.problems,dependencies:self.dependencies,annotation_cycles:self.annotation_cycles,bodies:self.bodies,effects},self.budget))
     }
 }
+impl SignatureResolution {pub fn input(&self)->&crate::captured_input::CapturedInput {&self.input}}
+pub fn prepare_input(input:crate::captured_input::PreparedInput)->Result<PreparedAnalysis> {prepare_headers(header_seeds::prepare_input(input)?)}
+pub fn resolve_input(input:crate::captured_input::PreparedInput)->Result<SignatureResolution> {prepare_input(input)?.close_effects(EffectLimits::default())}
 pub fn resolve(bytes:&[u8])->Result<SignatureResolution> {
     resolve_sources(&[reader::read(bytes)?],&[],0)
 }
@@ -65,7 +73,10 @@ pub fn resolve_sources(sources:&[DecodedSource],imports:&[ImportBinding],root:us
 }
 pub fn prepare_analysis(bytes:&[u8])->Result<PreparedAnalysis> {prepare_analysis_sources(&[reader::read(bytes)?],&[],0)}
 pub fn prepare_analysis_sources(sources:&[DecodedSource],imports:&[ImportBinding],root:usize)->Result<PreparedAnalysis> {
-    let header_seeds::PreparedHeaders {collection,navigation,mut budget}=header_seeds::prepare_sources(sources,imports,root)?;
+    prepare_headers(header_seeds::prepare_sources(sources,imports,root)?)
+}
+fn prepare_headers(prepared:header_seeds::PreparedHeaders)->Result<PreparedAnalysis> {
+    let header_seeds::PreparedHeaders {collection,navigation,mut budget,input}=prepared;
     let HeaderCollection {names,mut types,headers}=collection;
     let mut solver=ConstraintMachine::shared(&mut types,&mut budget);
     solver.register_headers(&headers)?;
@@ -77,7 +88,7 @@ pub fn prepare_analysis_sources(sources:&[DecodedSource],imports:&[ImportBinding
         if insert_need_identity(&mut solver,&mut identities,need.source,need.code)?{solver.charge(96)?;all_needs.push(need);}
     }
     let constraints=solver.into_state();
-    Ok(PreparedAnalysis {names,types,headers,signatures,needs:all_needs,problems,dependencies,annotation_cycles,bodies:analysis,budget,constraints})
+    Ok(PreparedAnalysis {input,names,types,headers,signatures,needs:all_needs,problems,dependencies,annotation_cycles,bodies:analysis,budget,constraints})
 }
 
 fn insert_need_identity(solver:&mut ConstraintMachine<'_>,identities:&mut BTreeSet<(SourceId,&'static str)>,source:SourceId,code:&'static str)->Result<bool> {

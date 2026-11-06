@@ -12,6 +12,8 @@ pub mod type_constraints;
 pub mod signature_resolution;
 pub mod body_analysis;
 pub mod effect_analysis;
+pub mod captured_input;
+pub mod project_input;
 mod reference_slots;
 mod typescript;
 
