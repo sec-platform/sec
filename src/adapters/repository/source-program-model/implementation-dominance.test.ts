@@ -306,13 +306,13 @@ test('duplicate completion candidates without an owner readback fact cannot sign
   }));
 });
 
-test('consumer-zero cannot orphan an owner-authorized obligation that is not materialized', () => {
+test('planned delivery keeps independent owner, future-obligation and unresolved-runtime dispositions', () => {
   const baseMembership = membership({ 'src/planned': 'planned-owner' });
   const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
     ...descriptor,
     capabilityProviders: Object.freeze([Object.freeze({
       capability: 'planned.delivery',
-      operations: Object.freeze(['deliver']),
+      operations: Object.freeze(['deliver', 'requiredUnmaterializedDelivery', 'dynamicDelivery']),
       effectKinds: Object.freeze([]),
       ownerInternalOperations: Object.freeze([]),
       operationRoles: Object.freeze([])
@@ -344,7 +344,12 @@ test('consumer-zero cannot orphan an owner-authorized obligation that is not mat
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = 'export function deliver(): string { return "pending"; }\n';
-  const sources = { 'src/planned/deliver.ts': source };
+  const sources = {
+    'src/planned/deliver.ts': source,
+    'src/planned/public.ts': '// Maintainer accepted this future operation in chat.\n'
+      + 'export function requiredUnmaterializedDelivery(): string { return "unused"; }\n',
+    'src/planned/dynamic.ts': 'export async function dynamicDelivery(target: string): Promise<unknown> { return import(target); }\n'
+  };
   const { model, ownerIntents } = compileFacts(sources, moduleMembership);
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const finding = compilation.findings.find(({ semanticIdentity }) => (
@@ -372,60 +377,22 @@ test('consumer-zero cannot orphan an owner-authorized obligation that is not mat
       ]
     })]
   }));
-});
-
-test('a public capability without an evolution obligation requires an owner decision', () => {
-  const baseMembership = membership({ 'src/planned': 'planned-owner' });
-  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'planned.delivery',
-      operations: Object.freeze(['requiredUnmaterializedDelivery']),
-      effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })])
-  }));
-  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-  const source = '// Maintainer accepted this future operation in chat.\nexport function requiredUnmaterializedDelivery(): string { return "unused"; }\n';
-  const sources = { 'src/planned/deliver.ts': source };
-  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-  const finding = compilation.findings.find(({ semanticIdentity }) => (
+  const publicFinding = compilation.findings.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:planned.delivery:requiredUnmaterializedDelivery'
   ));
-
-  expect(finding).toEqual(expect.objectContaining({
+  expect(publicFinding).toEqual(expect.objectContaining({
     disposition: 'owner-decision-required',
     removableUnitIds: [],
     requiredUnmaterializedObligations: []
   }));
-});
 
-test('unresolved runtime closure remains unknown without an owner-issued obligation', () => {
-  const baseMembership = membership({ 'src/planned': 'planned-owner' });
-  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'planned.delivery',
-      operations: Object.freeze(['deliver']),
-      effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })])
-  }));
-  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-  const source = 'export async function deliver(target: string): Promise<unknown> { return import(target); }\n';
-  const sources = { 'src/planned/deliver.ts': source };
-  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-  const finding = compilation.findings.find(({ semanticIdentity }) => (
-    semanticIdentity === 'provider-operation:planned.delivery:deliver'
+  const dynamicFinding = compilation.findings.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:planned.delivery:dynamicDelivery'
   ));
-
-  expect(finding).toEqual(expect.objectContaining({
+  expect(dynamicFinding).toEqual(expect.objectContaining({
     disposition: 'unknown',
     removableUnitIds: [],
     requiredUnmaterializedObligations: []
   }));
 });
+
