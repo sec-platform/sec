@@ -154,7 +154,7 @@ fn constructor_kinds_packs_exists_and_static_arguments_remain_typed_and_pending(
     assert!(result.types.binders.iter().any(|binder|matches!(binder.kind,SemanticKind::Constructor(_))));
     assert!(result.types.binders.iter().any(|binder|matches!(binder.kind,SemanticKind::Pack(_))));
     assert!(matches!(ty(&result,"/definitions/Generic/body/type/params/3"),SemanticType::Exists{binders,..} if binders.len()==1));
-    let bounded=result.types.binders.iter().find(|binder|result.names.lexical.bindings[binder.binding.index()].name=="T").unwrap();
+    let bounded=result.types.binders.iter().find(|binder|result.names.lexical.bindings[binder.binding.unwrap().index()].name=="T").unwrap();
     assert_eq!(bounded.constraints.len(),1); assert_eq!(bounded.trait_bounds.len(),1);
     assert!(bounded.trait_bounds[0].associated.contains_key("Item"));
 }
@@ -320,9 +320,10 @@ fn shared_generic_types_kinds_arguments_and_function_defaults_reuse_lexical_ids(
         "result":{"role":"value","type":{"core":"Result","arguments":[{"core":"Bool"},{"core":"Text"}]}}}))}));
     let SemanticType::Function(function)=ty(&result,"/definitions/Design/body/parameters/callback/type") else {panic!()};
     assert_eq!(function.call_mode.as_deref(),Some("exclusive"));
-    assert_eq!(result.names.lexical.bindings[function.binders[0].index()].source_key.as_deref(),Some("local-s"));
+    let local=result.types.binders[function.binders[0].index()].binding.unwrap();
+    assert_eq!(result.names.lexical.bindings[local.index()].source_key.as_deref(),Some("local-s"));
     assert!(matches!(function.parameters[1],SemanticArgument::Expand(_)));
-    assert!(matches!(result.types.get(function.returns),SemanticType::Exists{binders,..} if result.names.lexical.bindings[binders[0].index()].source_key.as_deref()==Some("hidden")));
+    assert!(matches!(result.types.get(function.returns),SemanticType::Exists{binders,..} if result.names.lexical.bindings[result.types.binders[binders[0].index()].binding.unwrap().index()].source_key.as_deref()==Some("hidden")));
     assert!(matches!(ty(&result,"/definitions/Design/body/parameters/element/type"),SemanticType::PackElement{..}));
     assert!(matches!(ty(&result,"/definitions/Design/body/parameters/option/type"),SemanticType::Option(_)));
     assert!(matches!(ty(&result,"/definitions/Design/body/parameters/result/type"),SemanticType::Result{..}));

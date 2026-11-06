@@ -8,6 +8,8 @@ pub mod binding;
 pub mod lexical;
 pub mod semantic_types;
 pub mod header_seeds;
+pub mod type_constraints;
+pub mod signature_resolution;
 mod reference_slots;
 mod typescript;
 

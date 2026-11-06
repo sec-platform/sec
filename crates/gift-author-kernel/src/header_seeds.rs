@@ -3,7 +3,7 @@
 //! bodies. A seed is not a completed callable or a target qualification.
 use crate::{binding::{self, DeclarationId, ImportBinding, ModuleId, NameAnalysis},
     lexical::LocalBindingId, model::Diagnostic, reader::{self, DecodedSource},
-    semantic_types::{Capture, EffectRow, ExprRef, Formation, ParameterContract, SourceId, TypeArena, TypeId}};
+    semantic_types::{Capture, EffectRow, ExprRef, Formation, ParameterContract, SemanticBinderId, SourceId, TypeArena, TypeId}};
 
 #[derive(Debug)]
 pub struct HeaderCollection {
@@ -27,14 +27,14 @@ pub struct RuntimeParameterSeed {
 #[derive(Debug)]
 pub enum HeaderKind {
     Type {
-        binders: Vec<LocalBindingId>,
+        binders: Vec<SemanticBinderId>,
         representation: Representation,
         ty: TypeId,
         opaque: Option<bool>,
         visibility: Option<String>,
     },
     Function {
-        binders: Vec<LocalBindingId>,
+        binders: Vec<SemanticBinderId>,
         parameters: Vec<RuntimeParameterSeed>,
         returns: TypeRequest,
         body: ExprRef,
@@ -61,6 +61,16 @@ pub fn collect(bytes: &[u8]) -> Result<HeaderCollection, Diagnostic> {
 }
 
 pub fn collect_sources(sources: &[DecodedSource], imports: &[ImportBinding], root: usize) -> Result<HeaderCollection, Diagnostic> {
+    Ok(prepare_sources(sources,imports,root)?.collection)
+}
+
+pub(crate) struct PreparedHeaders {
+    pub collection: HeaderCollection,
+    pub navigation: Vec<crate::reference_slots::Navigation>,
+    pub budget: binding::Budget,
+}
+
+pub(crate) fn prepare_sources(sources: &[DecodedSource], imports: &[ImportBinding], root: usize) -> Result<PreparedHeaders, Diagnostic> {
     let binding::PreparedNames { names, navigation, mut budget } = binding::prepare_sources(sources,imports,root,true)?;
     let mut formation=Formation::new(&names,sources,&navigation,&mut budget)?;
     formation.form_all()?;
@@ -138,7 +148,7 @@ pub fn collect_sources(sources: &[DecodedSource], imports: &[ImportBinding], roo
         headers.push(HeaderSeed {declaration:declaration.id,module,source,kind});
     }
     let types=formation.arena;
-    Ok(HeaderCollection {names,types,headers})
+    Ok(PreparedHeaders {collection:HeaderCollection {names,types,headers},navigation,budget})
 }
 
 fn optional_text(formation: &mut Formation<'_>, node: &crate::source::Node, field: &str) -> Result<Option<String>,Diagnostic> {

@@ -13,13 +13,15 @@ const DECLARATIONS: &str = "urn:gift:design-schema:requirement-declarations-conv
 macro_rules! local_id {
     ($name:ident) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-        pub struct $name(usize);
+        pub struct $name(pub(crate) usize);
         impl $name { pub fn index(self) -> usize { self.0 } }
     };
 }
 local_id!(TypeId);
 local_id!(SourceId);
 local_id!(NameReferenceId);
+local_id!(SemanticBinderId);
+local_id!(MetaId);
 
 #[derive(Debug)]
 pub struct SourceOccurrence {
@@ -40,7 +42,11 @@ pub struct TypeIssue { pub source: SourceId, pub code: &'static str }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeclarationUse { pub reference: NameReferenceId, pub declaration: Option<DeclarationId> }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BinderUse { pub lexical_use: usize, pub binder: Option<LocalBindingId> }
+pub struct BinderUse {
+    pub lexical_use: Option<usize>,
+    pub binder: Option<LocalBindingId>,
+    pub semantic: Option<SemanticBinderId>,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExprRef { pub source: SourceId }
 
@@ -60,6 +66,7 @@ pub struct ScalarType {
 pub struct Field { pub ty: TypeId, pub optional: Option<bool>, pub mutable: Option<bool> }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SemanticType {
+    Inference(MetaId),
     Scalar(ScalarType),
     Declaration { target: DeclarationUse, arguments: Vec<SemanticArgument> },
     SubjectSchema { target: DeclarationUse, arguments: Vec<SemanticArgument>, role: SubjectRole },
@@ -81,7 +88,7 @@ pub enum SemanticType {
     Stream { item: TypeId, order: String },
     Quantity { scalar: TypeId, unit_ref: String },
     Refinement { base: TypeId, predicate: DeclarationUse },
-    Exists { binders: Vec<LocalBindingId>, body: TypeId },
+    Exists { binders: Vec<SemanticBinderId>, body: TypeId },
     Apply { constructor: ConstructorTerm, arguments: Vec<SemanticArgument> },
     PackElement { pack: PackTerm, index: ExprRef },
     Rational,
@@ -121,12 +128,16 @@ pub struct ParameterContract { pub position: u64, pub retention: String }
 pub enum Capture { Region(BinderUse), Scope(BinderUse) }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionType {
-    pub binders: Vec<LocalBindingId>,
+    pub binders: Vec<SemanticBinderId>,
     pub parameters: Vec<SemanticArgument>,
     pub returns: TypeId,
     /// None is the shared function type's omitted empty upper bound. Declaration
     /// effect inference is represented separately by header_seeds::EffectRequest.
     pub effects: Option<EffectRow>,
+    /// True only for a declaration/lambda whose omitted effects still require
+    /// body analysis. An independent FunctionType omission is an empty bound.
+    pub pending_effects: bool,
+    pub pending_captures: bool,
     pub call_mode: Option<String>,
     pub parameter_contracts: Option<Vec<ParameterContract>>,
     pub captures: Option<Vec<Capture>>,
@@ -135,7 +146,9 @@ pub struct FunctionType {
 pub struct TraitBound { pub trait_ref: DeclarationUse, pub self_type: TypeId, pub arguments: Vec<SemanticArgument>, pub associated: BTreeMap<String, TypeId> }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SemanticBinder {
-    pub binding: LocalBindingId,
+    pub id: SemanticBinderId,
+    pub binding: Option<LocalBindingId>,
+    pub provenance: BinderProvenance,
     pub source: SourceId,
     pub kind: SemanticKind,
     pub introduction: Option<String>,
@@ -143,7 +156,26 @@ pub struct SemanticBinder {
     pub trait_bounds: Vec<TraitBound>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BinderProvenance {
+    Authored,
+    Derived { original: SemanticBinderId },
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArgumentOccurrence { pub source: SourceId, pub argument: SemanticArgument }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionAnnotations {
+    pub source: SourceId,
+    pub effects: Option<EffectRow>,
+    pub captures: Option<Vec<Capture>>,
+    pub parameter_contracts: Option<Vec<ParameterContract>>,
+    pub call_mode: Option<String>,
+}
+#[derive(Clone, Debug)]
+pub struct InferenceVariable {
+    pub kind: SemanticKind,
+    pub visible: BTreeSet<SemanticBinderId>,
+    pub value: Option<TypeId>,
+}
 /// A formed representation with explicit remaining obligations. TypeId equality
 /// and derived structural PartialEq are not semantic equivalence/compatibility.
 /// Source omission/defaults continue to use their original semantic owners.
@@ -154,10 +186,27 @@ pub struct TypeArena {
     pub occurrences: Vec<TypeOccurrence>,
     pub binders: Vec<SemanticBinder>,
     pub arguments: Vec<ArgumentOccurrence>,
+    pub function_annotations: Vec<FunctionAnnotations>,
+    pub inference_variables: Vec<InferenceVariable>,
     pub needs: Vec<TypeIssue>,
     pub problems: Vec<TypeIssue>,
 }
 impl TypeArena {
+    /// A consumer follows the retained solution in this same analysis arena.
+    /// Unsolved variables retain their kind and allowed rigid-binder scope.
+    pub fn resolved(&self, mut ty:TypeId) -> TypeId {
+        for _ in 0..=self.inference_variables.len() {
+            match self.get(ty) {
+                SemanticType::Inference(id)=>match self.inference_variables.get(id.index()).and_then(|v|v.value) {
+                    Some(value)=>ty=value,None=>return ty,
+                },_=>return ty,
+            }
+        }
+        ty
+    }
+    pub fn authored_binder(&self, binding: LocalBindingId) -> Option<SemanticBinderId> {
+        self.binders.iter().find(|item| item.binding == Some(binding)).map(|item| item.id)
+    }
     pub fn get(&self, id: TypeId) -> &SemanticType { &self.nodes[id.0] }
     pub fn source(&self, id: SourceId) -> &SourceOccurrence { &self.sources[id.0] }
     pub fn at(&self, module: ModuleId, path: &str) -> Option<TypeId> {
@@ -178,6 +227,7 @@ pub(crate) struct Formation<'a> {
     references: BTreeMap<(ModuleId, String), usize>,
     uses: BTreeMap<(ModuleId, String), usize>,
     bindings: BTreeMap<(ModuleId, String), LocalBindingId>,
+    semantic_bindings: BTreeMap<LocalBindingId, SemanticBinderId>,
     lexical_occurrences: BTreeMap<(ModuleId, String), OccurrenceId>,
     declaration_paths: BTreeMap<(ModuleId, String), DeclarationId>,
     active: BTreeSet<(ModuleId, String)>,
@@ -188,7 +238,13 @@ impl<'a> Formation<'a> {
     pub(crate) fn new(names: &'a NameAnalysis, sources: &'a [DecodedSource], navigation: &'a [Navigation], budget: &'a mut Budget) -> Result<Self> {
         let mut result = Self { names, sources, navigation, budget, arena: TypeArena::default(), source_ids: BTreeMap::new(),
             type_ids: BTreeMap::new(), references: BTreeMap::new(), uses: BTreeMap::new(), bindings: BTreeMap::new(),
-            lexical_occurrences: BTreeMap::new(), declaration_paths: BTreeMap::new(), active: BTreeSet::new(), scalars: BTreeMap::new(), issues:BTreeSet::new() };
+            lexical_occurrences: BTreeMap::new(), declaration_paths: BTreeMap::new(), active: BTreeSet::new(), scalars: BTreeMap::new(), issues:BTreeSet::new(), semantic_bindings:BTreeMap::new() };
+        for binding in &names.lexical.bindings {
+            if binding.domains.contains(&"semantic") {
+                result.budget.charge(96)?;
+                result.semantic_bindings.insert(binding.id, SemanticBinderId(result.semantic_bindings.len()));
+            }
+        }
         for declaration in &names.declarations {
             let path=result.path("/definitions",&declaration.name)?;
             let key=result.key(declaration.module,&path)?;
@@ -295,7 +351,8 @@ impl<'a> Formation<'a> {
             LocalResolution::Needs { code } => { self.issue(source,code,false)?; None },
             LocalResolution::Rejected { code } => { self.issue(source,code,true)?; None },
         };
-        Ok(BinderUse { lexical_use:index, binder })
+        let semantic=binder.and_then(|binding|self.semantic_bindings.get(&binding).copied());
+        Ok(BinderUse { lexical_use:Some(index), binder, semantic })
     }
     pub(crate) fn binding(&mut self, module: ModuleId, path: &str) -> Result<LocalBindingId> {
         let key = self.key(module,path)?;
@@ -320,6 +377,17 @@ impl<'a> Formation<'a> {
             for path in navigation.sites.keys() {
                 self.budget.work(1)?;
                 if self.is_type(module,path) { self.form(module,path,0)?; }
+                let node=self.node(module,path)?;
+                if (self.owns(module,path,grammar::MODULE,"Expr")||self.owns(module,path,SHARED,"Expr")) &&
+                    (node.get("op").or_else(||node.get("tag"))).and_then(Node::as_str)==Some("lambda") {
+                    let source=self.source(module,path)?;
+                    let effects=if node.get("effects").is_some(){let child=self.path(path,"effects")?;Some(self.effects(module,&child,0)?)}else{None};
+                    let captures=self.captures(module,path,&node)?;
+                    let parameter_contracts=self.contracts(&node)?;
+                    let call_mode=self.optional_text(&node,"callMode")?;
+                    self.budget.charge(256)?;
+                    self.arena.function_annotations.push(FunctionAnnotations {source,effects,captures,parameter_contracts,call_mode});
+                }
                 if self.owns(module,path,grammar::MODULE,"SemanticArgument") || self.owns(module,path,SHARED,"SemanticArgument") {
                     let argument = self.argument(module,path,0)?;
                     let source = self.source(module,path)?;
@@ -363,7 +431,9 @@ impl<'a> Formation<'a> {
                 }
             }
             self.budget.charge(256)?;
-            self.arena.binders.push(SemanticBinder { binding:binding.id, source, kind, introduction, constraints, trait_bounds });
+            let id=self.semantic_bindings[&binding.id];
+            self.arena.binders.push(SemanticBinder { id, binding:Some(binding.id), provenance:BinderProvenance::Authored,
+                source, kind, introduction, constraints, trait_bounds });
         }
         Ok(())
     }
@@ -745,13 +815,14 @@ impl<'a> Formation<'a> {
         let tail=if node.get("tail").is_some() {let child=self.path(path,"tail")?;Some(self.binder_use(module,&child)?)}else{None};
         Ok(EffectRow {members,tail,explicit_row})
     }
-    pub(crate) fn binder_list(&mut self, module: ModuleId, path: &str, node: &Node, field: &str) -> Result<Vec<LocalBindingId>> {
+    pub(crate) fn binder_list(&mut self, module: ModuleId, path: &str, node: &Node, field: &str) -> Result<Vec<SemanticBinderId>> {
         let mut result=Vec::new();
         if let Some(items)=node.get(field).and_then(Node::as_array) {
             let parent=self.path(path,field)?;
             for index in 0..items.len() {
                 let child=self.path(&parent,&index.to_string())?; let binder=self.binding(module,&child)?;
-                self.budget.charge(64)?; result.push(binder);
+                self.budget.charge(64)?;
+                result.push(*self.semantic_bindings.get(&binder).ok_or_else(||invariant(&child))?);
             }
         }
         Ok(result)
@@ -786,7 +857,7 @@ impl<'a> Formation<'a> {
         let parameters=self.arguments(module,&parameters,depth+1)?;
         let returns=self.type_child(module,path,"returns",depth)?;
         let effects=if node.get("effects").is_some(){let child=self.path(path,"effects")?;Some(self.effects(module,&child,depth+1)?)}else{None};
-        Ok(FunctionType {binders,parameters,returns,effects,call_mode:self.optional_text(node,"callMode")?,
+        Ok(FunctionType {binders,parameters,returns,effects,pending_effects:false,pending_captures:false,call_mode:self.optional_text(node,"callMode")?,
             parameter_contracts:self.contracts(node)?,captures:self.captures(module,path,node)?})
     }
 }
