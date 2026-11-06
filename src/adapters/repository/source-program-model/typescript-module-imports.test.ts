@@ -33,7 +33,7 @@ function fixtureProgram(source: string, fileName = 'src/a.ts') {
 
 const emitCases = [
   "import type { Value } from './b.ts';", "import { type Value } from './b.ts';",
-  "import { type A, type B } from './b.ts';", "import {} from './b.ts';",
+  "import {type A, type B} from './b.ts';", "import {} from './b.ts';",
   "import './b.ts';", "import { value } from './b.ts';",
   "export type { Value } from './b.ts';", "export { type Value } from './b.ts';",
   "export {} from './b.ts';", "export * from './b.ts';",
