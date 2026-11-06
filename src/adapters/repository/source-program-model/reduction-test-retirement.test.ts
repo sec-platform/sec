@@ -227,18 +227,26 @@ test('test retirement blocks live consumers, unknown sources, and consumer-free 
   const withUnchangedCurrent = (source: string) => compileTestRetirementFixture(
     source, undefined, undefined, undefined, false, current
   );
+  // The direct and relative path literals occupy distinct source paths, so
+  // either lost consumer independently fails the exact consumer-evidence oracle.
+  const literalSources = {
+    'src/example/operation.ts': "export const absolutePath = 'tests/obsolete.test.ts';\n",
+    'src/example/relative-path.ts': "export const relativePath = '../../tests/obsolete.test.ts';\n"
+  };
+  const literalBaselineTest = '// retired test path referenced by production literals\n';
+  const literalBaseline = compileSupersessionFixture({
+    ...literalSources,
+    'tests/obsolete.test.ts': literalBaselineTest
+  });
+  const literalCurrent = compileSupersessionFixture(literalSources);
+  const literalFixture = compileTestRetirementFixture(
+    literalBaselineTest, undefined, undefined, undefined, false, literalCurrent, literalBaseline
+  );
   const fixtures = [
     withUnchangedCurrent(
       "import { value } from '../src/example/operation.ts';\nvoid value;\n"
     ),
-    compileTestRetirementFixture(
-      '// test path is consumed by the production registry\n',
-      "export const retiredPath = 'tests/obsolete.test.ts';\n"
-    ),
-    compileTestRetirementFixture(
-      '// test path is consumed through a relative production literal\n',
-      "export const retiredPath = '../../tests/obsolete.test.ts';\n"
-    ),
+    literalFixture,
     withUnchangedCurrent(
       "const target = '../src/example/operation.ts';\nvoid import(target);\n"
     ),
@@ -251,17 +259,22 @@ test('test retirement blocks live consumers, unknown sources, and consumer-free 
   ];
 
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.status))
-    .toEqual(['blocked', 'blocked', 'blocked', 'blocked', 'blocked', 'blocked']);
+    .toEqual(['blocked', 'blocked', 'blocked', 'blocked', 'blocked']);
   expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.reason))
     .toEqual([
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
       'consumer-closure-not-empty',
-      'consumer-closure-not-empty',
       'observation-obligation-not-empty'
     ]);
-  expect(fixtures[5]!.retirement.proofs[0]!.observationClasses).toContain('failure-boundary');
+  expect(literalFixture.retirement.proofs[0]!.consumerEvidence.filter((evidence) =>
+    evidence.startsWith('path-literal:')
+  )).toEqual([
+    'path-literal:src/example/operation.ts',
+    'path-literal:src/example/relative-path.ts'
+  ]);
+  expect(fixtures[4]!.retirement.proofs[0]!.observationClasses).toContain('failure-boundary');
   for (const fixture of fixtures) {
     const projection = projectSourceProgramTestRetirementDispositions(
       fixture.observedProjection,
