@@ -441,8 +441,12 @@ pub fn read_source(bytes: &[u8]) -> Result<Module> {
     }
     let module_id = string(o, "moduleId", "")?;
     if module_id.is_empty() { return Err(invalid("/moduleId", "moduleId must be nonempty")); }
+    let local_definitions = object(get(o, "definitions", "")?, "/definitions")?;
+    if local_definitions.is_empty() {
+        return Err(invalid("/definitions", "A closed module must contain at least one local definition"));
+    }
     let mut definitions = BTreeMap::new();
-    for (key, value) in object(get(o, "definitions", "")?, "/definitions")? {
+    for (key, value) in local_definitions {
         let p = at("/definitions", key);
         identifier(key.clone(), &p, false)?;
         definitions.insert(key.clone(), read_definition(value, &p)?);

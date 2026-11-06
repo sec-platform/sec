@@ -137,6 +137,57 @@ fn reader_rejects_duplicate_json_keys_before_maps_can_collapse_them() {
 }
 
 #[test]
+fn reader_rejects_empty_closed_modules_with_omitted_or_empty_exports() {
+    for explicit_empty in [false, true] {
+        let mut module = json!({"schema":"gift.author-module/2", "moduleId":"module:empty", "definitions":{}});
+        if explicit_empty {
+            module["exports"] = json!({});
+            module["imports"] = json!({});
+            module["dialects"] = json!({});
+        }
+        let error = match compile(&serde_json::to_vec(&module).unwrap()) {
+            Err(error) => error,
+            Ok(_) => panic!("An empty closed module must not compile into an empty successful project"),
+        };
+        assert_eq!(error.code, "InvalidAuthorSource");
+        assert_eq!(error.path, "/definitions");
+    }
+}
+
+#[test]
+fn reader_preserves_private_definitions_without_requiring_public_exports() {
+    for explicit_empty in [false, true] {
+        let mut module = json!({
+            "schema":"gift.author-module/2", "moduleId":"module:private",
+            "definitions":{"C":{"kind":"core:constant","body":{
+                "type":{"tag":"scalar","name":"int"},
+                "value":{"op":"literal","type":{"tag":"scalar","name":"int"},"value":"3"}
+            }}}
+        });
+        if explicit_empty { module["exports"] = json!({}); }
+        let compiled = compile(&serde_json::to_vec(&module).unwrap()).unwrap();
+        assert!(compiled.program.exports.is_empty());
+        let LoweredDefinition::Constant { value, .. } = &compiled.program.definitions["C"] else {
+            panic!("A private definition must retain its body without an implicit export");
+        };
+        let TermKind::Int(value) = &value.kind else { panic!("C must remain an exact integer"); };
+        assert_eq!(value, "3");
+    }
+}
+
+#[test]
+fn reader_preserves_imported_facades_as_an_unsupported_module_boundary() {
+    let module = json!({
+        "schema":"gift.author-module/2", "moduleId":"module:public-api",
+        "imports":{"core":{"mode":"workspace","moduleId":"module:limit"}},
+        "definitions":{}, "exports":{"MaxItems":{"import":"core","export":"Limit"}}
+    });
+    let error = compile(&serde_json::to_vec(&module).unwrap()).unwrap_err();
+    assert_eq!(error.code, "NeedsSemanticBridge");
+    assert_eq!(error.path, "/imports");
+}
+
+#[test]
 fn exact_integer_lexemes_cannot_silently_acquire_json_number_or_machine_integer_semantics() {
     for value in [json!("-0"), json!("01"), json!("+1"), json!(5)] {
         reject(|v| v["definitions"]["DefaultThreshold"]["body"]["value"]["value"] = value, "InvalidAuthorSource");
