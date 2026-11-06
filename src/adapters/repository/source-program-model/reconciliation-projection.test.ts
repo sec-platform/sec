@@ -601,8 +601,11 @@ test('pre-existing unknowns outside the changed declaration do not block an exac
 });
 
 test('computed values block changed declarations and their consumer frontier', () => {
-  const before = compileFixture({
-    'src/example/service.ts': [
+  // These four failures have independent source paths and dependency chains.
+  // One immutable Program pair preserves their distinct witnesses without
+  // re-compiling separate complete repositories for each chain.
+  const beforeSources = {
+    'src/example/local.ts': [
       'export function run(values: Record<string, unknown>, key: string): string {',
       '  const selected = values[key];',
       '  void selected;',
@@ -610,28 +613,8 @@ test('computed values block changed declarations and their consumer frontier', (
       '  return marker;',
       '}',
       ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const stableFlowAfter = compileFixture({
-    'src/example/service.ts': [
-      'export function run(values: Record<string, unknown>, key: string): string {',
-      '  const selected = values[key];',
-      '  void selected;',
-      "  const marker = 'after';",
-      '  return marker;',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-
-  expect(reconcile(before, stableFlowAfter).unresolvedReasons).toContainEqual(
-    expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    })
-  );
-  const consumerBefore = compileFixture({
-    'src/example/service.ts': [
+    ].join('\n'),
+    'src/example/direct.ts': [
       'export function select(values: Record<string, unknown>, key: string): unknown {',
       '  return values[key];',
       '}',
@@ -639,101 +622,78 @@ test('computed values block changed declarations and their consumer frontier', (
       "  return String(select(values, 'name'));",
       '}',
       ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const consumerAfter = compileFixture({
-    'src/example/service.ts': [
-      'export function select(values: Record<string, unknown>, key: string): unknown {',
-      '  return values[key];',
-      '}',
-      'export function run(values: Record<string, unknown>): string {',
-      "  return (select(values, 'name') as () => string)();",
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  expect(reconcile(consumerBefore, consumerAfter).unresolvedReasons).toContainEqual(
-    expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    })
-  );
-
-  const transitiveConsumerBefore = compileFixture({
-    'src/example/select.ts': [
+    ].join('\n'),
+    'src/example/transitive-select.ts': [
       'export function select(values: Record<string, unknown>, key: string): unknown {',
       '  return values[key];',
       '}',
       ''
     ].join('\n'),
-    'src/example/forward.ts': [
-      "import { select } from './select.ts';",
+    'src/example/transitive-forward.ts': [
+      "import { select } from './transitive-select.ts';",
       'export function forward(values: Record<string, unknown>): unknown {',
       "  return select(values, 'name');",
       '}',
       ''
     ].join('\n'),
-    'src/example/use.ts': [
-      "import { forward } from './forward.ts';",
+    'src/example/transitive-use.ts': [
+      "import { forward } from './transitive-forward.ts';",
       'export function run(values: Record<string, unknown>): string {',
       '  return String(forward(values));',
       '}',
       ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/use.ts', 'run')]);
-  const transitiveConsumerAfter = compileFixture({
-    'src/example/select.ts': [
-      'export function select(values: Record<string, unknown>, key: string): unknown {',
-      '  return values[key];',
-      '}',
-      ''
     ].join('\n'),
-    'src/example/forward.ts': [
-      "import { select } from './select.ts';",
-      'export function forward(values: Record<string, unknown>): unknown {',
-      "  return select(values, 'name');",
-      '}',
-      ''
-    ].join('\n'),
-    'src/example/use.ts': [
-      "import { forward } from './forward.ts';",
-      'export function run(values: Record<string, unknown>): string {',
-      '  return (forward(values) as () => string)();',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/use.ts', 'run')]);
-  expect(reconcile(transitiveConsumerBefore, transitiveConsumerAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-
-  const dependencyBefore = compileFixture({
-    'src/example/registry.ts': 'export const registry: Record<string, unknown> = {};\n',
-    'src/example/select.ts': [
-      "import { registry } from './registry.ts';",
+    'src/example/dependency-registry.ts': 'export const registry: Record<string, unknown> = {};\n',
+    'src/example/dependency-select.ts': [
+      "import { registry } from './dependency-registry.ts';",
       'export function select(key: string): unknown {',
       '  return registry[key];',
       '}',
       ''
     ].join('\n')
-  }, [serviceDescriptor('src/example/select.ts', 'select')]);
-  const dependencyAfter = compileFixture({
-    'src/example/registry.ts': "export const registry: Record<string, unknown> = { name: 'changed' };\n",
-    'src/example/select.ts': [
-      "import { registry } from './registry.ts';",
-      'export function select(key: string): unknown {',
-      '  return registry[key];',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/select.ts', 'select')]);
-  expect(reconcile(dependencyBefore, dependencyAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
+  };
+  const descriptors = [{
+    root: 'src/example',
+    source: {
+      causalRelations: [
+        { subject: 'example.local', relation: 'declares',
+          symbol: { path: 'src/example/local.ts', name: 'run' }, operation: null },
+        { subject: 'example.direct', relation: 'declares',
+          symbol: { path: 'src/example/direct.ts', name: 'run' }, operation: null },
+        { subject: 'example.transitive', relation: 'declares',
+          symbol: { path: 'src/example/transitive-use.ts', name: 'run' }, operation: null },
+        { subject: 'example.dependency', relation: 'declares',
+          symbol: { path: 'src/example/dependency-select.ts', name: 'select' }, operation: null }
+      ]
+    }
+  }];
+  const afterSources = {
+    ...beforeSources,
+    'src/example/local.ts': beforeSources['src/example/local.ts']
+      .replace("const marker = 'before';", "const marker = 'after';"),
+    'src/example/direct.ts': beforeSources['src/example/direct.ts']
+      .replace("String(select(values, 'name'))", "(select(values, 'name') as () => string)()"),
+    'src/example/transitive-use.ts': beforeSources['src/example/transitive-use.ts']
+      .replace('String(forward(values))', '(forward(values) as () => string)()'),
+    'src/example/dependency-registry.ts': "export const registry: Record<string, unknown> = { name: 'changed' };\n"
+  };
+  const before = compileFixture(beforeSources, descriptors);
+  const after = compileFixture(afterSources, descriptors);
+  const consumerReasons = reconcile(before, after).unresolvedReasons;
+  // Each path has its own independent changed-declaration, direct-consumer,
+  // transitive-consumer or changed-dependency route to the unknown.
+  for (const sourcePath of [
+    'src/example/local.ts',
+    'src/example/direct.ts',
+    'src/example/transitive-select.ts',
+    'src/example/dependency-select.ts'
+  ]) {
+    expect(consumerReasons).toContainEqual(expect.objectContaining({
       code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
+      subject: 'computed-property-unresolved',
+      paths: [sourcePath]
     }));
+  }
 
   // The script initializer and imported module resolve separate bindings.
   // Preserve separate source-path witnesses while sharing one Program pair.
@@ -773,18 +733,20 @@ test('computed values block changed declarations and their consumer frontier', (
   }
 
   const computedBinding = compileFixture({
-    'src/example/service.ts': [
+    ...beforeSources,
+    'src/example/local.ts': [
       'export function run(values: Record<string, unknown>, key: string): string {',
       '  const { [key]: selected } = values;',
       '  return String(selected);',
       '}',
       ''
     ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
+  }, descriptors);
   expect(reconcile(before, computedBinding).unresolvedReasons).toContainEqual(
     expect.objectContaining({
       code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
+      subject: 'computed-property-unresolved',
+      paths: ['src/example/local.ts']
     })
   );
 });
