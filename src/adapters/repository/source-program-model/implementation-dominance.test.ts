@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import type { RepositoryModuleMembership } from '../architecture/contract.ts';
 import {
-  compileSourceProgramImplementationCandidates,
   compileSourceProgramImplementationDominance
 } from './implementation-dominance.ts';
 import {
@@ -35,19 +34,10 @@ function membership(ownerByRoot: Readonly<Record<string, string>>): RepositoryMo
   });
 }
 
-function compile(
-  sources: Readonly<Record<string, string>>,
-  ownerByRoot: Readonly<Record<string, string>>
-) {
-  const { model, ownerIntents } = compileFacts(sources, ownerByRoot);
-  return compileSourceProgramImplementationDominance({ model, ownerIntents });
-}
-
 function compileFacts(
   sources: Readonly<Record<string, string>>,
-  ownerByRoot: Readonly<Record<string, string>>
+  moduleMembership: RepositoryModuleMembership
 ) {
-  const moduleMembership = membership(ownerByRoot);
   const files = Object.entries(sources).map(([path, source]) => Object.freeze({
     path,
     source,
@@ -64,26 +54,12 @@ function compileFacts(
   });
 }
 
-test('equal declaration bytes without an owner responsibility remain heuristic unknown', () => {
-  const compilation = compile({
-    'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
-    'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
-    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
-  }, {
-    'src/identity': 'identity-owner',
-    'src/consumer': 'consumer-owner'
-  });
-
-  expect(compilation.findings).toHaveLength(1);
-  expect(compilation.units.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
-  expect(compilation.findings[0]!.disposition).toBe('unknown');
-  expect(compilation.findings[0]!.removableUnitIds).toEqual([]);
-});
 
 test('equal public-operation declarations still require an exact evolution obligation', () => {
   const baseMembership = membership({
     'src/identity': 'identity-owner',
-    'src/consumer': 'consumer-owner'
+    'src/consumer': 'consumer-owner',
+    'src/unbound': 'unbound-owner'
   });
   const descriptors = baseMembership.descriptors.map((descriptor) => descriptor.moduleId !== 'identity-owner'
     ? descriptor
@@ -101,22 +77,13 @@ test('equal public-operation declarations still require an exact evolution oblig
   const sources = {
     'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
-    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
+    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n",
+    'src/unbound/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
+    'src/unbound/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
+    'src/unbound/use.ts': "import { compareIdentity } from './primary.ts';\nexport const heuristicAccepted = compareIdentity('a', 'a');\n"
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'identity',
@@ -124,33 +91,48 @@ test('equal public-operation declarations still require an exact evolution oblig
     disposition: 'owner-decision-required',
     removableUnitIds: []
   }));
-  expect(compilation.findings.some(({ disposition }) => disposition === 'unknown')).toBe(false);
+  const unboundUnits = compilation.units.filter(({ kind, semanticIdentity }) => (
+    kind === 'identity' && semanticIdentity.startsWith('unbound-responsibility:')
+  ));
+  expect(unboundUnits).toHaveLength(2);
+  expect(unboundUnits.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
+  expect(unboundUnits.map(({ producerPaths }) => producerPaths[0]).sort()).toEqual([
+    'src/unbound/duplicate.ts',
+    'src/unbound/primary.ts'
+  ]);
+  expect(compilation.findings.filter(({ kind, semanticIdentity }) => (
+    kind === 'identity' && semanticIdentity.startsWith('unbound-responsibility:')
+  ))).toEqual([expect.objectContaining({
+    disposition: 'unknown',
+    removableUnitIds: []
+  })]);
 });
 
 test('contract codecs crossing durable recovery boundaries require migration instead of deletion', () => {
   const moduleMembership = membership({
     'src/codec-a': 'codec-a-owner',
-    'src/codec-b': 'codec-b-owner'
+    'src/codec-b': 'codec-b-owner',
+    'src/manual': 'manual-owner',
+    'src/schema': 'schema-owner'
   });
   const sources = {
     'src/codec-a/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n',
-    'src/codec-b/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n'
+    'src/codec-b/codec.ts': 'export function decodeContract(value: string): unknown { return JSON.parse(value); }\n',
+    'src/manual/decode.ts': 'export function decodePayload(value: string): unknown { return JSON.parse(value); }\n',
+    'src/schema/decode.ts': 'const payloadSchema = { parse: (value: string): unknown => JSON.parse(value) };\nexport function decodePayload(value: string): unknown { return payloadSchema.parse(value); }\n'
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const descriptors = moduleMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'contract-codec',
-      operations: Object.freeze(['decodeContract']),
-      effectKinds: Object.freeze(['persistent-state' as const]),
+  const descriptors = moduleMembership.descriptors.map((descriptor) => {
+    const heuristicCodec = descriptor.moduleId === 'manual-owner' || descriptor.moduleId === 'schema-owner';
+    return Object.freeze({
+      ...descriptor,
+      capabilityProviders: Object.freeze([Object.freeze({
+      capability: heuristicCodec ? 'payload.codec' : 'contract-codec',
+      operations: Object.freeze([heuristicCodec ? 'decodePayload' : 'decodeContract']),
+      effectKinds: Object.freeze(heuristicCodec ? [] : ['persistent-state' as const]),
       ownerInternalOperations: Object.freeze([]),
       operationRoles: Object.freeze([])
     })]),
-    operationObligations: Object.freeze([Object.freeze({
+    operationObligations: Object.freeze(heuristicCodec ? [] : [Object.freeze({
       operation: Object.freeze({
         kind: 'capability' as const,
         capability: 'contract-codec',
@@ -169,63 +151,45 @@ test('contract codecs crossing durable recovery boundaries require migration ins
       resources: Object.freeze({ aggregateBudgets: Object.freeze([]) }),
       futureSupport: Object.freeze({ condition: 'preserve-obligations' as const })
     })])
-  }));
+    });
+  });
   const membershipWithObligations = Object.freeze({
     ...moduleMembership,
     descriptors
   });
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithObligations
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, membershipWithObligations)
-  });
+  const { model, ownerIntents } = compileFacts(sources, membershipWithObligations);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'transition-algebra',
+    semanticIdentity: 'operation:contract-codec:decodeContract',
     disposition: 'migration-required',
     removableUnitIds: []
   }));
-  expect(compilation.units.every(({ frontiers }) => (
+  const durableCodecUnits = compilation.units.filter(({ kind, semanticIdentity }) => (
+    kind === 'transition-algebra' && semanticIdentity === 'operation:contract-codec:decodeContract'
+  ));
+  expect(durableCodecUnits).toHaveLength(2);
+  expect(durableCodecUnits.every(({ frontiers }) => (
     frontiers.durable === 'present' && frontiers.recovery === 'present'
   ))).toBe(true);
+  const payloadCodecUnits = compilation.units.filter(({ kind, semanticIdentity }) => (
+    kind === 'contract-codec' && semanticIdentity === 'owner-capability:payload.codec:decodePayload'
+  ));
+  expect(payloadCodecUnits).toHaveLength(2);
+  expect(payloadCodecUnits.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
+  expect(compilation.findings.filter(({ kind, semanticIdentity }) => (
+    kind === 'contract-codec' && semanticIdentity === 'owner-capability:payload.codec:decodePayload'
+  ))).toEqual([expect.objectContaining({ disposition: 'unknown', removableUnitIds: [] })]);
 });
 
-test('the candidate compiler does not promote an exact declaration digest to semantic identity', () => {
-  const { model, ownerIntents } = compileFacts({
-    'src/one/equal.ts': 'export function same(left: string, right: string): boolean { return left === right; }\n',
-    'src/two/equal.ts': 'export function same(left: string, right: string): boolean { return left === right; }\n',
-    'src/use/value.ts': "import { same } from '../one/equal.ts';\nexport const result = same('a', 'a');\n"
-  }, {
-    'src/one': 'identity-owner',
-    'src/two': 'identity-owner',
-    'src/use': 'consumer-owner'
-  });
-  const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  expect(candidates).toContainEqual(expect.objectContaining({
-    kind: 'identity',
-    evidenceClass: 'heuristic',
-    observationClass: 'unknown'
-  }));
-  expect(compilation.findings).toContainEqual(expect.objectContaining({
-    kind: 'identity',
-    disposition: 'unknown',
-    removableUnitIds: []
-  }));
-});
-
-test('capability effects belong to declaration spans rather than every export in the file', () => {
+test('declaration-scoped process effects distinguish direct and delegated calls from module initialization', () => {
   const baseMembership = membership({ 'src/process': 'process-owner' });
   const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
     ...descriptor,
     capabilityProviders: Object.freeze([Object.freeze({
       capability: 'process.operations',
-      operations: Object.freeze(['pureValue', 'runProcess']),
+      operations: Object.freeze(['pureValue', 'runProcess', 'delegatedProcess', 'initStatus']),
       effectKinds: Object.freeze([]),
       ownerInternalOperations: Object.freeze([]),
       operationRoles: Object.freeze([])
@@ -233,20 +197,17 @@ test('capability effects belong to declaration spans rather than every export in
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = "import { spawnSync } from 'node:child_process';\nexport function pureValue(): number { return 1; }\nexport function runProcess(command: string) { return spawnSync(command); }\n";
-  const files = [Object.freeze({
-    path: 'src/process/operations.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const sources = {
+    'src/process/operations.ts': source,
+    'src/process/delegated.ts': "import { spawnSync } from 'node:child_process';\n"
+      + 'function invoke(command: string) { return spawnSync(command); }\n'
+      + 'export function delegatedProcess(command: string) { return invoke(command); }\n',
+    'src/process/initialization.ts': "import { spawnSync } from 'node:child_process';\n"
+      + "const startup = spawnSync('status');\n"
+      + 'export function initStatus(): number { return startup.status ?? 0; }\n'
+  };
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const pureUnit = compilation.units.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:process.operations:pureValue'
   ));
@@ -262,100 +223,19 @@ test('capability effects belong to declaration spans rather than every export in
     effect: 'present',
     external: 'present'
   }));
-});
-
-test('exact call closure propagates capabilities while module initialization remains unknown', () => {
-  const compileOperation = (source: string, operation: string) => {
-    const baseMembership = membership({ 'src/process': 'process-owner' });
-    const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
-      ...descriptor,
-      capabilityProviders: Object.freeze([Object.freeze({
-        capability: 'process.operations',
-        operations: Object.freeze([operation]),
-        effectKinds: Object.freeze([]),
-        ownerInternalOperations: Object.freeze([]),
-        operationRoles: Object.freeze([])
-      })])
-    }));
-    const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-    const files = [Object.freeze({
-      path: 'src/process/operations.ts',
-      source,
-      contentDigest: rawSha256(source)
-    })];
-    const model = compileRepositorySourceProgramModel({
-      sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-      files,
-      moduleMembership
-    });
-    return compileSourceProgramImplementationDominance({
-      model,
-      ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-    });
-  };
-  const delegated = compileOperation(
-    "import { spawnSync } from 'node:child_process';\nfunction invoke(command: string) { return spawnSync(command); }\nexport function runProcess(command: string) { return invoke(command); }\n",
-    'runProcess'
-  );
-  const moduleInitialization = compileOperation(
-    "import { spawnSync } from 'node:child_process';\nconst startup = spawnSync('status');\nexport function pureValue(): number { return startup.status ?? 0; }\n",
-    'pureValue'
-  );
-
-  expect(delegated.units.find(({ semanticIdentity }) => (
-    semanticIdentity === 'provider-operation:process.operations:runProcess'
+  expect(compilation.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:delegatedProcess'
   ))?.frontiers).toEqual(expect.objectContaining({ effect: 'present', external: 'present' }));
-  expect(moduleInitialization.units.find(({ semanticIdentity }) => (
-    semanticIdentity === 'provider-operation:process.operations:pureValue'
+  expect(compilation.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:initStatus'
   ))?.frontiers).toEqual(expect.objectContaining({ effect: 'unknown', unknown: 'present' }));
 });
 
-test('codec-shaped names remain unknown when the compiler cannot prove one grammar', () => {
-  const moduleMembership = membership({
-    'src/manual': 'manual-owner',
-    'src/schema': 'schema-owner'
-  });
-  const descriptors = moduleMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'payload.codec',
-      operations: Object.freeze(['decodePayload']),
-      effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })])
-  }));
-  const membershipWithCodec = Object.freeze({ ...moduleMembership, descriptors });
-  const sources = {
-    'src/manual/decode.ts': 'export function decodePayload(value: string): unknown { return JSON.parse(value); }\n',
-    'src/schema/decode.ts': 'const payloadSchema = { parse: (value: string): unknown => JSON.parse(value) };\nexport function decodePayload(value: string): unknown { return payloadSchema.parse(value); }\n'
-  };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithCodec
-  });
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, membershipWithCodec);
-  const candidates = compileSourceProgramImplementationCandidates({ model, ownerIntents });
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  expect(candidates.filter(({ kind }) => kind === 'contract-codec').every(({ evidenceClass }) => (
-    evidenceClass === 'heuristic'
-  ))).toBe(true);
-  expect(compilation.findings.filter(({ kind }) => kind === 'contract-codec')).toEqual([
-    expect.objectContaining({ disposition: 'unknown', removableUnitIds: [] })
-  ]);
-});
 
 test('a direct process wrapper remains protected by its external provider frontier', () => {
   const { model, ownerIntents } = compileFacts({
     'src/process/run.ts': "import { spawnSync } from 'node:child_process';\nexport function run(command: string) { return spawnSync(command); }\n"
-  }, { 'src/process': 'process-consumer' });
+  }, membership({ 'src/process': 'process-consumer' }));
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const externalUnits = compilation.units.filter(({ kind }) => kind === 'external-capability-candidate');
 
@@ -403,17 +283,7 @@ test('duplicate completion candidates without an owner readback fact cannot sign
     'src/effect-a/publish.ts': 'export function publish(): void {}\n',
     'src/effect-b/publish.ts': 'export function publish(): void {}\n'
   };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithEffect
-  });
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, membershipWithEffect);
+  const { model, ownerIntents } = compileFacts(sources, membershipWithEffect);
   const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
 
   expect(compilation.units).toContainEqual(expect.objectContaining({
@@ -427,68 +297,13 @@ test('duplicate completion candidates without an owner readback fact cannot sign
   }));
 });
 
-test('similar transition operations with different recovery remain an owner migration', () => {
-  const moduleMembership = membership({
-    'src/transition-a': 'transition-a-owner',
-    'src/transition-b': 'transition-b-owner'
-  });
-  const descriptors = moduleMembership.descriptors.map((descriptor, index) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'state.transition',
-      operations: Object.freeze(['advance']),
-      effectKinds: Object.freeze(['persistent-state' as const]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })]),
-    operationObligations: Object.freeze([Object.freeze({
-      operation: Object.freeze({ kind: 'capability' as const, capability: 'state.transition', operation: 'advance' }),
-      consumerSupport: Object.freeze({ consumers: Object.freeze([]) }),
-      effect: Object.freeze({
-        kinds: Object.freeze(['persistent-state' as const]),
-        failureKinds: Object.freeze(['transition-failed']),
-        recovery: index === 0 ? 'rollback' as const : 'owner-intervention' as const
-      }),
-      evolution: Object.freeze({
-        migration: 'one-shot-owner-migration' as const,
-        retirement: 'replacement-obligations-satisfied' as const
-      }),
-      resources: Object.freeze({ aggregateBudgets: Object.freeze([]) }),
-      futureSupport: Object.freeze({ condition: 'preserve-obligations' as const })
-    })])
-  }));
-  const membershipWithTransitions = Object.freeze({ ...moduleMembership, descriptors });
-  const sources = {
-    'src/transition-a/advance.ts': 'export function advance(): void {}\n',
-    'src/transition-b/advance.ts': 'export function advance(): void {}\n'
-  };
-  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership: membershipWithTransitions
-  });
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, membershipWithTransitions);
-  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
-
-  expect(compilation.findings).toContainEqual(expect.objectContaining({
-    kind: 'transition-algebra',
-    disposition: 'migration-required',
-    removableUnitIds: []
-  }));
-});
-
-test('consumer-zero cannot orphan an owner-authorized obligation that is not materialized', () => {
+test('planned delivery keeps independent owner, future-obligation and unresolved-runtime dispositions', () => {
   const baseMembership = membership({ 'src/planned': 'planned-owner' });
   const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
     ...descriptor,
     capabilityProviders: Object.freeze([Object.freeze({
       capability: 'planned.delivery',
-      operations: Object.freeze(['deliver']),
+      operations: Object.freeze(['deliver', 'requiredUnmaterializedDelivery', 'dynamicDelivery']),
       effectKinds: Object.freeze([]),
       ownerInternalOperations: Object.freeze([]),
       operationRoles: Object.freeze([])
@@ -520,20 +335,14 @@ test('consumer-zero cannot orphan an owner-authorized obligation that is not mat
   }));
   const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
   const source = 'export function deliver(): string { return "pending"; }\n';
-  const files = [Object.freeze({
-    path: 'src/planned/deliver.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
+  const sources = {
+    'src/planned/deliver.ts': source,
+    'src/planned/public.ts': '// Maintainer accepted this future operation in chat.\n'
+      + 'export function requiredUnmaterializedDelivery(): string { return "unused"; }\n',
+    'src/planned/dynamic.ts': 'export async function dynamicDelivery(target: string): Promise<unknown> { return import(target); }\n'
+  };
+  const { model, ownerIntents } = compileFacts(sources, moduleMembership);
+  const compilation = compileSourceProgramImplementationDominance({ model, ownerIntents });
   const finding = compilation.findings.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:planned.delivery:deliver'
   ));
@@ -559,82 +368,22 @@ test('consumer-zero cannot orphan an owner-authorized obligation that is not mat
       ]
     })]
   }));
-});
-
-test('a public capability without an evolution obligation requires an owner decision', () => {
-  const baseMembership = membership({ 'src/planned': 'planned-owner' });
-  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'planned.delivery',
-      operations: Object.freeze(['requiredUnmaterializedDelivery']),
-      effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })])
-  }));
-  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-  const source = '// Maintainer accepted this future operation in chat.\nexport function requiredUnmaterializedDelivery(): string { return "unused"; }\n';
-  const files = [Object.freeze({
-    path: 'src/planned/deliver.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
-  const finding = compilation.findings.find(({ semanticIdentity }) => (
+  const publicFinding = compilation.findings.find(({ semanticIdentity }) => (
     semanticIdentity === 'provider-operation:planned.delivery:requiredUnmaterializedDelivery'
   ));
-
-  expect(finding).toEqual(expect.objectContaining({
+  expect(publicFinding).toEqual(expect.objectContaining({
     disposition: 'owner-decision-required',
     removableUnitIds: [],
     requiredUnmaterializedObligations: []
   }));
-});
 
-test('unresolved runtime closure remains unknown without an owner-issued obligation', () => {
-  const baseMembership = membership({ 'src/planned': 'planned-owner' });
-  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
-    ...descriptor,
-    capabilityProviders: Object.freeze([Object.freeze({
-      capability: 'planned.delivery',
-      operations: Object.freeze(['deliver']),
-      effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([]),
-      operationRoles: Object.freeze([])
-    })])
-  }));
-  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
-  const source = 'export async function deliver(target: string): Promise<unknown> { return import(target); }\n';
-  const files = [Object.freeze({
-    path: 'src/planned/deliver.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })];
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
-    files,
-    moduleMembership
-  });
-  const compilation = compileSourceProgramImplementationDominance({
-    model,
-    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
-  });
-  const finding = compilation.findings.find(({ semanticIdentity }) => (
-    semanticIdentity === 'provider-operation:planned.delivery:deliver'
+  const dynamicFinding = compilation.findings.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:planned.delivery:dynamicDelivery'
   ));
-
-  expect(finding).toEqual(expect.objectContaining({
+  expect(dynamicFinding).toEqual(expect.objectContaining({
     disposition: 'unknown',
     removableUnitIds: [],
     requiredUnmaterializedObligations: []
   }));
 });
+

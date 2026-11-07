@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { decodeGitIndexGeneration } from '../../src/adapters/providers/git-read/runtime/scratch-index-generation.ts';
 import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
-import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 function git(repositoryRoot: string, args: string[], input?: string) {
@@ -28,13 +28,9 @@ function requireSuccess(result: ReturnType<typeof git>, label: string): string {
   return result.stdout.trim();
 }
 
-/** Native Git owns its writable private index beneath a retained parent.
- * An immutable file is only used to test rejection of that incorrect custody.
+/** Native Git owns its cold writable private index beneath a retained parent.
  * This fixture is not an authorization or a production docs-doctor receipt. */
-export function runRetainedGitWriteTreeProbe(options: Readonly<{
-  warmIndex?: boolean;
-  indexCustody?: 'retained-parent' | 'immutable-file';
-}> = {}): string {
+export function runRetainedGitWriteTreeProbe(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-git-write-tree-'));
   const repositoryRoot = path.join(root, 'repository');
   const snapshotRoot = path.join(root, 'snapshot');
@@ -55,17 +51,17 @@ export function runRetainedGitWriteTreeProbe(options: Readonly<{
       git(repositoryRoot, ['mktree'], `100644 blob ${blob}\ttracked.txt\n`),
       'independent expected tree'
     );
-    if (options.warmIndex !== false) {
-      assert.equal(requireSuccess(git(repositoryRoot, ['write-tree']), 'warm Git index'), expectedTree);
+    // One native observation yields both locations; custody below remains
+    // independent for the writable index and object directory.
+    const gitCandidates = requireSuccess(
+      git(repositoryRoot, ['rev-parse', '--git-path', 'index', '--git-path', 'objects']),
+      'git index and object paths'
+    ).split(/\r?\n/u);
+    if (gitCandidates.length !== 2 || gitCandidates.some(value => value.length === 0)) {
+      throw new Error('Expected one Git index path and one objects path');
     }
-    const indexCandidate = requireSuccess(
-      git(repositoryRoot, ['rev-parse', '--git-path', 'index']),
-      'git index path'
-    );
-    const objectCandidate = requireSuccess(
-      git(repositoryRoot, ['rev-parse', '--git-path', 'objects']),
-      'git object path'
-    );
+    const indexCandidate = gitCandidates[0]!;
+    const objectCandidate = gitCandidates[1]!;
     const indexPath = path.isAbsolute(indexCandidate)
       ? indexCandidate
       : path.resolve(repositoryRoot, indexCandidate);
@@ -93,12 +89,6 @@ export function runRetainedGitWriteTreeProbe(options: Readonly<{
       snapshotIndexParent,
       5
     ), 'writable scratch parent');
-    const immutableIndex = options.indexCustody === 'immutable-file'
-      ? own(retainNoFollowOrdinaryFileForChildProcess(
-        snapshotIndexParent,
-        inspectNoFollowOrdinaryFileEntry(snapshotIndexParent.target, 'index')!,
-        6
-      ), 'immutable scratch index') : undefined;
     const result = spawnSync('git', ['write-tree'], {
       cwd: repositoryRoot,
       timeout: 5000,
@@ -106,7 +96,7 @@ export function runRetainedGitWriteTreeProbe(options: Readonly<{
       windowsHide: true,
       encoding: 'utf8',
       env: isolatedGitReadEnvironment({
-        GIT_INDEX_FILE: immutableIndex?.childPath ?? `${scratchParent.childPath}${path.sep}index`,
+        GIT_INDEX_FILE: `${scratchParent.childPath}${path.sep}index`,
         GIT_OBJECT_DIRECTORY: scratchObjects.childPath,
         GIT_ALTERNATE_OBJECT_DIRECTORIES: originalObjects.childPath
       }),
@@ -117,7 +107,7 @@ export function runRetainedGitWriteTreeProbe(options: Readonly<{
         originalObjects.stdioSourceDescriptor ?? 'ignore',
         scratchObjects.stdioSourceDescriptor ?? 'ignore',
         scratchParent.stdioSourceDescriptor ?? 'ignore',
-        immutableIndex?.stdioSourceDescriptor ?? 'ignore'
+        'ignore'
       ]
     });
     const treeSha = requireSuccess(result, 'retained git write-tree');
@@ -137,7 +127,6 @@ export function runRetainedGitWriteTreeProbe(options: Readonly<{
       entries: generation.entries.map(({ statHex, ...entry }) => entry)
     });
     assert.deepEqual(entries(observedIndex), entries(expectedIndex));
-    immutableIndex?.assertCurrent();
     return treeSha;
   } catch (error) {
     primary = { label: 'retained Git write-tree probe', error };

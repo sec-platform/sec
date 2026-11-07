@@ -1,0 +1,253 @@
+import { expect, test } from 'bun:test';
+
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../../src/assurance/verification/contract/types.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../../src/assurance/verification/semantic-mutation/execution-ref.ts';
+import { sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
+import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../../src/compiler/semantic-mutation/normalize-request.ts';
+import { semanticMutationPlanRevision } from '../../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
+import { preflightSemanticMutation } from '../../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
+import { semanticMutationResultRevision } from '../../../src/compiler/semantic-mutation/result.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../../src/compiler/semantic-mutation/verification-policy.ts';
+import type { SemanticMutationRequest } from '../../../src/semantics/mutation/types.ts';
+import { semanticMutationVerificationReportFixture } from '../../helpers/semantic-mutation-verification-report.ts';
+
+function request(): SemanticMutationRequest {
+  return {
+    contractVersion: '2',
+    requestId: 'request:contract-vector',
+    graphId: 'engineering-ir:contract-vector',
+    appId: 'app:contract-vector',
+    base: {
+      transactionId: 'tx:base',
+      inputRevision: sha256('input'),
+      semanticRevision: sha256('semantic')
+    },
+    preconditions: [],
+    operations: [{
+      operationId: 'operation:one',
+      kind: 'add-state-transition',
+      contract: { namespace: 'vector', contractId: 'vector-core' },
+      stateId: 'status',
+      from: 'open',
+      to: 'closed',
+      by: 'close'
+    }],
+    expectation: {
+      revision: 'semantic-mutation-expectation-v1',
+      matchMode: 'exact',
+      addedFacts: [],
+      removedFacts: [],
+      assertionChanges: [],
+      entityChanges: 'none'
+    },
+    postconditions: [],
+    additionalVerification: []
+  };
+}
+
+test('Semantic Mutation request normalization and independent digest vector stay deterministic', () => {
+  expect(sha256({
+    domain: 'semantic-mutation-frozen-digest-regression-v1',
+    zeta: 1,
+    alpha: 2
+  })).toBe('sha256:333a024149bce48bf2d92332e11ddcaecea611e2debb7804372956892d7568ce');
+  expect(sha256({
+    domain: 'semantic-mutation-frozen-digest-regression-v1',
+    alpha: 2,
+    zeta: 1
+  })).toBe('sha256:f201719a21aecf5e4228ca94463efd06a483dc82b883c038961c55f6655a3c71');
+
+  const source = request();
+  const raw: SemanticMutationRequest = {
+    ...source,
+    expectation: {
+      ...source.expectation,
+      addedFacts: [{
+        fact: {
+          subject: 'state:vector:status', predicate: 'TRANSITIONS_TO',
+          object: { kind: 'value', value: { by: 'operation:vector:close', from: 'open', to: 'closed' } }
+        },
+        assertions: [{ assertionId: 'assertion:transition', assertionClaimDigest: sha256('transition claim') }]
+      }]
+    }
+  };
+  const beforeJson = JSON.stringify(raw);
+  const normalized = normalizeSemanticMutationRequest(raw);
+  const expectedRevision = sha256({
+    domain: 'semantic-mutation-request-v2',
+    ...raw,
+    operationRegistryRevision: 'semantic-mutation-operations-v1',
+    expectationRevision: 'semantic-mutation-expectation-v1'
+  });
+  expect(normalized.requestRevision).toBe(expectedRevision);
+  expect(JSON.stringify(normalizeSemanticMutationRequest(structuredClone(raw)))).toBe(JSON.stringify(normalized));
+  expect(JSON.stringify(raw)).toBe(beforeJson);
+  expect(normalized.expectation).toEqual(raw.expectation);
+  function expectDeepFrozen(value: unknown): void {
+    if (value === null || typeof value !== 'object') return;
+    expect(Object.isFrozen(value)).toBe(true);
+    for (const nested of Object.values(value)) expectDeepFrozen(nested);
+  }
+  expectDeepFrozen(normalized);
+});
+
+test('request schema rejects caller authority, unknown fields, wrong versions, and non-canonical identity order', () => {
+  const raw = request();
+  expect(() => normalizeSemanticMutationRequest({ ...raw, requestId: ' whitespace ' })).toThrow('trimmed non-empty');
+  expect(() => normalizeSemanticMutationRequest({
+    ...raw, additionalVerification: [{ kind: 'selector', selector: '!skip' }]
+  })).toThrow('cannot be negative');
+  expect(() => normalizeSemanticMutationRequest({ ...raw, contractVersion: '1' })).toThrow('contractVersion');
+  expect(() => normalizeSemanticMutationRequest({ ...raw, relativePath: 'source/model/vector.yaml' })).toThrow('unknown fields');
+  expect(() => normalizeSemanticMutationRequest({
+    ...raw,
+    operations: [
+      { ...raw.operations[0]!, operationId: 'operation:z' },
+      { ...raw.operations[0]!, operationId: 'operation:a', from: 'closed', to: 'open' }
+    ]
+  })).toThrow('canonical order');
+});
+
+test('runtime trusted-input guard rejects malformed endpoint shells without leaking TypeError', () => {
+  const raw = request();
+  const authorizationDraft = {
+    allowedOperationKinds: ['add-state-transition'] as const,
+    allowedTargetEntityIds: ['state:vector:status'],
+    allowedSourceOwnerIds: ['owner:vector'],
+    allowedPathPrefixes: ['source/model/'],
+    requiredPreconditions: [],
+    requiredPostconditions: [],
+    minimumVerification: []
+  };
+  const authorization = {
+    ...authorizationDraft,
+    authorizationRevision: semanticMutationAuthorizationRevision(authorizationDraft)
+  };
+  const malformed = {
+    transactionId: raw.base.transactionId,
+    inputRevision: raw.base.inputRevision,
+    semanticRevision: raw.base.semanticRevision,
+    snapshot: {
+      ir: {
+        graphId: raw.graphId,
+        appId: raw.appId,
+        inputRevision: raw.base.inputRevision,
+        semanticRevision: raw.base.semanticRevision
+      }
+    }
+  };
+  expect(preflightSemanticMutation({
+    request: raw,
+    base: malformed as never,
+    authorization
+  })).toMatchObject({
+    status: 'rejected',
+    rejectedAt: 'request',
+    diagnostics: [{
+      code: 'SEMANTIC-MUTATION-001',
+      stage: 'request',
+      message: 'Trusted base input violates the FactDeltaEndpointContext shape'
+    }]
+  });
+});
+
+test('independent plan, required-verification, execution, and result digest vectors stay frozen', () => {
+  const base = {
+    transactionId: 'tx:base',
+    inputRevision: sha256('input'),
+    semanticRevision: sha256('semantic')
+  };
+  const diagnostics = [{
+    origin: 'semantic-mutation' as const,
+    code: 'SEMANTIC-MUTATION-002',
+    stage: 'base' as const,
+    message: 'Base binding failed'
+  }];
+  const planDraft = {
+    contractVersion: '2' as const,
+    requestId: 'request:contract-vector',
+    requestRevision: sha256('request'),
+    authorizationRevision: sha256('authorization'),
+    operationRegistryRevision: 'semantic-mutation-operations-v1' as const,
+    expectationRevision: 'semantic-mutation-expectation-v1' as const,
+    verificationPolicyRevision: 'semantic-mutation-verification-policy-v1' as const,
+    verificationAdapterId: '',
+    verificationAdapterRevision: '',
+    verificationPlanningRevision: '',
+    base,
+    status: 'rejected' as const,
+    rejectedAt: 'base' as const,
+    sourceChanges: [] as const,
+    diagnostics
+  };
+  const expectedPlanRevision = sha256({
+    domain: 'semantic-mutation-plan-v2',
+    contractVersion: '2',
+    status: 'rejected',
+    rejectedAt: 'base',
+    requestId: planDraft.requestId,
+    requestRevision: planDraft.requestRevision,
+    authorizationRevision: planDraft.authorizationRevision,
+    base,
+    operationRegistryRevision: 'semantic-mutation-operations-v1',
+    expectationRevision: 'semantic-mutation-expectation-v1',
+    verificationPolicyRevision: 'semantic-mutation-verification-policy-v1',
+    verificationAdapterId: '',
+    verificationAdapterRevision: '',
+    verificationPlanningRevision: '',
+    sourceChanges: [],
+    staged: null,
+    actualDeltaRevision: '',
+    impactRevision: '',
+    risk: '',
+    requiredVerification: [],
+    rollbackManifestDigest: '',
+    diagnostics
+  });
+  expect(semanticMutationPlanRevision(planDraft)).toBe(expectedPlanRevision);
+
+  const requirements = [{ kind: 'pass' as const, passId: 'verify' }];
+  const requiredVerificationDigest = sha256({
+    domain: 'semantic-mutation-required-verification-v1',
+    requirements
+  });
+  expect(semanticMutationRequiredVerificationDigest(requirements)).toBe(requiredVerificationDigest);
+  const executionInput = {
+    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+    reportRevision: sha256('report'),
+    planRevision: expectedPlanRevision,
+    attempted: {
+      transactionId: 'tx:staged',
+      inputRevision: sha256('staged-input'),
+      semanticRevision: sha256('staged-semantic')
+    },
+    stagedSourceDigest: sha256('staged-source'),
+    requiredVerificationDigest,
+    status: 'passed' as const
+  };
+  const report = semanticMutationVerificationReportFixture({ ...executionInput, requirements });
+  const expectedExecution = { ...executionInput, reportRevision: report.reportRevision };
+  expect(buildSemanticMutationVerificationExecutionRef(report)).toEqual({
+    ...expectedExecution,
+    verificationExecutionRevision: sha256({
+      domain: 'semantic-mutation-verification-execution-v1',
+      ...expectedExecution
+    })
+  });
+
+  const resultDraft = {
+    contractVersion: '2' as const,
+    requestId: planDraft.requestId,
+    requestRevision: planDraft.requestRevision,
+    planRevision: expectedPlanRevision,
+    base,
+    status: 'rejected' as const,
+    sourceChanges: [],
+    diagnostics
+  };
+  expect(semanticMutationResultRevision(resultDraft)).toBe(sha256({
+    domain: 'semantic-mutation-result-v2',
+    ...resultDraft
+  }));
+});

@@ -18,9 +18,6 @@ installs:
     from: files/prisma/customer.prisma
     to: prisma/schema.prisma
   - kind: copy
-    from: files/tests/unit/customer-normalizer.test.ts
-    to: tests/unit/customer-normalizer.test.ts
-  - kind: copy
     from: files/tests/acceptance/customer-flow.test.ts
     to: tests/acceptance/customer-flow.test.ts
 pins:

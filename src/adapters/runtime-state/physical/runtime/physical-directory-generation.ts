@@ -1,3 +1,4 @@
+import { settleResources, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createHash } from 'node:crypto';
 import { fchmodSync, fstatSync } from 'node:fs';
 import path from 'node:path';
@@ -609,7 +610,6 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
       proof,
       restoreOwnerWrite: input.releaseMode === 'restore-owner-write'
     });
-    await authority.assertCurrent();
   } else {
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
@@ -617,6 +617,7 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
     );
   }
   try {
+    if (process.platform === 'linux') await authority.assertCurrent();
     const generation = await retainNoFollowProvenDirectoryGeneration(
       input.root,
       authority,
@@ -625,7 +626,10 @@ export async function materializeRetainedNoFollowProvenDirectoryGeneration(input
     );
     return Object.freeze({ generation, proofText, proofStatus });
   } catch (error) {
-    try { await authority.release(); } catch { /* retain the primary proof failure */ }
+    await settleResourcesAsync({
+      primary: { label: 'proven generation admission', error },
+      cleanup: [{ label: 'proven generation authority release', settle: () => authority.release() }]
+    });
     throw error;
   }
 }
@@ -796,8 +800,12 @@ async function retainNoFollowProvenDirectoryGeneration(
     await issued.assertAuthorityCurrent();
     return issued;
   } catch (error) {
-    try { boundary?.dispose(); } catch { /* retain the primary proof failure */ }
-    try { await readOnlyAuthority.release(); } catch { /* typed residue remains */ }
+    // The materializing owner retains authority custody until admission succeeds.
+    // This inner scope owns only the lexical boundary acquired here.
+    settleResources({
+      primary: { label: 'proven generation retention', error },
+      cleanup: [{ label: 'proven generation boundary disposal', settle: () => boundary?.dispose() }]
+    });
     throw error;
   }
 }
@@ -811,6 +819,8 @@ async function retainNoFollowProvenDirectoryGeneration(
  * inventoried directories, because Windows sharing does not exclude child
  * creation. The final inventory readback happens after the complete handle set
  * is retained, so ordinary files and links need no per-entry ACL mutation.
+ * The caller retains authority custody on failed admission. Successful admission
+ * transfers its release obligation to the returned capability's retire method.
  */
 export async function retainNoFollowSealedDirectoryGeneration(
   expectedRoot: PhysicalDirectoryIdentity,
@@ -836,7 +846,7 @@ export async function retainNoFollowSealedDirectoryGeneration(
     entry: NoFollowDirectoryTreeInventoryEntry;
     handle: bigint;
   }>;
-  const rootHandle = windowsOpenSealedReadDirectory(root.path, `${label} root`);
+  let acquiredRootHandle: bigint | null = null;
   let lexicalBoundary: RetainedNoFollowChildProcessDirectory | null = null;
   const directoryHandles = new Map<string, Readonly<{
     handle: bigint;
@@ -846,6 +856,8 @@ export async function retainNoFollowSealedDirectoryGeneration(
   let disposed = false;
   let pendingEntryHandle: bigint | null = null;
   try {
+    const rootHandle = windowsOpenSealedReadDirectory(root.path, `${label} root`);
+    acquiredRootHandle = rootHandle;
     // CreateProcess receives an absolute Windows spelling.  Pin its complete
     // lexical ancestor chain for the same lifetime as the descendant tree;
     // retaining only the generation root leaves an ancestor rename/replacement
@@ -1032,13 +1044,22 @@ export async function retainNoFollowSealedDirectoryGeneration(
     registerRetainedNoFollowSealedDirectoryGeneration(issued);
     return issued;
   } catch (error) {
-    closeWindowsHandlesBestEffort([
-      ...(pendingEntryHandle === null ? [] : [pendingEntryHandle]),
-      ...retainedEntries.reverse().map(({ handle }) => handle),
-      rootHandle
-    ], label);
-    try { lexicalBoundary?.dispose(); } catch { /* retain the primary admission failure */ }
-    try { await readOnlyAuthority.release(); } catch { /* typed ACL residue remains */ }
+    // The caller retains the supplied authority until this admission returns a
+    // capability. Failed admission settles only handles acquired by this scope.
+    settleResources({
+      primary: { label: `${label} admission`, error },
+      cleanup: [
+        { label: `${label} native handles`, settle: () => {
+          const failure = closeWindowsHandlesBestEffort([
+            ...(pendingEntryHandle === null ? [] : [pendingEntryHandle]),
+            ...retainedEntries.reverse().map(({ handle }) => handle),
+            ...(acquiredRootHandle === null ? [] : [acquiredRootHandle])
+          ], label);
+          if (failure !== null) throw failure;
+        } },
+        { label: `${label} lexical boundary`, settle: () => lexicalBoundary?.dispose() }
+      ]
+    });
     throw error;
   }
 }

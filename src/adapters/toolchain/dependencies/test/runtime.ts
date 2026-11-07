@@ -3,6 +3,7 @@
  * ../runtime.ts, whose wrappers discard every test transport and lifecycle
  * control before entering the dependency owner.
  */
+import path from 'node:path';
 import { generatedStateProducerHooks } from '../../../../../tests/helpers/generated-state-fixture.ts';
 import { ensureProjectDependencyOperation } from '../../../../bootstrap/toolchain/dependency-operation.ts';
 import type { DependencyProjectLifecycleAdmission } from '../../../../execution/dependency-materialization.ts';
@@ -78,9 +79,15 @@ export async function ensureProjectDependencies(
   return ensureProjectDependencyOperation(projectRoot, testInstallOptions(options));
 }
 
+export function migrateDependencyTransitionJournal(ownerRoot: string, options?: RuntimeDependencyTestInstallOptions): Promise<void>;
+export function migrateDependencyTransitionJournal(ownerRoot: string, options: RuntimeDependencyTestInstallOptions,
+  maintenance: dependencyRuntime.CompilerDependencyLockMaintenanceRequest): Promise<dependencyRuntime.CompilerDependencyLockMaintenanceResult>;
 export async function migrateDependencyTransitionJournal(
   ownerRoot: string,
-  options: RuntimeDependencyTestInstallOptions = {}
-): Promise<void> {
-  return dependencyRuntime.migrateDependencyTransitionJournal(ownerRoot, testInstallOptions(options));
+  options: RuntimeDependencyTestInstallOptions = {},
+  maintenance?: dependencyRuntime.CompilerDependencyLockMaintenanceRequest
+): Promise<void | dependencyRuntime.CompilerDependencyLockMaintenanceResult> {
+  return maintenance === undefined
+    ? dependencyRuntime.migrateDependencyTransitionJournal(path.resolve(ownerRoot), testInstallOptions(options))
+    : dependencyRuntime.migrateDependencyTransitionJournal(path.resolve(ownerRoot), testInstallOptions(options), maintenance);
 }

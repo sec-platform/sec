@@ -1,0 +1,81 @@
+import { expect, test } from 'bun:test';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readLockFile, saveLock } from '../../../src/adapters/workspace/lock.ts';
+import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orchestrator.ts';
+import { buildSemanticViewFixture } from '../../helpers/semantic-view-fixtures.ts';
+import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
+
+// Isolate the engine, policy observation and final publication in a child.
+// Actual request, lease and failed-snapshot construction retain their owners.
+for (const [lane, rejectPublication] of [['fast', false], ['fast', true], ['runtime', false]] as const) {
+  test(`${lane} verification preserves integrity failure when snapshot rejection=${rejectPublication}`, async () => {
+    const repo = fileURLToPath(new URL('../../../', import.meta.url));
+    return withRetainedBunTestWorkspace('sec-verify-settlement-', async (root, run) => {
+      await initWorkspace(root);
+      const lock = readLockFile(root);
+      Object.assign(lock.passStatus, { parse: 'succeeded', align: 'succeeded', resolve: 'succeeded', compose: 'succeeded' });
+      lock.semanticLoweringTasks = [];
+      lock.semanticViews = buildSemanticViewFixture();
+      await saveLock(root, lock);
+      const script = path.join(root, 'settlement.ts');
+      await writeFile(script, `
+        import { mock } from 'bun:test';
+        const engine = await import(${JSON.stringify(path.join(repo, 'src/application/product-verification.ts'))});
+        const { ProjectIntegrityError } = await import(${JSON.stringify(path.join(repo, 'src/workspace/contract/project-integrity.ts'))});
+        const { PipelineSettlementFailure } = await import(${JSON.stringify(path.join(repo, 'src/application/pipeline-failure.ts'))});
+        const primary = new ProjectIntegrityError('source no longer matches its provenance');
+        const secondary = Object.freeze({ reason: 'snapshot-write-failed' });
+        const controller = ${lane === 'fast' && !rejectPublication} ? new AbortController() : undefined;
+        let executions = 0, publications = 0, observedOptions;
+        mock.module(${JSON.stringify(path.join(repo, 'src/application/product-verification.ts'))}, () => ({
+          ...engine, executeProductVerification: async (_lock, selectedLane, options) => {
+            executions++;
+            if (controller) {
+              if (selectedLane !== 'fast' || options.emitTiming !== true || options.isolated !== false)
+                throw new Error('verification decisions changed');
+              observedOptions = options;
+            }
+            throw primary;
+          }
+        }));
+        mock.module(${JSON.stringify(path.join(repo, 'src/adapters/verification/verification-artifact-publication.ts'))}, () => ({
+          publishVerificationArtifactSet: async (input) => {
+            publications++;
+            await input.commitFence();
+            if (input.artifacts.verificationReport.summary.status !== 'failed') throw new Error('invented success snapshot');
+            if (${rejectPublication}) throw secondary;
+          }
+        }));
+        mock.module(${JSON.stringify(path.join(repo, 'src/adapters/verification/run-policy-gate.ts'))}, () => ({
+          runPolicyGate: async () => ({ status: 'skipped', official: { policies: [], sources: [], violations: [] },
+            project: { policies: [], sources: [], violations: [] }, merged: { policies: [] }, violations: [], diagnostics: [] })
+        }));
+        const { verifyWorkspace } = await import(${JSON.stringify(path.join(repo, 'src/bootstrap/engineering/verify-orchestrator.ts'))});
+        try { await verifyWorkspace(${JSON.stringify(root)}, {
+          lane: ${JSON.stringify(lane)}, ...(controller ? { emitTiming: true, signal: controller.signal } : {})
+        }); throw new Error('unexpected success'); }
+        catch (error) {
+          if (${lane !== 'runtime' && rejectPublication}) {
+            if (!(error instanceof PipelineSettlementFailure) || error.cause !== primary
+                || error.settlementFailures[0]?.operation !== 'verification-blocked-snapshot'
+                || error.settlementFailures[0]?.reason !== secondary)
+              throw new Error('original verification failure was lost');
+          } else if (error !== primary) throw new Error('primary verification failure was replaced: ' + error);
+        }
+        if (controller) {
+          if (observedOptions?.signal !== controller.signal) throw new Error('signal identity changed');
+          controller.abort(primary);
+          if (!observedOptions.signal.aborted || observedOptions.signal.reason !== primary)
+            throw new Error('live cancellation was detached');
+        }
+        if (executions !== 1 || publications !== ${lane === 'runtime' ? 0 : 1}) throw new Error('work was omitted or repeated');
+        console.log('verification and settlement boundaries retained');
+      `);
+      const { code, stdout, stderr } = await run([script], { cwd: process.cwd() });
+      expect(code, stderr).toBe(0);
+      expect(stdout.trim()).toBe('verification and settlement boundaries retained');
+    });
+  });
+}

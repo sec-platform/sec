@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import { spawnSync, type StdioOptions } from 'node:child_process';
 import { chmod, lstat, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
@@ -109,6 +110,7 @@ test.skipIf(process.platform !== 'linux')('proven links use the inherited child 
     const stdio: StdioOptions = Array.from({ length: 16 }, () => 'ignore' as const);
     stdio[1] = 'pipe'; stdio[2] = 'pipe'; stdio[15] = source.stdioSourceDescriptor!;
     const executable = retainCurrentProcessExecutable(3, 'inherited-slot actor');
+    let fixtureFailure1: ResourceSettlementFailure | undefined;
     try {
       stdio[3] = executable.stdioSourceDescriptor!;
     const child = spawnSync(executable.childPath, ['-e',
@@ -117,7 +119,14 @@ test.skipIf(process.platform !== 'linux')('proven links use the inherited child 
     expect(child.status, child.stderr).toBe(0);
     expect(child.stdout).toBe('retained value');
       executable.assertCurrent();
-    } finally { executable.dispose(); }
+    } catch (error) {
+      fixtureFailure1 = { label: 'fixture operation', error };
+    } finally {
+      settleResources({
+        primary: fixtureFailure1,
+        cleanup: [{ label: 'fixture cleanup', settle: () => { executable.dispose(); } }]
+      });
+    }
     await source.assertAuthorityCurrent();
   } finally {
     if (generation) await generation.generation.retire();

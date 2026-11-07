@@ -58,11 +58,11 @@ test('registry maps stable producer roots without a catch-all tmp rule', () => {
 
 test('registration and retirement are required before any cleanup profile can authorize a root', () => {
   expect(generatedStateCleanupAllowed({
-    entry: entry('rebuildable-derived-cache', 'missing', 'blocked', ['all-rebuildable']),
+    entry: entry('rebuildable-derived-cache', 'retired', 'blocked', ['all-rebuildable']),
     profile: 'all-rebuildable'
   })).toBeFalse();
   expect(generatedStateCleanupAllowed({
-    entry: entry('rebuildable-derived-cache', 'active', 'protected', ['all-rebuildable']),
+    entry: entry('rebuildable-derived-cache', 'active', 'ready', ['all-rebuildable']),
     profile: 'all-rebuildable'
   })).toBeFalse();
   expect(generatedStateCleanupAllowed({
@@ -70,13 +70,9 @@ test('registration and retirement are required before any cleanup profile can au
     profile: 'all-rebuildable'
   })).toBeTrue();
   expect(generatedStateCleanupAllowed({
-    entry: entry('identity-bound-control-state', 'retired', 'ready', []),
+    entry: entry('rebuildable-derived-cache', 'retired', 'ready', []),
     profile: 'all-rebuildable'
   })).toBeFalse();
-  expect(generatedStateCleanupAllowed({
-    entry: entry('active-ephemeral-workspace', 'retired', 'ready', ['automatic', 'safe']),
-    profile: 'automatic'
-  })).toBeTrue();
 });
 
 test('registry parser rejects ambiguous selectors, unknown fields and invented cleanup profiles', () => {

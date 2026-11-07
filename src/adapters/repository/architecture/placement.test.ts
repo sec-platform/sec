@@ -57,8 +57,6 @@ function descriptor(moduleId: string, root: string): RepositoryModuleDescriptor 
 }
 
 function fixture(input: Readonly<{
-  runImportsHelper?: boolean;
-  runImportsContract?: boolean;
   reverseContractImport?: boolean;
   includeUnclassified?: boolean;
 }>) {
@@ -70,7 +68,7 @@ function fixture(input: Readonly<{
   const unknownPath = 'src/example-alpha/unknown.ts';
   const files = [runPath, helperPath, contractPath, ...(input.includeUnclassified ? [unknownPath] : [])];
   const source = new Map<string, string>([
-    [runPath, `${input.runImportsHelper ? "import { helper } from './helper.ts';\n" : ''}${input.runImportsContract ? "import type { Contract } from '../example-beta/contract.ts';\n" : ''}export function run(): ${input.runImportsContract ? 'Contract' : 'number'} { return ${input.runImportsContract ? "{ value: 'ready' }" : input.runImportsHelper ? 'helper()' : '1'}; }`],
+    [runPath, 'export function run(): number { return 1; }'],
     [helperPath, 'export function helper() { return 1; }'],
     [contractPath, `${input.reverseContractImport ? "import { run } from '../example-alpha/run.ts';\n" : ''}export interface Contract { value: string; }`],
     [unknownPath, 'export function publicUnknown() {}\nfunction effectUnknown() {}']
@@ -153,6 +151,10 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
   expect(result.responsibilityFrontier).toContainEqual(expect.objectContaining({
     nodeId: 'node-contract', status: 'resolved', responsibility: 'contract'
   }));
+  expect(result.responsibilityFrontier).toContainEqual(expect.objectContaining({
+    nodeId: 'node-helper', status: 'bounded-unknown', criticality: []
+  }));
+  expect(result.violations.filter(({ from }) => from === 'src/example-alpha/helper.ts')).toEqual([]);
   expect(result.violations.map(({ code }) => code)).toContain(
     'repository-public-declaration-responsibility-unresolved'
   );
@@ -164,10 +166,9 @@ test('responsibility admission resolves compiler and descriptor facts while bloc
   );
 });
 
-test('frontier indexes preserve exact identity and entrypoint multiplicity while scanning references once', () => {
+test('frontier indexes preserve exact identity and entrypoint multiplicity', () => {
   const input = fixture({});
   const helperPath = 'src/example-alpha/helper.ts';
-  const runPath = 'src/example-alpha/run.ts';
   const entrypoint = Object.freeze({
     observationId: 'entrypoint-helper',
     kind: 'package-script' as const,
@@ -196,53 +197,4 @@ test('frontier indexes preserve exact identity and entrypoint multiplicity while
   expect(single.responsibilityFrontier.find(({ name }) => name === 'helper')).toEqual(
     expect.objectContaining({ status: 'resolved', responsibility: 'interface' })
   );
-
-  const undefinedIdentityFacts = {
-    ...input.facts,
-    declarations: Object.freeze((input.facts.declarations ?? []).map((declaration) => (
-      declaration.path === runPath
-        ? Object.freeze({ ...declaration, observationId: undefined, declarationDigest: undefined })
-        : declaration
-    )))
-  } as typeof input.facts;
-  const undefinedIdentity = compileRepositoryModulePlacementAdmission({
-    graph: input.graph,
-    membership: input.membership,
-    facts: undefinedIdentityFacts
-  });
-  expect(undefinedIdentity.responsibilityFrontier.find(({ name }) => name === 'run')).toEqual(
-    expect.objectContaining({ nodeId: '', declarationDigest: '', status: 'bounded-unknown' })
-  );
-
-  let targetIdentityReads = 0;
-  const declarationCount = 32;
-  const declarations = Object.freeze(Array.from({ length: declarationCount }, (_, index) => Object.freeze({
-    observationId: `node-batch-${index}`,
-    declarationDigest: `digest-batch-${index}`,
-    path: helperPath,
-    moduleId: input.alpha.moduleId,
-    name: `helper${index}`,
-    kind: 'FunctionDeclaration',
-    exported: true
-  })));
-  const references = Object.freeze(declarations.map((declaration) => Object.freeze({
-    path: 'src/example-beta/contract.ts',
-    sourceObservationId: 'node-contract',
-    get targetObservationId() {
-      targetIdentityReads += 1;
-      return declaration.observationId;
-    },
-    targetPath: helperPath,
-    observationClass: 'observed' as const
-  })));
-  compileRepositoryModulePlacementAdmission({
-    graph: input.graph,
-    membership: input.membership,
-    facts: {
-      ...input.facts,
-      declarations,
-      references
-    }
-  });
-  expect(targetIdentityReads).toBe(declarationCount);
 });

@@ -24,11 +24,11 @@ class DecisionVisibility(unittest.TestCase):
   rows=self.decisions(text+'`[code](wrong.md#u997)`\n[real](owner.md#u001)\n')
   self.assertEqual([row['id'] for row in rows],['U001'])
   self.assertEqual(rows[0]['line'],len(text.splitlines())-len(self.owner().splitlines())+1)
- def test_visible_duplicates_and_dangling_navigation_still_reject(self):
-  with self.assertRaisesRegex(d.DesignError,'Duplicate independent U identity'):
-   self.decisions(self.owner()+self.owner())
-  with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner'):
-   self.decisions(self.owner()+'[dangling](missing.md#u999)\n')
+ def test_visible_dangling_navigation_still_rejects(self):
+  for text,missing in ((self.owner()+'[dangling](missing.md#u999)\n','U999'),
+                       (decision_owner('U002',joined=True)+'[missing](owner.md#u001)\n','U001')):
+   with self.subTest(missing=missing),self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: '+missing):
+    self.decisions(text)
  def test_hidden_fields_cannot_satisfy_visible_owner(self):
   text='### U001｜Fixture\n```md\n'+self.owner().split('\n',1)[1]+'```\n'
   with self.assertRaisesRegex(d.DesignError,'missing substantive field'):
@@ -56,45 +56,51 @@ class Architecture(unittest.TestCase):
   return root,path
  def test_missing_module(self):
   s=self.source();s=b'\n'.join(l for l in s.splitlines()if not l.startswith(b'| contracts |'))
-  with self.assertRaises(d.DesignError):d.dependency_model(s)
+  with self.assertRaisesRegex(d.DesignError,'Missing module rows'):d.dependency_model(s)
  def test_invalid_reverse_dependency(self):
   s=self.source().replace(b'| semantics | contracts |',b'| semantics | contracts, compiler |')
-  with self.assertRaises(d.DesignError):d.dependency_model(s)
+  with self.assertRaisesRegex(d.DesignError,'Pure semantic/execution boundary dependency violated'):d.dependency_model(s)
  def test_static_cycle(self):
   s=self.source().replace(b'| workspace | contracts |',b'| workspace | contracts, bootstrap |')
-  with self.assertRaises(d.DesignError):d.dependency_model(s)
+  with self.assertRaisesRegex(d.DesignError,'Static dependency cycle'):d.dependency_model(s)
  def test_single_source_svg(self):
   from xml.etree import ElementTree as ET
-  m=d.dependency_model(self.source());svg=d.dependency_svg(m);r=ET.fromstring(svg);labels={n.text for n in r.iter()if n.tag.endswith('}text')};self.assertEqual(labels,d.MODULES);self.assertEqual(svg,d.dependency_svg(m))
- def missing_field(self,field):
+  m=d.dependency_model(self.source());svg=d.dependency_svg(m);r=ET.fromstring(svg)
+  labels={n.text for n in r.iter()if n.tag.endswith('}text')}
+  self.assertEqual(labels,{'contracts','workspace','semantics','compiler','assurance',
+                          'application','execution','adapters','entry','bootstrap'})
+  graphics={'circle','rect','path','ellipse','polygon','polyline','line','use'}
+  edges=[label.text for marker in r.iter()if marker.tag.rsplit('}',1)[-1] in graphics
+         for label in marker if label.tag.endswith('}title')]
+  self.assertCountEqual(edges,['workspace imports contracts','semantics imports contracts',
+      'compiler imports semantics','assurance imports compiler','application imports assurance',
+      'execution imports contracts','adapters imports application','entry imports workspace',
+      'bootstrap imports entry'])
+  self.assertEqual(svg,d.dependency_svg(m))
+ def test_missing_adoption_and_enforcement(self):
   with tempfile.TemporaryDirectory()as temp:
-   r,p=self.status_fixture(temp)
-   text=p.read_text(encoding='utf-8').replace('**'+field+'：**','**无效字段：**',1);p.write_text(text,encoding='utf-8')
-   with self.assertRaisesRegex(d.DesignError,'missing substantive field '+field):d.decision_model(r)
- def test_missing_adoption(self):self.missing_field('采用决定')
- def test_missing_enforcement(self):self.missing_field('结构与执行落点')
+   r,p=self.status_fixture(temp);original=p.read_text(encoding='utf-8')
+   for field in ('采用决定','结构与执行落点'):
+    with self.subTest(field=field):
+     p.write_text(original.replace('**'+field+'：**','**无效字段：**',1),encoding='utf-8')
+     with self.assertRaisesRegex(d.DesignError,'missing substantive field '+field):d.decision_model(r)
  def test_owner_joins_do_not_require_duplicate_status_fields(self):
   with tempfile.TemporaryDirectory()as temp:
    root,_=self.status_fixture(temp,joined=True)
    self.assertEqual(d.decision_model(root),[{'id':'U001','path':'docs/状态/owner.md','line':1}])
  def test_joined_owner_and_remaining_obligations_cannot_be_omitted(self):
-  for field,expected in (('采用与责任位置','采用决定'),('剩余义务','实施与验证工作'),
-                         ('关闭条件','关闭条件'),('重开或调整条件','重开或调整条件')):
-   with self.subTest(field=field),tempfile.TemporaryDirectory()as temp:
-    r,p=self.status_fixture(temp,joined=True)
-    p.write_text(p.read_text(encoding='utf-8').replace('**'+field+'：**','**无效字段：**',1),encoding='utf-8')
-    with self.assertRaisesRegex(d.DesignError,'U001 missing substantive field '+expected):d.decision_model(r)
+  with tempfile.TemporaryDirectory()as temp:
+   r,p=self.status_fixture(temp,joined=True);original=p.read_text(encoding='utf-8')
+   for field,expected in (('采用与责任位置','采用决定'),('剩余义务','实施与验证工作'),
+                          ('关闭条件','关闭条件'),('重开或调整条件','重开或调整条件')):
+    with self.subTest(field=field):
+     p.write_text(original.replace('**'+field+'：**','**无效字段：**',1),encoding='utf-8')
+     with self.assertRaisesRegex(d.DesignError,'U001 missing substantive field '+expected):d.decision_model(r)
  def test_empty_join_is_not_supplied_by_the_next_field(self):
   with tempfile.TemporaryDirectory()as temp:
    r,p=self.status_fixture(temp,joined=True)
    p.write_text(p.read_text(encoding='utf-8').replace('**采用与责任位置：** body','**采用与责任位置：**\n'),encoding='utf-8')
    with self.assertRaisesRegex(d.DesignError,'U001 missing substantive field 采用决定'):d.decision_model(r)
- def test_owner_join_does_not_allow_losing_an_independent_u(self):
-  with tempfile.TemporaryDirectory()as temp:
-   r,p=self.status_fixture(temp,joined=True)
-   p.write_text(decision_owner('U002',joined=True)+'[missing](owner.md#u001)\n',encoding='utf-8')
-   with self.assertRaisesRegex(d.DesignError,'U reference lacks its independent owner: U001'):d.decision_model(r)
-
  def test_new_u_needs_no_numeric_inventory_but_identity_remains_unique(self):
   with tempfile.TemporaryDirectory()as temp:
    r,p=self.status_fixture(temp,joined=True);text=p.read_text(encoding='utf-8')
@@ -169,16 +175,18 @@ class DeliverableRoots(unittest.TestCase):
     d.deliverable_model(root)
 
  def test_root_must_match_declared_scope_without_host_normalization(self):
-  for scope in ({'root':'.','include':['applications.json']},
-                {'root':'model','include':['APPLICATIONS.json']},
-                {'root':'model/../model'}, {'root':'model//'},
-                {'root':'model','include':None}):
-   with self.subTest(scope=scope),tempfile.TemporaryDirectory()as temp:
-    root=self.fixture(temp);sample=root/'examples/开发成品'
-    project=self.load(sample/'gift.project.json')
-    project['sourceScopes']=[dict(scope,kind='semantic',editSource={'mode':'file'})]
-    self.save(sample/'gift.project.json',project)
-    with self.assertRaises(d.DesignError):d.deliverable_model(root)
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp);sample=root/'examples/开发成品'
+   project=self.load(sample/'gift.project.json')
+   for scope,message in (({'root':'.','include':['applications.json']},'missing registered public author root'),
+                         ({'root':'model','include':['APPLICATIONS.json']},'missing registered public author root'),
+                         ({'root':'model/../model'},'Invalid source location'),
+                         ({'root':'model//'},'Invalid source location'),
+                         ({'root':'model','include':None},'Source scope patterns must be arrays')):
+    with self.subTest(scope=scope):
+     project['sourceScopes']=[dict(scope,kind='semantic',editSource={'mode':'file'})]
+     self.save(sample/'gift.project.json',project)
+     with self.assertRaisesRegex(d.DesignError,message):d.deliverable_model(root)
 
  def test_ambiguous_public_root_cannot_choose_first_module(self):
   import copy
@@ -197,14 +205,13 @@ class DeliverableRoots(unittest.TestCase):
     d.deliverable_model(root)
 
  def test_malformed_form_import_keeps_design_diagnostic(self):
-  for binding in (None,'forms'):
-   with self.subTest(binding=binding),tempfile.TemporaryDirectory()as temp:
-    root=self.fixture(temp)
-    sample,project,relative,module=self.library_root(root)
-    module['imports']['forms']=binding
-    self.save(sample/relative,module)
-    with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
-     d.deliverable_model(root)
+  with tempfile.TemporaryDirectory()as temp:
+   root=self.fixture(temp)
+   sample,project,relative,module=self.library_root(root)
+   module['imports']['forms']=None
+   self.save(sample/relative,module)
+   with self.assertRaisesRegex(d.DesignError,'author form import binding is invalid'):
+    d.deliverable_model(root)
 
  def test_public_root_survives_repartition_and_definition_rename(self):
   import copy

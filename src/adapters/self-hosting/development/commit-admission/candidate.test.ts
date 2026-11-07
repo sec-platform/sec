@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,56 +25,16 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-test('development commit candidate binds the retained index and rejects clones or drift', async () => {
+test('development commit candidate rejects empty trees, binds the retained index and rejects drift', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-candidate-test-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
     await writeFile(path.join(root, 'base.txt'), 'base\n');
     git(root, ['add', '.']);
-    git(root, ['commit', '--quiet', '-m', 'base']);
-    await writeFile(path.join(root, 'next.txt'), 'next\n');
-    git(root, ['add', 'next.txt']);
+    git(root, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'base']);
     const request: DevelopmentCommitRequest = Object.freeze({
       repositoryRoot: path.resolve(root),
       message: 'candidate\n',
-      author: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' }),
-      committer: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' })
-    });
-    await withAuthorityGitReadSession(
-      { cwd: request.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
-      async (session) => {
-        const candidate = await freezeDevelopmentCommitCandidate({ request, session });
-        expect(requireDevelopmentCommitCandidate(candidate, request).candidate).toBe(candidate);
-        expect(() => requireDevelopmentCommitCandidate({ ...candidate }, request)).toThrow(
-          'origin or request identity is invalid'
-        );
-        await expect(assertDevelopmentCommitCandidateCurrent({ candidate, request, session }))
-          .resolves.toMatchObject({ candidate });
-        await writeFile(path.join(root, 'next.txt'), 'changed\n');
-        git(root, ['add', 'next.txt']);
-        await expect(assertDevelopmentCommitCandidateCurrent({ candidate, request, session }))
-          .rejects.toThrow('changed before Effect admission');
-      }
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('development commit candidate rejects an empty staged tree before commit object creation', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-empty-candidate-test-'));
-  try {
-    git(root, ['init', '--quiet']);
-    git(root, ['config', 'user.name', 'SEC Tests']);
-    git(root, ['config', 'user.email', 'tests@example.com']);
-    await writeFile(path.join(root, 'base.txt'), 'base\n');
-    git(root, ['add', '.']);
-    git(root, ['commit', '--quiet', '-m', 'base']);
-    const request: DevelopmentCommitRequest = Object.freeze({
-      repositoryRoot: path.resolve(root),
-      message: 'must-not-exist\n',
       author: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' }),
       committer: Object.freeze({ name: 'SEC Tests', email: 'tests@example.com', date: '1700000100 +0000' })
     });
@@ -85,7 +46,21 @@ test('development commit candidate rejects an empty staged tree before commit ob
       }
     );
     expect(git(root, ['rev-list', '--count', 'HEAD'])).toBe('1');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+
+    await writeFile(path.join(root, 'next.txt'), 'next\n');
+    git(root, ['add', 'next.txt']);
+    await withAuthorityGitReadSession(
+      { cwd: request.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
+      async (session) => {
+        const candidate = await freezeDevelopmentCommitCandidate({ request, session });
+        expect(requireDevelopmentCommitCandidate(candidate, request).candidate).toBe(candidate);
+        await expect(assertDevelopmentCommitCandidateCurrent({ candidate, request, session }))
+          .resolves.toMatchObject({ candidate });
+        await writeFile(path.join(root, 'next.txt'), 'changed\n');
+        git(root, ['add', 'next.txt']);
+        await expect(assertDevelopmentCommitCandidateCurrent({ candidate, request, session }))
+          .rejects.toThrow('changed before Effect admission');
+      }
+    );
+  }, async () => { await rm(root, { recursive: true, force: true }); });
 });

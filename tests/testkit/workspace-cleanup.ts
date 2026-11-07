@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { getErrorCode } from '../../src/contracts/failure-inspection.ts';
+import { settleResources, type ResourceSettlementFailure } from '../../src/execution/resource-settlement.ts';
 
 export type WorkspaceDirectoryRemoveOptions = {
   readonly recursive: true;
@@ -150,4 +151,17 @@ export async function settleWorkspaceCallback<T>(
   }
   if (callbackFailed) throw primaryFailure;
   return result as T;
+}
+
+/** Synchronous owners must finish cleanup before returning or throwing. */
+export function settleWorkspaceCallbackSync<T>(callback: () => T, cleanup: () => void): T {
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    return callback();
+  } catch (error) {
+    primary = { label: 'workspace-callback', error };
+    throw error;
+  } finally {
+    settleResources({ primary, cleanup: [{ label: 'workspace-cleanup', settle: cleanup }] });
+  }
 }

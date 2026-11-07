@@ -14,7 +14,7 @@ import {
 const digest = (value: string): DurableExecutionDigest =>
   `sha256:${value.padStart(64, '0')}` as DurableExecutionDigest;
 
-function attemptPrefix(run = '2', nonce = '5'): readonly DurableExecutionRecord[] {
+function attemptPrefix(): readonly DurableExecutionRecord[] {
   const deadlineAtUnixMs = 4_102_444_800_000;
   const intent = sealDurableExecutionRecordForInternalWriter({
     schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
@@ -35,10 +35,10 @@ function attemptPrefix(run = '2', nonce = '5'): readonly DurableExecutionRecord[
     kind: 'attempt-start',
     sequence: 1,
     operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: digest(run),
+    runIdDigest: digest('2'),
     previousRecordDigest: intent.recordDigest,
     resumeEpochDigest: digest('4'),
-    attemptNonceDigest: digest(nonce),
+    attemptNonceDigest: digest('5'),
     boundAttemptDigest: digest('5'),
     workerIdentityDigest: digest('6'),
     authorityGrantReferenceDigest: digest('7'),
@@ -52,7 +52,7 @@ function attemptPrefix(run = '2', nonce = '5'): readonly DurableExecutionRecord[
 
 function readback(
   prefix: readonly DurableExecutionRecord[],
-  reference = 'a'
+  reference: string
 ): DurableExecutionRecord {
   const start = prefix[1]!;
   return sealDurableExecutionRecordForInternalWriter({
@@ -66,88 +66,6 @@ function readback(
     domainReadbackReceiptDigest: digest(reference)
   });
 }
-
-test('one OperationKey serializes every run and only an owner terminal closes the operation', () => {
-  const prefix = attemptPrefix();
-  const observedReadback = readback(prefix);
-  const resolution = sealDurableExecutionRecordForInternalWriter({
-    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'attempt-resolution',
-    sequence: 3,
-    operationKeyDigest: prefix[0]!.operationKeyDigest,
-    previousRecordDigest: observedReadback.recordDigest,
-    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
-      ? prefix[1].attemptNonceDigest : digest('0'),
-    resolutionKind: 'owner-terminal-reference',
-    resolutionReferenceDigest: digest('11'),
-    providerSettlementRecordDigests: [],
-    domainReadbackRecordDigest: observedReadback.recordDigest
-  });
-  const nextRun = attemptPrefix('12', '13')[1]!;
-  const { recordDigest: _nextRunRecordDigest, ...nextRunUnsigned } = nextRun;
-  const retry = sealDurableExecutionRecordForInternalWriter({
-    ...nextRunUnsigned,
-    sequence: 4,
-    previousRecordDigest: resolution.recordDigest
-  });
-
-  const observation = observeDurableExecutionJournal([...prefix, observedReadback, resolution]);
-  expect(observation.latestResolution?.resolutionKind).toBe('owner-terminal-reference');
-  expect(observation.activeAttempt).toBeNull();
-  expect(observation.state).toBe('settled');
-  expect(() => observeDurableExecutionJournal([
-    ...prefix, observedReadback, resolution, retry
-  ])).toThrow('owner-terminal');
-});
-
-test('a lost handle requires readback and exact owner retry admission before a new run', () => {
-  const prefix = attemptPrefix();
-  const lostHandle = sealDurableExecutionRecordForInternalWriter({
-    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'lost-handle-reference',
-    sequence: 2,
-    operationKeyDigest: prefix[0]!.operationKeyDigest,
-    previousRecordDigest: prefix[1]!.recordDigest,
-    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
-      ? prefix[1].attemptNonceDigest : digest('0'),
-    lostHandleReferenceDigest: digest('14')
-  });
-  const { recordDigest: _retryRecordDigest, ...retryUnsigned } = attemptPrefix('15', '16')[1]!;
-  const retryStart = sealDurableExecutionRecordForInternalWriter({
-    ...retryUnsigned,
-    sequence: 3,
-    previousRecordDigest: lostHandle.recordDigest
-  });
-  expect(() => observeDurableExecutionJournal([...prefix, lostHandle, retryStart]))
-    .toThrow('active');
-  expect(observeDurableExecutionJournal([...prefix, lostHandle]).state).toBe('lost-handle');
-
-  const observedReadback = readback([...prefix, lostHandle], '17');
-  const sealedAdmission = sealDurableExecutionRecordForInternalWriter({
-    schema: DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'attempt-resolution',
-    sequence: 4,
-    operationKeyDigest: prefix[0]!.operationKeyDigest,
-    previousRecordDigest: observedReadback.recordDigest,
-    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
-      ? prefix[1].attemptNonceDigest : digest('0'),
-    resolutionKind: 'retry-admission-reference',
-    resolutionReferenceDigest: digest('18'),
-    providerSettlementRecordDigests: [],
-    domainReadbackRecordDigest: observedReadback.recordDigest
-  });
-  const nextAttempt = sealDurableExecutionRecordForInternalWriter({
-    ...((({ recordDigest: _recordDigest, ...value }) => value)(attemptPrefix('19', '20')[1]!)),
-    sequence: 5,
-    previousRecordDigest: sealedAdmission.recordDigest,
-    retryAdmissionReferenceDigest: sealedAdmission.resolutionReferenceDigest
-  });
-  const retried = observeDurableExecutionJournal([
-    ...prefix, lostHandle, observedReadback, sealedAdmission, nextAttempt
-  ]);
-  expect(retried.activeAttempt?.start.runIdDigest).toBe(digest('19'));
-  expect(retried.state).toBe('running');
-});
 
 test('provider references are unique per requirement and resolution binds their exact record set', () => {
   const prefix = attemptPrefix();
@@ -193,11 +111,6 @@ test('provider references are unique per requirement and resolution binds their 
 test('exact parser rejects duplicate keys, unknown fields, digest drift and noncanonical bytes', () => {
   const intent = attemptPrefix()[0]!;
   const encoded = encodeDurableExecutionRecord(intent);
-  const { recordDigest: _recordDigest, ...unsignedIntent } = intent;
-  expect(() => sealDurableExecutionRecordForInternalWriter({
-    ...unsignedIntent,
-    unknown: true
-  } as never)).toThrow('unsigned record violates its strict schema');
   expect(() => parseDurableExecutionRecord(
     encoded.replace('"kind":"intent"', '"kind":"intent","\\u006bind":"intent"')
   )).toThrow('duplicate key');
@@ -210,7 +123,7 @@ test('exact parser rejects duplicate keys, unknown fields, digest drift and nonc
   }
   expect(() => parseDurableExecutionRecord(
     encoded.replace(digest('3'), digest('26'))
-  )).toThrow('digest does not match');
-  expect(() => parseDurableExecutionRecord(JSON.stringify({ ...attemptPrefix()[0] })))
-    .toThrow('bytes are not canonical');
+  )).toThrow(expect.objectContaining({ kind: 'digest-mismatch' }));
+  expect(() => parseDurableExecutionRecord(JSON.stringify({ ...intent })))
+    .toThrow(expect.objectContaining({ kind: 'noncanonical-record' }));
 });

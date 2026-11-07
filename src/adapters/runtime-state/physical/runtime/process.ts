@@ -176,7 +176,14 @@ export type RetainedCommandCapturedOutput = Readonly<{
 const retainedCommandFailureOutput = new WeakMap<RetainedCommandTransportError, Readonly<{
   stdout: Uint8Array;
   stderr: Uint8Array;
+  treeClosed: boolean;
 }>>();
+
+/** Original process-owner observation, not a caller-editable Error projection. */
+export function retainedCommandFailureTreeClosed(error: unknown): boolean | null {
+  if (error === null || (typeof error !== 'object' && typeof error !== 'function')) return null;
+  return retainedCommandFailureOutput.get(error as RetainedCommandTransportError)?.treeClosed ?? null;
+}
 
 export class RetainedCommandTransportError extends Error {
   constructor(
@@ -712,7 +719,10 @@ function retainedCommandTransportError(
     ),
     outcome
   );
-  retainedCommandFailureOutput.set(error, captured);
+  retainedCommandFailureOutput.set(error, Object.freeze({
+    ...captured,
+    treeClosed: outcome.termination.treeClosed
+  }));
   return error;
 }
 

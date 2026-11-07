@@ -941,40 +941,12 @@ function aggregateClaim(
 }
 
 // ---------------------------------------------------------------------------
-// Aggregate result validator
+// Claim definition validator
 // ---------------------------------------------------------------------------
-
-const AGGREGATE_RESULT_KEYS = [
-  'overallStatus', 'overallReasonCode', 'claimResults'
-] as const;
-
-const CLAIM_RESULT_KEYS = [
-  'claimId', 'status', 'reasonCode', 'contributingGateIds', 'coverageComplete'
-] as const;
 
 const CLAIM_DEFINITION_KEYS = [
   'claimId', 'requiredGateIds', 'owningEnvironments'
 ] as const;
-
-function assertVerificationClaimResult(
-  value: unknown,
-  label: string
-): asserts value is VerificationClaimResult {
-  assertObject(value, label);
-  assertExactKeys(value, CLAIM_RESULT_KEYS, label);
-  assertIdentity(value.claimId, `${label}.claimId`);
-  CodexDevelopmentAssertVerificationStatusReason(value.status, value.reasonCode, label);
-  assertUniqueIdentityArray(value.contributingGateIds, `${label}.contributingGateIds`);
-  if (typeof value.coverageComplete !== 'boolean') {
-    throw new Error(`${label}.coverageComplete must be a boolean.`);
-  }
-  if (value.status === 'passed' && !value.coverageComplete) {
-    throw new Error(`${label} passed status requires coverageComplete=true.`);
-  }
-  if (value.status === 'passed' && value.contributingGateIds.length === 0) {
-    throw new Error(`${label} passed status requires non-empty contributingGateIds.`);
-  }
-}
 
 function assertVerificationClaimDefinition(
   value: unknown,
@@ -990,60 +962,6 @@ function assertVerificationClaimDefinition(
   }
   if (value.owningEnvironments.length === 0) {
     throw new Error(`${label}.owningEnvironments must not be empty.`);
-  }
-}
-
-/**
- * Assert one serialized aggregate against a trusted claim plan and gate set.
- * The serialized aggregate never selects its own claims: after validating the
- * plan and linkage, this assertion invokes the canonical writer and requires
- * exact serialized equality with that output.
- */
-export function CodexDevelopmentAssertVerificationAggregateResultV1(
-  value: unknown,
-  input: VerificationAggregateInput
-): asserts value is VerificationAggregateResult {
-  const label = 'verification aggregate result';
-  const candidate = CodexDevelopmentSnapshotVerificationData(value, label);
-  assertObject(candidate, label);
-  assertExactKeys(candidate, AGGREGATE_RESULT_KEYS, label);
-  CodexDevelopmentAssertVerificationStatusReason(
-    candidate.overallStatus,
-    candidate.overallReasonCode,
-    `${label}.overall`
-  );
-
-  if (!Array.isArray(candidate.claimResults)) {
-    throw new Error(`${label}.claimResults must be an array.`);
-  }
-  const claimIds = new Set<string>();
-  candidate.claimResults.forEach((claimResult, index) => {
-    const claimLabel = `${label}.claimResults[${index}]`;
-    assertVerificationClaimResult(claimResult, claimLabel);
-    if (claimIds.has(claimResult.claimId)) {
-      throw new Error(`${label}.claimResults must not contain duplicate claimId ${claimResult.claimId}.`);
-    }
-    claimIds.add(claimResult.claimId);
-  });
-
-  const canonicalInput = snapshotVerificationAggregateInput(input);
-  const gateMap = new Map<string, VerificationGateResult>();
-  canonicalInput.gateResults.forEach((gateResult) => {
-    gateMap.set(gateResult.gateId, gateResult);
-  });
-
-  candidate.claimResults.forEach((claimResult, index) => {
-    const claimLabel = `${label}.claimResults[${index}]`;
-    claimResult.contributingGateIds.forEach((gateId: string) => {
-      if (!gateMap.has(gateId)) {
-        throw new Error(`${claimLabel} references unknown contributing gateId ${gateId}.`);
-      }
-    });
-  });
-
-  const expected = CodexDevelopmentAggregateVerificationClaims(canonicalInput);
-  if (!CodexDevelopmentVerificationDataEqual(candidate, expected)) {
-    throw new Error(`${label} does not exactly match the canonical aggregate writer output.`);
   }
 }
 

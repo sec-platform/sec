@@ -1,3 +1,4 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
@@ -53,7 +54,7 @@ function legacyRelocationOperation() {
 
 test('physical generation retirement issues one exact terminal receipt after releasing authority', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-physical-generation-retirement-'));
-  try {
+  await settleWorkspaceCallback(async () => {
     await writeFile(path.join(root, 'value.txt'), 'immutable\n');
     const physical = inspectNoFollowDirectoryChain(root, 'physical retirement fixture').target;
     const inventory = scanNoFollowDirectoryTreeInventory(physical, {
@@ -78,20 +79,20 @@ test('physical generation retirement issues one exact terminal receipt after rel
     expect(await materialized.generation.retire()).toBe(receipt);
     assertPhysicalGenerationRetirementReceipt(receipt);
     expect(() => assertPhysicalGenerationRetirementReceipt({ ...receipt }))
-      .toThrow('was not issued by Runtime Physical');
+      .toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' }));
     expect(receipt.root.path).toBe(path.resolve(root));
 
     await writeFile(path.join(root, 'after-retirement.txt'), 'owner-write-restored\n');
-  } finally {
+  }, async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 }, 30_000);
 
 test('tree retirement reads back an uppercase ordinary root and deletes a junction leaf without following it', async () => {
   const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-tree-retirement-uppercase-'));
   const rootPath = path.join(parentPath, 'Generation-UPPER');
   const externalTarget = path.join(parentPath, 'external-target');
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(path.join(rootPath, 'nested'), { recursive: true });
     await mkdir(externalTarget);
     await writeFile(path.join(externalTarget, 'preserved.txt'), 'preserved\n');
@@ -112,16 +113,16 @@ test('tree retirement reads back an uppercase ordinary root and deletes a juncti
     expect(receipt.status).toBe('physically-absent');
     await expect(lstat(rootPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(path.join(externalTarget, 'preserved.txt'), 'utf8')).toBe('preserved\n');
-  } finally {
+  }, async () => {
     await rm(parentPath, { recursive: true, force: true });
-  }
+  });
 });
 
 test('tree retirement preserves both sides of a root replacement ABA', async () => {
   const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-tree-retirement-aba-'));
   const rootPath = path.join(parentPath, 'Generation-UPPER');
   const displacedPath = path.join(parentPath, 'displaced-generation');
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(rootPath);
     await writeFile(path.join(rootPath, 'owned.txt'), 'owned\n');
     const root = inspectNoFollowDirectoryChain(rootPath, 'retirement ABA fixture').target;
@@ -138,12 +139,12 @@ test('tree retirement preserves both sides of a root replacement ABA', async () 
       inventory,
       parent: inspectNoFollowDirectoryChain(parentPath, 'retirement ABA parent fixture').target,
       root
-    })).toThrow('identity changed');
+    })).toThrow(expect.objectContaining({ code: 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' }));
     expect(await readFile(path.join(displacedPath, 'owned.txt'), 'utf8')).toBe('owned\n');
     expect(await readFile(path.join(rootPath, 'replacement.txt'), 'utf8')).toBe('replacement\n');
-  } finally {
+  }, async () => {
     await rm(parentPath, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')(
@@ -155,7 +156,7 @@ test.skipIf(process.platform !== 'win32')(
     const sourcePath = path.join(sourceParentPath, 'generation');
     const destinationName = 'retained-generation';
     const destinationPath = path.join(destinationParentPath, destinationName);
-    try {
+    await settleWorkspaceCallback(async () => {
       await mkdir(sourcePath, { recursive: true });
       await mkdir(destinationParentPath, { recursive: true });
       await writeFile(path.join(sourcePath, 'value.txt'), 'retained\n');
@@ -179,15 +180,15 @@ test.skipIf(process.platform !== 'win32')(
       });
       const recovered = relocateWindowsLegacySealedDirectory(reopened);
       expect(recovered.destination.objectId).toBe(first.destination.objectId);
-    } finally {
+    }, async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   },
   30_000
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows retirement deletes an exact owner-sealed tree without broad ACL restoration',
+  'Windows retirement deletes an exact owner-sealed tree after generation retirement',
   async () => {
     const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-sealed-tree-retirement-'));
     const rootPath = path.join(parentPath, 'generation');

@@ -4,7 +4,7 @@ import {
   portableLogicalPathCollisionKey
 } from '../../contracts/logical-path.ts';
 import { workspaceConfigRelativePath } from '../../contracts/workspace-config.ts';
-import { OverrideManifestSchema } from '../../semantics/provenance/override-schema.ts';
+import { OverrideManifestSchema, parseOverrideBlockConflict } from '../../semantics/provenance/override-schema.ts';
 import type { OverrideManifest } from '../../semantics/provenance/types.ts';
 import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { packageJsonRelativePath, secRelativePath, tsconfigRelativePath } from '../../workspace/paths.ts';
@@ -94,7 +94,7 @@ export function validateOverrideManifest(input: unknown): OverrideManifest {
 
   for (const entry of manifest.overrides) {
     for (const conflictId of entry.conflictsWith) {
-      if (!ids.has(conflictId)) {
+      if (parseOverrideBlockConflict(conflictId) === null && !ids.has(conflictId)) {
         throw new CodedFailure(
           'OVERRIDE-SCHEMA-007',
           `Override "${entry.id}" references unknown conflict "${conflictId}"`

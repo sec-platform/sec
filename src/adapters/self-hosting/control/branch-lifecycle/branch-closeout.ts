@@ -11,7 +11,7 @@ import {
   createBranchLifecycleGitChildEnvironment,
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
-import { assertBranchCloseoutPreparation, assertGitBranchName, assertGitSha, auditBranchLifecycle, branchLifecycleDigest, createBranchCloseoutPreparation } from './branch-lifecycle-contract.ts';
+import { assertGitBranchName, assertGitSha, auditBranchLifecycle, branchLifecycleDigest, createBranchCloseoutPreparation } from './branch-lifecycle-contract.ts';
 import {
   collectBranchLifecycleInventory,
   type BranchLifecycleInventoryScope
@@ -203,53 +203,6 @@ export function parsePreparedBranchCloseoutEnvelope(
   const envelope = raw as unknown as PreparedBranchCloseoutEnvelope;
   assertPreparedBranchCloseoutEnvelope(envelope);
   return envelope;
-}
-
-/**
- * Rehydrates a remotely published stable preparation on a fresh hosted
- * checkout. Remote operation semantics remain byte-identical while all
- * host-local recovery paths and inventory are independently reconstructed and
- * verified on the current runner.
- */
-export function rehydratePreparedBranchCloseoutEnvelope(input: {
-  remote: PreparedBranchCloseoutEnvelope;
-  local: PreparedBranchCloseoutEnvelope;
-}): PreparedBranchCloseoutEnvelope {
-  assertPreparedBranchCloseoutEnvelope(input.remote);
-  assertPreparedBranchCloseoutEnvelope(input.local);
-  if (input.remote.preparation.repository.fullName !== input.local.preparation.repository.fullName
-    || input.remote.preparation.branch !== input.local.preparation.branch
-    || input.remote.preparation.expectedHeadSha !== input.local.preparation.expectedHeadSha
-    || input.remote.preparation.pullRequestNumber !== input.local.preparation.pullRequestNumber
-    || input.remote.preparation.recovery.sha256 !== input.local.preparation.recovery.sha256) {
-    throw new Error('Fresh-host closeout recovery differs from the remotely authorized branch identity.');
-  }
-  const preparation = {
-    ...input.remote.preparation,
-    preparedAt: input.local.preparation.preparedAt,
-    repository: {
-      ...input.remote.preparation.repository,
-      root: input.local.preparation.repository.root,
-      commonDir: input.local.preparation.repository.commonDir
-    },
-    expectedLocalSha: input.local.preparation.expectedLocalSha,
-    recovery: input.local.preparation.recovery,
-    // A fresh host may retain only its own paths.  Foreign paths are reduced
-    // below to host-qualified digests and can never become local completion.
-    worktreePathsAtPreparation: [...input.local.preparation.worktreePathsAtPreparation]
-      .sort((left, right) => left.localeCompare(right))
-  };
-  assertBranchCloseoutPreparation(preparation);
-  return createPreparedEnvelope({ preparation, before: input.remote.before,
-    attempts: [...input.local.attempts],
-    foreignWorktreeObservations: normalizeForeignWorktreeObservations([
-      ...input.remote.foreignWorktreeObservations,
-      ...input.local.foreignWorktreeObservations,
-      ...input.remote.preparation.worktreePathsAtPreparation.map((targetPath) =>
-        foreignWorktreeObservation({ repository: input.remote.preparation.repository, targetPath,
-          branch: input.remote.preparation.branch,
-          headSha: input.remote.preparation.expectedHeadSha }))
-    ]) });
 }
 
 /**

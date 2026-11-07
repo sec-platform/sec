@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { settleWorkspaceCallback } from '../../../../tests/testkit/workspace-cleanup.ts';
 
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -43,58 +44,75 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), 'sec-knip-provider-'));
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const generationParentPath = path.join(fixtureRoot, 'generations');
-  await Promise.all([
-    mkdir(path.join(repositoryRoot, 'src', 'example'), { recursive: true }),
-    mkdir(generationParentPath)
-  ]);
-  git(repositoryRoot, ['init', '--quiet']);
-  git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
-  git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
-  git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
-  await Promise.all([
-    writeFile(path.join(repositoryRoot, 'package.json'), `${JSON.stringify({
-      private: true,
-      scripts: { start: 'bun src/example/index.ts' }
-    }, null, 2)}\n`),
-    writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
-      entry: ['src/example/index.ts!'],
-      project: ['src/**/*.ts']
-    }, null, 2)}\n`),
-    writeFile(path.join(repositoryRoot, 'tsconfig.json'), `${JSON.stringify({
-      compilerOptions: { strict: true },
-      include: ['src/**/*.ts']
-    }, null, 2)}\n`),
-    writeFile(path.join(repositoryRoot, 'src', 'example', 'module.json'), `${JSON.stringify({
-      importGraph: 'runtime',
-      externalEntrypoints: ['src/example/index.ts'],
-      capabilityProviders: [],
-      preDependencyBootstrap: false
-    }, null, 2)}\n`),
-    writeFile(
-      path.join(repositoryRoot, 'src', 'example', 'index.ts'),
-      "import { used } from './library.ts';\nconsole.log(used);\n"
-    ),
-    writeFile(
-      path.join(repositoryRoot, 'src', 'example', 'library.ts'),
-      'export const used = 1;\nexport const unused = 2;\n'
-    )
-  ]);
-  git(repositoryRoot, ['add', '--all']);
-  git(repositoryRoot, ['commit', '--quiet', '-m', 'sealed Knip fixture']);
-
-  const deadlineAtUnixMs = Date.now() + 60_000;
-  const authority = await observeCompilerDependencyExecutionGenerationAuthority({ deadlineAtUnixMs });
-  if (authority === null) throw new Error('Knip test requires the canonical compiler dependency generation');
-  const dependencyGeneration = await retainCompilerDependencyReadGeneration(
-    authority,
-    { deadlineAtUnixMs }
-  );
+  let deadlineAtUnixMs: number;
+  let dependencyGeneration: Awaited<ReturnType<typeof retainCompilerDependencyReadGeneration>>;
   try {
+    const directorySetup = await Promise.allSettled([
+      mkdir(path.join(repositoryRoot, 'src', 'example'), { recursive: true }),
+      mkdir(generationParentPath)
+    ]);
+    const directoryFailures = directorySetup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (directoryFailures.length === 1) throw directoryFailures[0];
+    if (directoryFailures.length > 1) throw new AggregateError(directoryFailures, 'Knip fixture directory preparation failed');
+    git(repositoryRoot, ['init', '--quiet']);
+    git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
+    git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
+    git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
+    const fileSetup = await Promise.allSettled([
+      writeFile(path.join(repositoryRoot, 'package.json'), `${JSON.stringify({
+        private: true,
+        scripts: { start: 'bun src/example/index.ts' }
+      }, null, 2)}\n`),
+      writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
+        entry: ['src/example/index.ts!'],
+        project: ['src/**/*.ts']
+      }, null, 2)}\n`),
+      writeFile(path.join(repositoryRoot, 'tsconfig.json'), `${JSON.stringify({
+        compilerOptions: { strict: true },
+        include: ['src/**/*.ts']
+      }, null, 2)}\n`),
+      writeFile(path.join(repositoryRoot, 'src', 'example', 'module.json'), `${JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: ['src/example/index.ts'],
+        capabilityProviders: [],
+        preDependencyBootstrap: false
+      }, null, 2)}\n`),
+      writeFile(
+        path.join(repositoryRoot, 'src', 'example', 'index.ts'),
+        "import { used } from './library.ts';\nconsole.log(used);\n"
+      ),
+      writeFile(
+        path.join(repositoryRoot, 'src', 'example', 'library.ts'),
+        'export const used = 1;\nexport const unused = 2;\n'
+      )
+    ]);
+    const fileFailures = fileSetup.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (fileFailures.length === 1) throw fileFailures[0];
+    if (fileFailures.length > 1) throw new AggregateError(fileFailures, 'Knip fixture file preparation failed');
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'sealed Knip fixture']);
+
+    deadlineAtUnixMs = Date.now() + 60_000;
+    const authority = await observeCompilerDependencyExecutionGenerationAuthority({ deadlineAtUnixMs });
+    if (authority === null) throw new Error('Knip test requires the canonical compiler dependency generation');
+    dependencyGeneration = await retainCompilerDependencyReadGeneration(
+      authority,
+      { deadlineAtUnixMs }
+    );
+  } catch (error) {
+    return settleWorkspaceCallback(async () => { throw error; },
+      () => rm(fixtureRoot, { recursive: true, force: true }));
+  }
+  let executionSettled = true;
+  await settleWorkspaceCallback(async () => {
+    executionSettled = false;
     const initial = await observe(repositoryRoot);
+    executionSettled = true;
     const generationParent = inspectNoFollowDirectoryChain(
       generationParentPath,
       'Knip test generation parent'
     ).target;
+    executionSettled = false;
     const completed = await executeKnipUnusedSymbolProvider({
       ...initial,
       dependencyGeneration,
@@ -103,6 +121,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
     });
     expect(completed.status, JSON.stringify(completed)).toBe('completed');
     if (completed.status !== 'completed') throw new Error('Knip did not complete');
+    executionSettled = true;
     expect(completed.receipt).toMatchObject({
       provider: 'knip',
       settlement: 'completed',
@@ -115,7 +134,10 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       path.join(repositoryRoot, 'src', 'example', 'library.ts'),
       'export const used = 3;\nexport const unused = 4;\n'
     );
+    executionSettled = false;
     const changed = await observe(repositoryRoot);
+    executionSettled = true;
+    executionSettled = false;
     const sourceDrift = await executeKnipUnusedSymbolProvider({
       workspaceSnapshot: initial.workspaceSnapshot,
       model: changed.model,
@@ -128,12 +150,16 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'source-drift' }
     });
     expect('receipt' in sourceDrift).toBeFalse();
+    executionSettled = true;
 
     await writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
       entry: ['src/example/library.ts'],
       project: ['src/**/*.ts']
     }, null, 2)}\n`);
+    executionSettled = false;
     const entrypointDrift = await observe(repositoryRoot);
+    executionSettled = true;
+    executionSettled = false;
     const uncoveredEntrypoint = await executeKnipUnusedSymbolProvider({
       ...entrypointDrift,
       dependencyGeneration,
@@ -145,12 +171,16 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'configuration-unbound' }
     });
     expect('receipt' in uncoveredEntrypoint).toBeFalse();
+    executionSettled = true;
 
     await writeFile(path.join(repositoryRoot, 'knip.json'), `${JSON.stringify({
       entry: ['../outside.ts'],
       project: ['src/**/*.ts']
     }, null, 2)}\n`);
+    executionSettled = false;
     const configless = await observe(repositoryRoot);
+    executionSettled = true;
+    executionSettled = false;
     const configDrift = await executeKnipUnusedSymbolProvider({
       ...configless,
       dependencyGeneration,
@@ -162,7 +192,9 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       diagnostic: { reason: 'configuration-unbound' }
     });
     expect('receipt' in configDrift).toBeFalse();
+    executionSettled = true;
 
+    executionSettled = false;
     const failed = await executeKnipUnusedSymbolProvider({
       ...initial,
       dependencyGeneration,
@@ -176,8 +208,11 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
     });
     expect('receipt' in failed).toBeFalse();
     expect(await readdir(generationParentPath)).toEqual([]);
-  } finally {
+    executionSettled = true;
+  }, async () => {
+    // An unresolved execution is not evidence that the native writer stopped.
+    if (!executionSettled) return;
     await dependencyGeneration.retire();
     await rm(fixtureRoot, { recursive: true, force: true });
-  }
+  });
 }, 90_000);

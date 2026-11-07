@@ -93,7 +93,7 @@ describe('runtime ticket service', () => {
     expect(summary.total).toBe(2);
     expect(summary.byStatus.in_progress).toBe(1);
     expect(summary.sla).toEqual({ overdue: 1, dueSoon: 1, unscheduled: 0 });
-    expect(summary.byAssignee).toEqual([
+    expect([...summary.byAssignee].sort((left, right) => left.assigneeId.localeCompare(right.assigneeId))).toEqual([
       { assigneeId: 'renewal-owner', count: 1 },
       { assigneeId: 'support-owner', count: 1 }
     ]);

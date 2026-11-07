@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources } from '../../../../execution/resource-settlement.ts';
 
 import {
   createExclusiveNoFollowDirectory,
@@ -16,12 +17,18 @@ import {
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-native-file-guard-'));
-  const parent = inspectNoFollowDirectoryChain(root, 'Native guard fixture').target;
-  const bytes = Buffer.from('fixture-owned immutable native anchor\n');
-  const receipt = publishExclusiveDurableCanonicalFile({
-    parent, name: 'anchor.lock', bytes, validate: () => undefined
-  });
-  return { root, parent, bytes, receipt };
+  try {
+    const parent = inspectNoFollowDirectoryChain(root, 'Native guard fixture').target;
+    const bytes = Buffer.from('fixture-owned immutable native anchor\n');
+    const receipt = publishExclusiveDurableCanonicalFile({
+      parent, name: 'anchor.lock', bytes, validate: () => undefined
+    });
+    return { root, parent, bytes, receipt };
+  } catch (error) {
+    settleResources({ primary: { label: 'physical-exclusive-guard-fixture-construction', error },
+      cleanup: [{ label: 'physical-exclusive-guard-fixture-root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 test('native guard retains one object through contention and exact settlement', () => {

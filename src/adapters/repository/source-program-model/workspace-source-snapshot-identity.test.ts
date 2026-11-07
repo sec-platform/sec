@@ -20,23 +20,7 @@ function snapshot(membership: Parameters<typeof compileVirtualWorkspaceSourceSna
   });
 }
 
-test('snapshot identity checks still validate cloned inputs and reject changed bytes', () => {
-  const membership = Object.freeze({
-    descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
-    moduleRoots: Object.freeze([]), moduleForPath: () => null
-  });
-  const value = snapshot(membership);
-  const input = { sourceRevision: value.sourceRevision, files: value.files, moduleMembership: value.moduleMembership };
-  expect(() => value.assertMatches({
-    ...input, files: value.files.map((file) => ({ ...file })), moduleMembership: { ...membership }
-  })).not.toThrow();
-  expect(() => value.assertMatches({
-    ...input, files: value.files.map((file) => ({ ...file, source: `${file.source}// changed\n` }))
-  })).toThrow();
-  expect(() => value.assertMatches({ ...input, sourceRevision: rawSha256('another-revision') })).toThrow();
-});
-
-test('frozen custom membership callback cannot bypass observation through snapshot identity', () => {
+test('snapshot identity validates cloned inputs, changed bytes and mutable frozen membership callbacks', () => {
   let current: RepositoryModuleDescriptor | null = null;
   const membership = Object.freeze({
     descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
@@ -45,6 +29,13 @@ test('frozen custom membership callback cannot bypass observation through snapsh
   const value = snapshot(membership);
   const input = { sourceRevision: value.sourceRevision, files: value.files, moduleMembership: membership };
   expect(() => value.assertMatches(input)).not.toThrow();
+  expect(() => value.assertMatches({
+    ...input, files: value.files.map((file) => ({ ...file })), moduleMembership: { ...membership }
+  })).not.toThrow();
+  expect(() => value.assertMatches({
+    ...input, files: value.files.map((file) => ({ ...file, source: `${file.source}// changed\n` }))
+  })).toThrow();
+  expect(() => value.assertMatches({ ...input, sourceRevision: rawSha256('another-revision') })).toThrow();
   current = parseRepositoryModuleDescriptorJson(
     '{"importGraph":"runtime","externalEntrypoints":[]}', 'src/example/module.json'
   );

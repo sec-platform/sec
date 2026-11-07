@@ -1,6 +1,7 @@
 import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import { markUpgradeRecoveryUnknown, type UpgradeRecoveryIntent } from './recovery-intent.ts';
+import { matchesOverrideVersionRange } from './version-range.ts';
 
 import type { UpgradeMigration } from '../../compiler/contract.ts';
 import {
@@ -35,6 +36,8 @@ import type { CommitFence } from '../../contracts/commit-fence.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { formatJsonFile } from '../../contracts/json-text.ts';
 import { resolvePathInside } from '../../contracts/relative-path.ts';
+import { isCanonicalRegistryVersion } from '../../semantics/identity/block.ts';
+import { parseOverrideBlockConflict } from '../../semantics/provenance/override-schema.ts';
 import type { UpgradeMigrationEntry } from '../../semantics/upgrade/manifest-types.ts';
 import type { UpgradePreflightCheck } from '../../semantics/upgrade/upgrade-artifact.ts';
 import { copyRecursive } from '../filesystem/discovery.ts';
@@ -53,6 +56,7 @@ import {
 async function detectOverrideConflicts(
   workspaceRoot: string,
   blockId: string,
+  targetVersion: string,
   impacts: string[],
   migrationEntries: readonly UpgradeMigrationEntry[]
 ): Promise<string[]> {
@@ -69,7 +73,21 @@ async function detectOverrideConflicts(
       directoryImpacts.some((directory) => (
         entry.target.startsWith(`${directory}/`) || directory.startsWith(`${entry.target}/`)
       )) ||
-      entry.conflictsWith?.some((candidate) => candidate.startsWith(`${blockId}@`))
+      entry.conflictsWith.some((candidate) => {
+        const conflict = parseOverrideBlockConflict(candidate);
+        // Every local reference is another active entry in the validated manifest.
+        if (conflict === null) return true;
+        if (conflict.blockId !== blockId) return false;
+        const matches = matchesOverrideVersionRange(targetVersion, conflict);
+        if (matches === null) {
+          throw new CodedFailure(
+            'UPGRADE-CONFLICT-002',
+            `Cannot assess Override "${entry.id}" constraint "${candidate}" against "${blockId}@${targetVersion}"`,
+            { override: entry, conflict: candidate, blockId, targetVersion }
+          );
+        }
+        return matches;
+      })
   );
 
   if (conflictingOverride) {
@@ -1033,6 +1051,7 @@ async function collectJsonStructureEvidence(
 
 type UpgradePreflightEvidenceOptions = {
   blockId: string;
+  targetVersion: string;
   impacts: string[];
   migrationEntries: UpgradeMigrationEntry[];
   targetManifestRoot: string;
@@ -1044,11 +1063,16 @@ export async function collectUpgradePreflightEvidence(
 ): Promise<UpgradePreflightEvidence> {
   const {
     blockId,
+    targetVersion,
     impacts,
     migrationEntries,
     targetManifestRoot,
     workspaceRoot
   } = options;
+
+  if (!isCanonicalRegistryVersion(targetVersion)) {
+    throw new TypeError('Upgrade preflight requires a canonical target version');
+  }
 
   return {
     migrationTargetEvidence: await collectMigrationTargetEvidence(workspaceRoot, migrationEntries),
@@ -1056,6 +1080,6 @@ export async function collectUpgradePreflightEvidence(
     jsonShapeEvidence: collectJsonShapeEvidence(migrationEntries),
     jsonStructureEvidence: await collectJsonStructureEvidence(workspaceRoot, migrationEntries),
     textPatternEvidence: await collectTextPatternEvidence(workspaceRoot, migrationEntries),
-    scannedOverrides: await detectOverrideConflicts(workspaceRoot, blockId, impacts, migrationEntries)
+    scannedOverrides: await detectOverrideConflicts(workspaceRoot, blockId, targetVersion, impacts, migrationEntries)
   };
 }

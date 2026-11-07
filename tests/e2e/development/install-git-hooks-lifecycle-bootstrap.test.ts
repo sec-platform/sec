@@ -1,0 +1,79 @@
+import { expect, test } from 'bun:test';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
+import { installGitHooksMain } from '../../../src/adapters/self-hosting/development/hooks/install.ts';
+
+import { configuredBootstrapHooksPath, configuredManagedHooksPath, expectManagedHooksMirror, git, installGitHooks, managedHookNames, managedHookSource, withRepository } from './fixtures/install-git-hooks.ts';
+test('production hook installer CLI rejects the no-remote fixture authority flag', async () => {
+  await withRepository(async (repoRoot) => {
+    expect(await installGitHooksMain({
+      argv: ['--test-no-remote-fixture'],
+      cwd: repoRoot,
+      env: { ...process.env, CI: 'false' }
+    })).toBe(1);
+    expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
+  });
+});
+
+test('hook installer keeps primary bootstrap and linked worktree generations independent', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-hooks-linked-'));
+  const repoRoot = path.join(root, 'main');
+  const linkedRoot = path.join(root, 'linked');
+  await settleWorkspaceCallback(async () => {
+    await mkdir(repoRoot);
+    git(repoRoot, ['init', '--quiet', '-b', 'main']);
+    await mkdir(path.join(repoRoot, '.githooks'));
+    await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
+    await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
+    for (const hook of managedHookNames) {
+      const hookPath = path.join(repoRoot, '.githooks', hook);
+      await writeFile(hookPath, managedHookSource(hook), 'utf8');
+      await chmod(hookPath, 0o755);
+    }
+    // One native staging operation sets each managed hook's executable index
+    // bit. Keep unrelated tracked documents non-executable.
+    git(repoRoot, ['add', '.gitattributes', 'README.md']);
+    git(repoRoot, ['add', '--chmod=+x', '.githooks']);
+    git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
+    git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-fixture', linkedRoot]);
+    const linkedPostMerge = path.join(linkedRoot, '.githooks', 'post-merge');
+    await writeFile(linkedPostMerge, `${managedHookSource('post-merge')}# linked-branch-hook\n`, 'utf8');
+    await chmod(linkedPostMerge, 0o755);
+    git(linkedRoot, ['add', '--chmod=+x', '.githooks/post-merge']);
+
+    expect(await installGitHooks({ repoRoot: linkedRoot })).toMatchObject({ status: 'installed' });
+
+    const linkedGeneration = configuredManagedHooksPath(linkedRoot);
+    const bootstrapGeneration = configuredBootstrapHooksPath(repoRoot);
+    expect(linkedGeneration).not.toBe(bootstrapGeneration);
+    expect(path.resolve(git(linkedRoot, ['config', '--get', 'core.hooksPath']))).toBe(linkedGeneration);
+    expect(path.resolve(git(repoRoot, ['config', '--get', 'core.hooksPath']))).toBe(bootstrapGeneration);
+    expect(() => git(repoRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
+    await expectManagedHooksMirror(linkedRoot, linkedGeneration);
+    await expectManagedHooksMirror(repoRoot, bootstrapGeneration);
+    expect(await readFile(path.join(linkedGeneration, 'post-merge'), 'utf8')).toContain('# linked-branch-hook');
+    expect(await readFile(path.join(bootstrapGeneration, 'post-merge'), 'utf8')).not.toContain('# linked-branch-hook');
+  }, () => rm(root, { recursive: true, force: true }));
+});
+
+test('hook installer refuses a non-default primary as linked bootstrap', async () => {
+  await withRepository(async (repoRoot) => {
+    git(repoRoot, ['branch', '--move', 'candidate-primary']);
+    git(repoRoot, ['remote', 'add', 'origin', path.join(repoRoot, 'origin.git')]);
+    git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+    const linkedParent = await mkdtemp(path.join(tmpdir(), 'sec-hooks-non-default-'));
+    await settleWorkspaceCallback(async () => {
+      const linkedRoot = path.join(linkedParent, 'linked');
+      git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-non-default', linkedRoot]);
+
+      expect(await installGitHooks({ repoRoot: linkedRoot, lifecycle: true }))
+        .toMatchObject({ status: 'conflict' });
+      expect(() => git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toThrow();
+      expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
+    }, async () => {
+      await rm(linkedParent, { recursive: true, force: true });
+    });
+  });
+});

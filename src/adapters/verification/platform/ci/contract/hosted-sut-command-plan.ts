@@ -574,15 +574,15 @@ export function hostedSutCandidateGuardArgv(plan: HostedSutCommandPlan<string, V
 }
 
 const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
-  'tests/unit/tcb-trust-root-contract.test.ts',
-  'tests/unit/test-runner.test.ts',
-  'tests/contract/ci-contract.test.ts',
-  'tests/contract/merge-gate.test.ts',
-  'tests/contract/tcb-closure-lock.test.ts',
-  'tests/contract/repository-audit.test.ts',
-  'tests/contract/documentation-authority.test.ts',
-  'tests/contract/test-impact.test.ts',
-  'tests/contract/ci-lanes.test.ts'
+  'tests/unit/verification/test-runner.test.ts',
+  'tests/contract/verification/ci-contract.test.ts',
+  'tests/contract/development/merge-gate.test.ts',
+  'tests/contract/verification/tcb-closure-lock.test.ts',
+  'tests/contract/repository/repository-audit.test.ts',
+  'tests/unit/development/active-documentation-contract.test.ts',
+  'tests/unit/development/documentation-source.test.ts',
+  'tests/contract/verification/test-impact.test.ts',
+  'tests/contract/verification/ci-lanes.test.ts'
 ] as const);
 
 // This program is frozen in the trusted base CLI and is the only command the

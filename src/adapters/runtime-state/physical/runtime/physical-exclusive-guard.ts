@@ -30,6 +30,8 @@ const MAXIMUM_ANCHOR_BYTES = 8192;
 const issuedGuardResources = new WeakMap<object, Readonly<{
   parent: PhysicalDirectoryIdentity;
   name: string;
+  anchorName: string;
+  assertRetiredAnchor(): void;
 }>>();
 
 /** Effect admission consumes the retained native token, never a cloned shape. */
@@ -46,6 +48,22 @@ export function assertExclusiveFileGuardResource(
   guard.assertCurrent();
 }
 
+
+/** Only the native retirement owner calls this after unlink, fsync and exact
+ * absence readback. It does not turn an unlinked anchor into a live guard. */
+export function assertExclusiveFileGuardRetirement(
+  guard: RetainedExclusiveFileGuard,
+  parent: PhysicalDirectoryIdentity,
+  resourceName: string
+): void {
+  const resource = issuedGuardResources.get(guard);
+  if (resource === undefined || resource.name !== resourceName
+    || resource.parent.path !== parent.path || !sameIdentity(resource.parent, parent)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Native retirement does not bind this exact issued guard/resource.');
+  }
+  if (resource.anchorName === resourceName) resource.assertRetiredAnchor();
+  else guard.assertCurrent();
+}
 
 /**
  * Retain an already admitted immutable anchor. Creation and persistent binding
@@ -104,6 +122,23 @@ export function tryRetainExclusiveFileGuard(
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} anchor binding changed.`);
     }
   };
+  const assertRetiredAnchor = (): void => {
+    if (closed || !acquired || fileFd === null || parentFd === null) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} has no retained Linux retirement scope.`);
+    }
+    assertSameNoFollowDirectoryIdentity(parent, `${label} retired parent readback`);
+    if (!sameIdentity(parent, linuxIdentity(parentFd, parent.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retired parent identity changed.`);
+    }
+    const retained = fstatSync(fileFd, { bigint: true });
+    if (!retained.isFile() || retained.nlink !== 0n || String(retained.dev) !== expectedPhysical.device ||
+        String(retained.ino) !== expectedPhysical.inode ||
+        inspectNoFollowOrdinaryFileEntry(parent, name, { maximumBytes: MAXIMUM_ANCHOR_BYTES }) !== null) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} original anchor is not exactly retired.`);
+    }
+    // assertCurrent deliberately remains unchanged: it must reject this
+    // unlinked fd and any new object subsequently created at the old name.
+  };
   const dispose = (): void => {
     if (closed) {
       if (closeFailure !== undefined) throw closeFailure;
@@ -157,7 +192,8 @@ export function tryRetainExclusiveFileGuard(
     assertCurrent();
     const guard = Object.freeze({ physical: Object.freeze({ ...expectedPhysical }), assertCurrent, dispose });
     if (protectedResourceName !== undefined) {
-      issuedGuardResources.set(guard, Object.freeze({ parent: Object.freeze({ ...parent }), name: protectedResourceName }));
+      issuedGuardResources.set(guard, Object.freeze({ parent: Object.freeze({ ...parent }),
+        name: protectedResourceName, anchorName: name, assertRetiredAnchor }));
     }
     return guard;
   } catch (error) {

@@ -1,0 +1,129 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import type { ManifestEntry, ManifestKind } from '../../../src/compiler/contract/plan-manifest.ts';
+import { resolveManifestGraph } from '../../../src/compiler/resolve/manifest-graph.ts';
+import { BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH } from '../../../src/contracts/registry-source.ts';
+
+function entry(id: string, requires: string[] = [], provides: string[] = [id], kind: ManifestKind = 'capability'): ManifestEntry {
+  return { manifest: { id, version: '1.0.0', kind, requires, provides, conflicts: [], stackProfiles: ['test'],
+    installs: [], pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] },
+    manifestPath: `/registry/${id}/block.manifest.yaml`, manifestRoot: `/registry/${id}`, resourceRoots: [`/registry/${id}`],
+    registryRoot: '/registry', registrySourceId: 'test', registryKind: 'private', registryLocation: 'workspace', registryPath: 'registry' };
+}
+/** A builtin official origin is the only current policy-owned implicit provider source. */
+function builtin(entry: ManifestEntry): ManifestEntry {
+  return { ...entry, registrySourceId: 'official', registryKind: 'official',
+    registryLocation: 'compiler', registryPath: BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH };
+}
+const ids = (values: readonly ManifestEntry[]) => values.map(value => value.manifest.id);
+const resolve = (selected: ManifestEntry[], all = selected) => resolveManifestGraph(selected, all);
+
+test('empty input has no synthetic blocks or capabilities', () => {
+  assert.deepEqual(resolve([]), { entries: [], capabilities: [] });
+});
+
+test('transitive closure deduplicates declarations, ignores self-edges and excludes unrelated catalog entries', () => {
+  const a = entry('block/a', ['cap/b', 'cap/b', 'block/a']), b = builtin(entry('block/b', ['cap/c'], ['cap/b', 'cap/b'])), c = builtin(entry('block/c', [], ['cap/c']));
+  const before = structuredClone([a, b, c]);
+  const result = resolve([a], [a, b, c, entry('block/unused')]);
+  assert.deepEqual(ids(result.entries), ['block/c', 'block/b', 'block/a']);
+  assert.deepEqual(result.capabilities, ['block/a', 'cap/b', 'cap/c']);
+  assert.deepEqual(result.entries[0], c);
+  assert.deepEqual([a, b, c], before);
+});
+
+test('an explicit provider still disambiguates an otherwise ambiguous capability catalog', () => {
+  const a = entry('block/a', ['service']), b = entry('block/b', [], ['service']), c = entry('block/c', [], ['service']);
+  assert.deepEqual(ids(resolve([a, b], [a, b, c]).entries), ['block/b', 'block/a']);
+  assert.throws(() => resolve([a], [a, b, c]), /Ambiguous providers/);
+});
+
+test('a catalog version cannot satisfy a requirement absent from the explicitly selected version of the same ID', () => {
+  const a = entry('block/app', ['new-api']), old = entry('block/runtime', [], ['old-api']);
+  const newer = entry('block/runtime', [], ['old-api', 'new-api']); newer.manifest.version = '2.0.0';
+  assert.throws(() => resolve([a, old], [a, newer]), /does not provide required capability/);
+});
+
+test('equal catalog mirrors and different versions do not replace the captured explicit selection', () => {
+  const selected = entry('block/a'), mirror = structuredClone(selected);
+  mirror.registrySourceId = 'mirror'; mirror.manifestPath = '/mirror/block.manifest.yaml';
+  assert.deepEqual(resolve([selected], [mirror]).entries[0], selected);
+  const newer = structuredClone(mirror); newer.manifest.version = '2.0.0'; newer.manifest.provides = ['new/service'];
+  assert.deepEqual(resolve([selected], [newer]).entries[0], selected);
+});
+
+test('a unique private or community provider cannot gain authority from catalog discovery', () => {
+  const consumer = entry('block/app', ['cap/database']);
+  for (const kind of ['private', 'community'] as const) {
+    const candidate = entry('block/database', [], ['cap/database']);
+    candidate.registryKind = kind;
+    assert.throws(() => resolve([consumer], [consumer, candidate]), error => {
+      const failure = error as { code?: string; details?: { providerBlockId?: string } };
+      assert.equal(failure.code, 'RESOLVE-AUTHORITY-007');
+      assert.equal(failure.details?.providerBlockId, 'block/database');
+      return true;
+    });
+    assert.deepEqual(ids(resolve([consumer, candidate], [consumer, candidate]).entries),
+      ['block/database', 'block/app']);
+  }
+});
+
+test('official labels alone do not authorize a non-packaged implicit provider', () => {
+  const consumer = entry('block/app', ['cap/database']);
+  const candidate = builtin(entry('block/database', [], ['cap/database']));
+  candidate.registryPath = 'different-official-root';
+  assert.throws(() => resolve([consumer], [consumer, candidate]),
+    error => (error as { code?: string }).code === 'RESOLVE-AUTHORITY-007');
+});
+
+test('both ID and capability conflicts remain enforced', () => {
+  const a = entry('block/a'), b = entry('block/b', [], ['service']);
+  a.manifest.conflicts = ['block/b'];
+  assert.throws(() => resolve([a, b]), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-002');
+  a.manifest.conflicts = ['service'];
+  assert.throws(() => resolve([a, b]), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-003');
+});
+
+test('every explicitly selected provider precedes a consumer as in the existing ordering contract', () => {
+  const a = entry('block/a', ['service']), b = entry('block/b', [], ['service']), c = entry('block/c', [], ['service']);
+  assert.deepEqual(ids(resolve([a, c, b]).entries), ['block/b', 'block/c', 'block/a']);
+});
+
+test('a newly-ready lower-priority-rank block preempts previously ready later entries', () => {
+  const a = entry('block/a', ['base'], ['a'], 'infra'), b = entry('block/b', [], ['base'], 'capability'), c = entry('block/c', [], ['c'], 'strategy');
+  assert.deepEqual(ids(resolve([c, a, b]).entries), ['block/b', 'block/a', 'block/c']);
+});
+
+test('cycle errors identify unscheduled blocks without calling their dependent tails a minimal cycle', () => {
+  const a = entry('block/a', ['block/b']), b = entry('block/b', ['block/a']), c = entry('block/c', ['block/a']);
+  assert.throws(() => resolve([c, b, a]), error => {
+    const e = error as { code?: string; details?: { blockedBlockIds?: string[] } };
+    assert.equal(e.code, 'RESOLVE-CYCLE-003'); assert.deepEqual(e.details?.blockedBlockIds, ['block/a', 'block/b', 'block/c']); return true;
+  });
+});
+
+test('wide and deep graphs use bounded stack, preserve ranks and include every selected vertex', () => {
+  const wide = Array.from({ length: 20_000 }, (_, i) => entry(`block/${String(i).padStart(6, '0')}`));
+  assert.deepEqual(ids(resolve([...wide].reverse()).entries), ids(wide));
+  const deep = Array.from({ length: 20_000 }, (_, i) => entry(`block/${i}`, i ? [`block/${i - 1}`] : []));
+  assert.deepEqual(ids(resolve([...deep].reverse()).entries), ids(deep));
+});
+
+test('priority-queue order agrees with an independent exhaustive ready-set model on generated DAGs', () => {
+  let seed = 7291;
+  const next = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
+  const kinds: ManifestKind[] = ['infra', 'governance', 'capability', 'strategy'];
+  for (let scenario = 0; scenario < 500; scenario++) {
+    const n = 1 + next() % 40;
+    const values = Array.from({ length: n }, (_, i) => entry(`b/${String(i).padStart(3, '0')}`, [], undefined, kinds[next() % 4]!));
+    for (let i = 1; i < n; i++) for (let j = 0; j < i; j++) if (next() % 7 === 0) values[i]!.manifest.requires.push(values[j]!.manifest.id);
+    const pending = new Set(values), done = new Set<string>(), expected: string[] = [];
+    while (pending.size) {
+      const ready = [...pending].filter(v => v.manifest.requires.every(id => done.has(id)));
+      ready.sort((a, b) => kinds.indexOf(a.manifest.kind) - kinds.indexOf(b.manifest.kind) ||
+        (a.manifest.id < b.manifest.id ? -1 : a.manifest.id > b.manifest.id ? 1 : 0));
+      const first = ready[0]!; pending.delete(first); done.add(first.manifest.id); expected.push(first.manifest.id);
+    }
+    assert.deepEqual(ids(resolve([...values].reverse(), values).entries), expected, `scenario ${scenario}`);
+  }
+});

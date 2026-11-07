@@ -1,13 +1,15 @@
+import { settleWorkspaceCallbackSync } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { linuxOpenAppendLeafAt } from './physical-no-follow-native.ts';
 import { appendExistingNoFollowOrdinaryFile, inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess } from './physical-no-follow.ts';
 
 function fixture(run: (root: string) => void) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-physical-append-'));
-  try { run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  settleWorkspaceCallbackSync(() => run(root), () => rmSync(root, { recursive: true, force: true }));
 }
 const append = (root: string, name = 'output', maximumFileBytes = 1024) => appendExistingNoFollowOrdinaryFile({
   parent: inspectNoFollowDirectoryChain(root), name, bytes: Buffer.from('value=ok\n'), maximumFileBytes
@@ -45,11 +47,19 @@ test.skipIf(process.platform !== 'linux')('append rejects a parent replacement a
 test.skipIf(process.platform !== 'linux')('native append is relative to the retained parent even after its pathname is replaced', () => fixture(root => {
   const parent = path.join(root, 'parent'); mkdirSync(parent); writeFileSync(path.join(parent, 'output'), 'owned');
   const retained = retainNoFollowDirectoryForChildProcess(inspectNoFollowDirectoryChain(parent), 3);
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     renameSync(parent, path.join(root, 'original')); mkdirSync(parent); writeFileSync(path.join(parent, 'output'), 'replacement');
     const fd = linuxOpenAppendLeafAt(retained.stdioSourceDescriptor!, 'output', 'append fixture');
     try { writeSync(fd, Buffer.from('+append')); } finally { closeSync(fd); }
     expect(readFileSync(path.join(root, 'original/output'), 'utf8')).toBe('owned+append');
     expect(readFileSync(path.join(parent, 'output'), 'utf8')).toBe('replacement');
-  } finally { retained.dispose(); }
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
+  } finally {
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { retained.dispose(); } }]
+    });
+  }
 }));

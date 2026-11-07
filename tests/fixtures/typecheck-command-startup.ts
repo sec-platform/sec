@@ -5,14 +5,7 @@ import { mock } from 'bun:test';
 
 const calls: string[] = [];
 let dependencyReady = false;
-const materializedDependencies = Object.freeze({
-  executionGenerationAuthority: Object.freeze({ generationDigest: `sha256:${'a'.repeat(64)}` }),
-  manifestHash: `sha256:${'b'.repeat(64)}`,
-  nodeModulesPath: path.join(process.cwd(), 'node_modules'),
-  requiresFreshProcess: false,
-  source: 'existing',
-  transitionDigest: `sha256:${'c'.repeat(64)}`
-});
+const materializedDependencies = Object.freeze({ source: 'existing' });
 
 function moduleHref(repositoryPath: string): string {
   return pathToFileURL(path.resolve(repositoryPath)).href;

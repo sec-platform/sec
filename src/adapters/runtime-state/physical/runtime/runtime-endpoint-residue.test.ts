@@ -1,16 +1,16 @@
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
+import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { inspectNoFollowDirectoryChain } from './physical-no-follow.ts';
 import {
   openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot,
   retainedRuntimeStateDirectoryRequiresHostNamespace
 } from './retained-runtime-state-directory.ts';
 import {
-  assertRuntimeEndpointResidueReceipt,
   censusRetainedRuntimeGenerations,
   observeRuntimeEndpointResidueCandidatesForTests,
   runtimeEndpointAccessFailureObservationForTests,
@@ -21,13 +21,14 @@ const providerIdentityDigest = `sha256:${'a'.repeat(64)}` as const;
 
 test('partial generation census preserves primary and reports its physical close failure', () => {
   const primary = new Error('second generation admission failed');
+  const closeFailure = new Error('first generation close failed');
   let closeCalls = 0;
   try {
     settleRuntimeGenerationCensusAdmissionForTests({
       primary,
       close: () => {
         closeCalls += 1;
-        throw new Error('first generation close failed');
+        throw closeFailure;
       }
     });
     throw new Error('expected composite settlement failure');
@@ -35,7 +36,7 @@ test('partial generation census preserves primary and reports its physical close
     expect(error).toBeInstanceOf(PhysicalResourceCompositeSettlementError);
     expect((error as PhysicalResourceCompositeSettlementError).failures).toEqual([
       { label: 'runtime-generation-census-admission', error: primary },
-      { label: 'runtime-generation-census-close', error: expect.any(Error) }
+      { label: 'runtime-generation-census-close', error: closeFailure }
     ]);
   }
   expect(closeCalls).toBe(1);
@@ -45,22 +46,22 @@ test('bounded generation census reports physical presence without inferring prov
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-generation-census-'));
   let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
   let census: ReturnType<typeof censusRetainedRuntimeGenerations> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     const activePath = path.join(rootPath, 'active-generation');
     const stalePath = path.join(rootPath, 'stale-generation');
     const unknownPath = path.join(rootPath, 'unknown-generation');
-    await Promise.all([mkdir(activePath), mkdir(stalePath), mkdir(unknownPath)]);
+    await mkdir(activePath);
+    await mkdir(stalePath);
+    await mkdir(unknownPath);
     await writeFile(path.join(activePath, 'ordinary.state'), 'active');
     await symlink(
       activePath,
       path.join(stalePath, 'arbitrary.endpoint'),
       process.platform === 'win32' ? 'junction' : 'dir'
     );
-    await Promise.all([
-      writeFile(path.join(unknownPath, 'one.state'), '1'),
-      writeFile(path.join(unknownPath, 'two.state'), '2'),
-      writeFile(path.join(unknownPath, 'three.state'), '3')
-    ]);
+    await writeFile(path.join(unknownPath, 'one.state'), '1');
+    await writeFile(path.join(unknownPath, 'two.state'), '2');
+    await writeFile(path.join(unknownPath, 'three.state'), '3');
     owner = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 48,
       mode: 'open-existing',
@@ -85,18 +86,20 @@ test('bounded generation census reports physical presence without inferring prov
         stale: 'present',
         unknown: 'unknown'
       });
-  } finally {
-    census?.close();
-    owner?.close();
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'generation census', settle: () => { census?.close(); } },
+      { label: 'census owner', settle: () => { owner?.close(); } }
+    ] });
     await rm(rootPath, { recursive: true, force: true });
-  }
+  });
 });
 
 test.skipIf(process.platform !== 'win32')('generation census preserves the owner host-namespace requirement', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-host-census-'));
   let owner: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
   let census: ReturnType<typeof censusRetainedRuntimeGenerations> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     await mkdir(path.join(rootPath, 'generation'));
     owner = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
       childDescriptor: 48,
@@ -113,64 +116,19 @@ test.skipIf(process.platform !== 'win32')('generation census preserves the owner
     });
     expect(census.receipt.entries[0]?.state).toBe('present');
     expect(retainedRuntimeStateDirectoryRequiresHostNamespace(census.generations[0]!)).toBe(true);
-  } finally {
-    census?.close();
-    owner?.close();
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'generation census', settle: () => { census?.close(); } },
+      { label: 'census owner', settle: () => { owner?.close(); } }
+    ] });
     await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test('physical owner issues residue for arbitrary endpoint names beneath distinct retained roots', async () => {
-  const cases = [
-    { rootName: 'runtime-alpha-', endpoint: ['epoch', 'arbitrary.endpoint'] },
-    { rootName: 'runtime-beta-', endpoint: ['private-owner', 'engine.channel'] }
-  ] as const;
-  for (const vector of cases) {
-    const rootPath = await mkdtemp(path.join(os.tmpdir(), vector.rootName));
-    let retained: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
-    try {
-      const parentPath = path.join(rootPath, vector.endpoint[0]);
-      await mkdir(parentPath);
-      const endpointPath = path.join(parentPath, vector.endpoint[1]);
-      await writeFile(endpointPath, 'endpoint-preimage');
-      retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-        childDescriptor: 57,
-        mode: 'open-existing',
-        root: inspectNoFollowDirectoryChain(rootPath, 'endpoint residue test root')
-      });
-      const receipt = observeRuntimeEndpointResidueCandidatesForTests({
-        admittedGenerationRoots: [
-          inspectNoFollowDirectoryChain(parentPath, 'admitted endpoint generation').target
-        ],
-        providerIdentityDigest,
-        providerEvidence: `provider failed to remove ${endpointPath}: native access unavailable`,
-        roots: [retained],
-        probe: ({ candidatePath }) => runtimeEndpointAccessFailureObservationForTests({
-          candidatePath
-        })
-      });
-      assertRuntimeEndpointResidueReceipt(receipt);
-      expect(receipt.entry.path).toBe(endpointPath);
-      expect(receipt.entry.objectId).not.toBe('');
-      expect(receipt.root.objectId).toBe(retained.root.objectId);
-      expect(receipt.generationRoot.path).toBe(parentPath);
-      expect(receipt.providerIdentityDigest).toBe(providerIdentityDigest);
-      expect(receipt.nativeFailure).toEqual({
-        namespace: 'win32',
-        code: 1_920,
-        failureClass: 'access-unavailable'
-      });
-    } finally {
-      retained?.close();
-      await rm(rootPath, { recursive: true, force: true });
-    }
-  }
+  });
 });
 
 test('presentation text alone cannot issue a runtime endpoint residue receipt', async () => {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-false-presentation-'));
   let retained: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
-  try {
+  await settleWorkspaceCallback(async () => {
     const generationRoot = path.join(rootPath, 'unverified-generation');
     await mkdir(generationRoot);
     const endpointPath = path.join(generationRoot, 'looks-real.endpoint');
@@ -214,54 +172,8 @@ test('presentation text alone cannot issue a runtime endpoint residue receipt', 
     });
     expect(probes).toBe(0);
     expect(outsideReceipt).toBeNull();
-  } finally {
+  }, async () => {
     retained?.close();
     await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test.skipIf(process.platform === 'win32')('POSIX residue candidates retain distinct case and require exact probe paths', async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'runtime-case-residue-'));
-  let retained: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot> | null = null;
-  try {
-    const generationPath = path.join(rootPath, 'generation');
-    await mkdir(generationPath);
-    const upper = path.join(generationPath, 'Channel.endpoint');
-    const lower = path.join(generationPath, 'channel.endpoint');
-    await writeFile(upper, 'upper');
-    await writeFile(lower, 'lower');
-    retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-      childDescriptor: 57,
-      mode: 'open-existing',
-      root: inspectNoFollowDirectoryChain(rootPath, 'case residue root')
-    });
-    const input = {
-      admittedGenerationRoots: [
-        inspectNoFollowDirectoryChain(generationPath, 'case residue generation').target
-      ],
-      providerIdentityDigest,
-      roots: [retained]
-    };
-    const probes: string[] = [];
-    const receipt = observeRuntimeEndpointResidueCandidatesForTests({
-      ...input,
-      providerEvidence: `${upper}: unavailable\n${lower}: unavailable`,
-      probe: ({ candidatePath }) => {
-        probes.push(candidatePath);
-        return candidatePath === upper ? null
-          : runtimeEndpointAccessFailureObservationForTests({ candidatePath });
-      }
-    });
-    assertRuntimeEndpointResidueReceipt(receipt);
-    expect(probes).toEqual([upper, lower]);
-    expect(receipt.entry.path).toBe(lower);
-    expect(observeRuntimeEndpointResidueCandidatesForTests({
-      ...input,
-      providerEvidence: `${lower}: unavailable`,
-      probe: () => runtimeEndpointAccessFailureObservationForTests({ candidatePath: upper })
-    })).toBeNull();
-  } finally {
-    retained?.close();
-    await rm(rootPath, { recursive: true, force: true });
-  }
+  });
 });

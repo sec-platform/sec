@@ -99,6 +99,7 @@ export interface UpgradePlanningUseCaseOperations {
   ): Promise<UpgradeMigrationEntry[]>;
   collectPreflightEvidence(input: Readonly<{
     blockId: string;
+    targetVersion: string;
     impacts: string[];
     migrationEntries: UpgradeMigrationEntry[];
     targetManifestRoot: string;
@@ -159,6 +160,7 @@ async function planWorkspaceUpgrade(
   ]);
   const evidence = await operations.collectPreflightEvidence.call(operations, {
     blockId,
+    targetVersion,
     impacts,
     migrationEntries,
     targetManifestRoot,

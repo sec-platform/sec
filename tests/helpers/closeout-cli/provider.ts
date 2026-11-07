@@ -8,7 +8,7 @@ import { compileTcbClosureIdentity } from '../../../src/adapters/verification/pl
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../../src/adapters/verification/platform/trust/contract/root.ts';
 import { observeCloseoutFixtureWork } from './work-observation.ts';
 
-export type CloseoutCliHarnessState = Record<string, any> & {
+type CloseoutCliHarnessState = Record<string, any> & {
   activeWorkPackageSelected: boolean;
 };
 

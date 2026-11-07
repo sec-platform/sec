@@ -79,21 +79,6 @@ export interface OperationReadPlan extends Omit<OperationReadPlanInput, 'schema'
   readonly readPlanDigest: AgentContentDigest;
 }
 
-export type MaintainerMutationDecision = Readonly<{
-  schema: 'sec-maintainer-mutation-decision-v1';
-  policy: typeof MAINTAINER_MUTATION_POLICY;
-  status:
-    | 'unchanged'
-    | 'accept-current'
-    | 'external-maintainer-mutation'
-    | 'recovery-authority-required'
-    | 'operation-owned-cas-eligible';
-  authoritativeRevision: string;
-  oldObservationStale: boolean;
-  effectDisposition: 'no-effect' | 'separate-verified-executor-required';
-  reasonCode: string;
-}>;
-
 const INPUT_KEYS = [
   'schema', 'taskCapsule', 'requiredRefs', 'conditionalRefs', 'forbiddenSources',
   'maxSkillBodies', 'unresolvedFrontier', 'readReceipts', 'invalidationInputs'
@@ -406,98 +391,5 @@ export function projectSkillApplicabilityEnvelopeFromOperationReadPlan(
     taskCapsuleRevision: verified.taskCapsule.revision,
     candidates,
     changedPaths: planningContext.scopeProposal.changedPaths
-  });
-}
-
-/**
- * Pure precedence and eligibility resolver. It never issues effect authority;
- * a separate trusted recovery/CAS executor must verify principal, provenance,
- * resource, preimage/current revision and expiry before any write.
- */
-export function resolveMaintainerMutation(
-  value: unknown
-): MaintainerMutationDecision {
-  const input = record(value, 'maintainerMutation');
-  exactKeys(input, [
-    'resourceKind', 'snapshotRevision', 'currentRevision', 'conflictsWithOperation',
-    'restoreAuthority', 'casPrecondition'
-  ], 'maintainerMutation');
-  if (input.resourceKind !== 'protected-interactive-root'
-      && input.resourceKind !== 'operation-owned-worktree'
-      && input.resourceKind !== 'external-worktree') {
-    fail('maintainerMutation.resourceKind is unsupported.');
-  }
-  if (input.restoreAuthority !== 'none'
-      && input.restoreAuthority !== 'explicit-user-request-claimed'
-      && input.restoreAuthority !== 'own-unauthorized-mutation-rollback-claimed'
-      && input.restoreAuthority !== 'operation-owned-cas-claimed') {
-    fail('maintainerMutation.restoreAuthority is unsupported.');
-  }
-  if (input.casPrecondition !== 'matched'
-      && input.casPrecondition !== 'mismatched'
-      && input.casPrecondition !== 'not-applicable') {
-    fail('maintainerMutation.casPrecondition is unsupported.');
-  }
-  if (typeof input.conflictsWithOperation !== 'boolean') {
-    fail('maintainerMutation.conflictsWithOperation must be boolean.');
-  }
-  const authoritativeRevision = text(input.currentRevision, 'currentRevision');
-  const snapshotRevision = text(input.snapshotRevision, 'snapshotRevision');
-  const base = {
-    schema: 'sec-maintainer-mutation-decision-v1' as const,
-    policy: MAINTAINER_MUTATION_POLICY,
-    authoritativeRevision
-  };
-  if (snapshotRevision === authoritativeRevision) {
-    return Object.freeze({
-      ...base,
-      status: 'unchanged',
-      oldObservationStale: false,
-      effectDisposition: 'no-effect',
-      reasonCode: 'same-physical-revision'
-    });
-  }
-  if (input.resourceKind === 'protected-interactive-root' && input.restoreAuthority !== 'none') {
-    return Object.freeze({
-      ...base,
-      status: 'external-maintainer-mutation',
-      oldObservationStale: true,
-      effectDisposition: 'separate-verified-executor-required',
-      reasonCode: 'protected-root-outside-candidate-authority'
-    });
-  }
-  if (input.restoreAuthority === 'explicit-user-request-claimed'
-      || input.restoreAuthority === 'own-unauthorized-mutation-rollback-claimed') {
-    return Object.freeze({
-      ...base,
-      status: 'recovery-authority-required',
-      oldObservationStale: true,
-      effectDisposition: 'separate-verified-executor-required',
-      reasonCode: input.restoreAuthority === 'explicit-user-request-claimed'
-        ? 'verify-explicit-user-recovery-authority'
-        : 'verify-own-unauthorized-mutation-receipt'
-    });
-  }
-  if (input.restoreAuthority === 'operation-owned-cas-claimed') {
-    const legal = input.resourceKind === 'operation-owned-worktree'
-      && input.casPrecondition === 'matched';
-    return Object.freeze({
-      ...base,
-      status: legal ? 'operation-owned-cas-eligible' : 'external-maintainer-mutation',
-      oldObservationStale: true,
-      effectDisposition: legal ? 'separate-verified-executor-required' : 'no-effect',
-      reasonCode: legal
-        ? 'verify-operation-owned-cas-authority'
-        : 'operation-owned-cas-not-proven'
-    });
-  }
-  return Object.freeze({
-    ...base,
-    status: input.conflictsWithOperation ? 'external-maintainer-mutation' : 'accept-current',
-    oldObservationStale: true,
-    effectDisposition: 'no-effect',
-    reasonCode: input.conflictsWithOperation
-      ? 'current-physical-state-conflicts'
-      : 'current-physical-state-accepted'
   });
 }

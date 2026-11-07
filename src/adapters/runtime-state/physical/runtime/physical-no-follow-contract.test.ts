@@ -15,5 +15,5 @@ test('physical no-follow error remains a pure typed failure value', () => {
   );
   expect(error.name).toBe('PhysicalNoFollowError');
   expect(error.code).toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
-  expect(error.nativeFailure).toBe(nativeFailure);
+  expect(error.nativeFailure).toEqual(nativeFailure);
 });

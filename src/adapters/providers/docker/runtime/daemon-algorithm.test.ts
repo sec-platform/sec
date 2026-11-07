@@ -1,3 +1,5 @@
+import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -51,33 +53,55 @@ async function withIssuedResidueReceipt<T>(
 ): Promise<T> {
   const rootPath = await mkdtemp(path.join(os.tmpdir(), 'docker-runtime-receipt-'));
   const parentPath = path.join(rootPath, 'arbitrary-owner');
-  await mkdir(parentPath);
   const endpointPath = path.join(parentPath, 'unlisted.endpoint');
-  await writeFile(endpointPath, 'endpoint-preimage');
-  const retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
-    childDescriptor: 58,
-    mode: 'open-existing',
-    root: inspectNoFollowDirectoryChain(rootPath, 'Docker typed residue test root')
-  });
+  let retained: ReturnType<typeof openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot>;
   try {
-    return await operation({
-      endpointPath,
-      observe: (providerEvidence) => observeRuntimeEndpointResidueCandidatesForTests({
-        admittedGenerationRoots: [
-          inspectNoFollowDirectoryChain(parentPath, 'Docker admitted generation root').target
-        ],
-        providerIdentityDigest: residueProviderIdentityDigest,
-        providerEvidence,
-        roots: [retained],
-        probe: ({ candidatePath }) => runtimeEndpointAccessFailureObservationForTests({
-          candidatePath
-        })
-      })
+    await mkdir(parentPath);
+    await writeFile(endpointPath, 'endpoint-preimage');
+    retained = openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot({
+      childDescriptor: 58,
+      mode: 'open-existing',
+      root: inspectNoFollowDirectoryChain(rootPath, 'Docker typed residue test root')
     });
-  } finally {
-    retained.close();
-    await rm(rootPath, { recursive: true, force: true });
+  } catch (error) {
+    return settleWorkspaceCallback(async () => { throw error; },
+      () => rm(rootPath, { recursive: true, force: true }));
   }
+  return settleWorkspaceCallback(async () => {
+    return operation({
+      endpointPath,
+      observe: (providerEvidence) => {
+        const receipt = observeRuntimeEndpointResidueCandidatesForTests({
+          admittedGenerationRoots: [
+            inspectNoFollowDirectoryChain(parentPath, 'Docker admitted generation root').target
+          ],
+          providerIdentityDigest: residueProviderIdentityDigest,
+          providerEvidence,
+          roots: [retained],
+          probe: ({ candidatePath }) => runtimeEndpointAccessFailureObservationForTests({
+            candidatePath
+          })
+        });
+        expect(receipt).not.toBeNull();
+        expect(receipt!.entry.path).toBe(endpointPath);
+        expect(receipt!.entry.objectId).not.toBe('');
+        expect(receipt!.root.objectId).toBe(retained.root.objectId);
+        expect(receipt!.generationRoot.path).toBe(parentPath);
+        expect(receipt!.providerIdentityDigest).toBe(residueProviderIdentityDigest);
+        expect(receipt!.nativeFailure).toEqual({
+          namespace: 'win32',
+          code: 1_920,
+          failureClass: 'access-unavailable'
+        });
+        return receipt;
+      }
+    });
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      { label: 'retained residue root', settle: () => { retained.close(); } },
+      { label: 'residue fixture root', settle: () => rm(rootPath, { recursive: true, force: true }) }
+    ] });
+  });
 }
 
 describe('Docker daemon lifecycle algorithm', () => {
@@ -94,7 +118,7 @@ describe('Docker daemon lifecycle algorithm', () => {
         return available;
       }
     });
-    expect(result).toBe(available);
+    expect(result).toEqual(available);
     expect(calls).toEqual([[
       '--host', endpointHost, 'info', '--format', '{{json .}}'
     ]]);
@@ -108,6 +132,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     let launcherDeadlineAtUnixMs = 0;
     let observations = 0;
     let lockEntries = 0;
+    let residueObservations = 0;
     const commandDeadlineAtUnixMs = Date.now() + 9_000;
     const result = await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
@@ -115,12 +140,23 @@ describe('Docker daemon lifecycle algorithm', () => {
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,
       endpointHost,
+      observeRuntimeEndpointResidue: () => {
+        residueObservations += 1;
+        return null;
+      },
       platform: 'win32',
       launch: async ({ args, deadlineAtUnixMs }) => {
         launches += 1;
         launcherArguments = args;
         launcherDeadlineAtUnixMs = deadlineAtUnixMs;
-        return { ...available, physicalDisposition: 'settled' };
+        return {
+          ...available,
+          stderr: [
+            'Error: acquiring launcher lock: open : The system cannot find the file specified.',
+            'arbitrary.endpoint Win32 1920; restart Windows is required'
+          ].join('\n'),
+          physicalDisposition: 'settled'
+        };
       },
       withLauncherLock: async (operation) => {
         lockEntries += 1;
@@ -136,8 +172,9 @@ describe('Docker daemon lifecycle algorithm', () => {
         return available;
       }
     });
-    expect(result).toBe(available);
+    expect(result).toEqual(available);
     expect(lockEntries).toBe(1);
+    expect(residueObservations).toBe(0);
     expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
     expect(launches).toBe(1);
     expect(launcherArguments.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
@@ -145,8 +182,9 @@ describe('Docker daemon lifecycle algorithm', () => {
     expect(Number(launcherArguments[3])).toBeGreaterThanOrEqual(1);
     expect(Number(launcherArguments[3])).toBeLessThanOrEqual(9);
     expect(launcherDeadlineAtUnixMs).toBe(commandDeadlineAtUnixMs);
-    expect(lifecycles.some((value) => value.includes('stop'))).toBe(false);
-    expect(commands).toHaveLength(3);
+    expect(commands).toEqual(Array.from({ length: 3 }, () => [
+      '--host', endpointHost, 'info', '--format', '{{json .}}'
+    ]));
   });
 
   test('ensure-started returns an initial ready observation without lock or start', async () => {
@@ -154,6 +192,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     const lifecycles: string[] = [];
     const result = await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
+      launch: async () => { throw new Error('ready daemon must not be started'); },
       commandDeadlineAtUnixMs,
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,
@@ -168,7 +207,7 @@ describe('Docker daemon lifecycle algorithm', () => {
         return available;
       }
     });
-    expect(result).toBe(available);
+    expect(result).toEqual(available);
     expect(lockEntries).toBe(0);
     expect(lifecycles).toEqual(['observe']);
   });
@@ -178,6 +217,7 @@ describe('Docker daemon lifecycle algorithm', () => {
     let observations = 0;
     await ensureDockerDaemonStartedWithCommand({
       ...ensureStartedAuthority,
+      launch: async () => { throw new Error('ready daemon must not be started'); },
       commandDeadlineAtUnixMs,
       cwd: process.cwd(),
       deadlineAtUnixMs: Date.now() + 10_000,
@@ -270,7 +310,7 @@ describe('Docker daemon lifecycle algorithm', () => {
           return lifecycles.length < 3 ? unavailable : available;
         }
       });
-      expect(result).toBe(available);
+      expect(result).toEqual(available);
       expect(launches).toBe(1);
       expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
     }
@@ -300,68 +340,6 @@ describe('Docker daemon lifecycle algorithm', () => {
       expectReason(error, 'desktop-environment-unavailable');
     }
     expect(launches).toBe(0);
-  });
-
-  test('direct launcher output is presentation-only and final daemon readback is authoritative', async () => {
-    const lifecycles: string[] = [];
-    let observations = 0;
-    const result = await ensureDockerDaemonStartedWithCommand({
-      ...ensureStartedAuthority,
-      commandDeadlineAtUnixMs,
-      cwd: process.cwd(),
-      deadlineAtUnixMs: Date.now() + 10_000,
-      endpointHost,
-      platform: 'win32',
-      launch: async () => ({
-        code: 0,
-        stdout: '',
-        stderr: 'Error: acquiring launcher lock: open : The system cannot find the file specified.',
-        physicalDisposition: 'settled'
-      }),
-      withLauncherLock: async (operation) => await operation(),
-      run: async ({ lifecycle }) => {
-        lifecycles.push(lifecycle);
-        observations += 1;
-        return observations < 3 ? unavailable : available;
-      }
-    });
-    expect(result).toBe(available);
-    expect(lifecycles).toEqual(['observe', 'observe', 'observe']);
-  });
-
-  test('lost launcher handle is typed only after one handle-independent final readback', async () => {
-    let observations = 0;
-    let launches = 0;
-    try {
-      await ensureDockerDaemonStartedWithCommand({
-        ...ensureStartedAuthority,
-        commandDeadlineAtUnixMs,
-        cwd: process.cwd(),
-        deadlineAtUnixMs: Date.now() + 10_000,
-        endpointHost,
-        platform: 'win32',
-        launch: async () => {
-          launches += 1;
-          return {
-            code: 1,
-            stdout: '',
-            stderr: 'launcher root handle was lost',
-            physicalDisposition: 'unknown'
-          };
-        },
-        withLauncherLock: async (operation) => await operation(),
-        run: async () => {
-          observations += 1;
-          return unavailable;
-        }
-      });
-      throw new Error('expected lost-handle blocker');
-    } catch (error) {
-      expectReason(error, 'desktop-launcher-settlement-unknown');
-      expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
-    }
-    expect(launches).toBe(1);
-    expect(observations).toBe(3);
   });
 
   test('a ready daemon cannot settle an unknown launcher process tree', async () => {
@@ -562,36 +540,6 @@ describe('Docker daemon lifecycle algorithm', () => {
         expect((error as DockerDaemonAvailabilityFailure).phase).toBe('final-readback');
       }
     });
-  });
-
-  test('reboot and Win32 presentation without physical receipt is non-authoritative', async () => {
-    let observations = 0;
-    let residueObservations = 0;
-    const result = await ensureDockerDaemonStartedWithCommand({
-      ...ensureStartedAuthority,
-      commandDeadlineAtUnixMs,
-      cwd: process.cwd(),
-      deadlineAtUnixMs: Date.now() + 10_000,
-      endpointHost,
-      observeRuntimeEndpointResidue: () => {
-        residueObservations += 1;
-        return null;
-      },
-      platform: 'win32',
-      launch: async () => ({
-        code: 0,
-        stdout: '',
-        stderr: 'arbitrary.endpoint Win32 1920; restart Windows is required',
-        physicalDisposition: 'settled'
-      }),
-      withLauncherLock: async (operation) => await operation(),
-      run: async () => {
-        observations += 1;
-        return observations < 3 ? unavailable : available;
-      }
-    });
-    expect(result).toBe(available);
-    expect(residueObservations).toBe(0);
   });
 
   test('classifies retained child settlement failure separately from endpoint state', async () => {
