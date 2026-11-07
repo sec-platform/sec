@@ -307,16 +307,16 @@ function compileIssuerRoleFixture(input: Readonly<{
   return compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
 }
 
-test('source program closes exact issuer and recovery roles without accepting an unresolved durable input', () => {
-  const model = compileIssuerRoleFixture({
+test('source program distinguishes valid issuer recovery from cross-owner and durable-worker violations', () => {
+  const validInput = {
     sources: {
-      'src/grant/issuer.ts': 'export function issueGrant(): void {}\n',
+      'src/grant/issuer.ts': 'export function issueTrustedGrant(): void {}\n',
       'src/binding/issuer.ts': 'export function issueBinding(): void {}\n',
       'src/provider/issuer.ts': 'export function settleProvider(): void {}\n',
       'src/readback/issuer.ts': 'export function readback(): void {}\n',
       'src/terminal/issuer.ts': 'export function joinTerminal(): void {}\n',
       'src/recovery/issuer.ts': 'export function recover(): void {}\n',
-      'src/store/worker.ts': [
+      'src/store-positive/worker.ts': [
         'export function appendAttempt(): void {}',
         'export interface DurableInput { readonly claim: string; }',
         'export function append(input: DurableInput): string { return input.claim; }',
@@ -324,8 +324,8 @@ test('source program closes exact issuer and recovery roles without accepting an
       ].join('\n')
     },
     descriptors: {
-      'src/grant': [{ capability: 'semantic.grant', operations: ['issueGrant'], operationRoles: [
-        { operation: 'issueGrant', role: 'grant-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
+      'src/grant': [{ capability: 'semantic.grant', operations: ['issueTrustedGrant'], operationRoles: [
+        { operation: 'issueTrustedGrant', role: 'grant-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/binding': [{ capability: 'semantic.binding', operations: ['issueBinding'], operationRoles: [
         { operation: 'issueBinding', role: 'binding-issuer', semanticOperation: 'example.operation', requirementId: 'example.provider', recovery: null }
@@ -342,7 +342,7 @@ test('source program closes exact issuer and recovery roles without accepting an
       'src/recovery': [{ capability: 'runtime.recovery', operations: ['recover'], operationRoles: [
         { operation: 'recover', role: 'recovery-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
-      'src/store': [{ capability: 'runtime.store', operations: ['appendAttempt', 'append'], operationRoles: [
+      'src/store-positive': [{ capability: 'runtime.store', operations: ['appendAttempt', 'append'], operationRoles: [
         {
           operation: 'appendAttempt',
           role: 'durable-worker',
@@ -367,44 +367,8 @@ test('source program closes exact issuer and recovery roles without accepting an
         }
       ] }]
     }
-  });
-  expect(model.candidates.filter(({ code }) => code.startsWith('operation-issuer')
-    || code.startsWith('operation-recovery')
-    || code.startsWith('durable-worker'))).toEqual([
-    expect.objectContaining({
-      code: 'durable-worker-generic-input-exposed',
-      subject: 'runtime.store:append',
-      paths: ['src/store/worker.ts'],
-      observationClass: 'unknown'
-    })
-  ]);
-});
-
-const operationObligation = (capability: string, operation: string) => ({
-  operation: { kind: 'capability', capability, operation },
-  consumerSupport: { consumers: [] },
-  effect: {
-    kinds: ['process'],
-    failureKinds: ['example.failed'],
-    recovery: 'owner-intervention'
-  },
-  evolution: {
-    migration: 'not-required',
-    retirement: 'replacement-obligations-satisfied'
-  },
-  resources: {
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 1_000 },
-      { resource: 'input-bytes', maximum: 0 },
-      { resource: 'output-bytes', maximum: 1 },
-      { resource: 'processes', maximum: 1 }
-    ]
-  },
-  futureSupport: { condition: 'semantic-superset-required' }
-});
-
-test('source program rejects cross-owner issuers, generic worker inputs, domain imports, and missing recovery without conflating unrelated issuer roles', () => {
-  const model = compileIssuerRoleFixture({
+  };
+  const invalidInput = {
     sources: {
       'src/effect/operation.ts': 'export function execute(): void {}\n',
       'src/grant-owner/empty.ts': 'export const marker = true;\n',
@@ -438,18 +402,55 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
         { operation: 'append', role: 'durable-worker', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }]
     }
+  };
+  const model = compileIssuerRoleFixture({
+    sources: { ...validInput.sources, ...invalidInput.sources },
+    operationObligations: invalidInput.operationObligations,
+    descriptors: { ...validInput.descriptors, ...invalidInput.descriptors }
   });
+  const validPaths = new Set([
+    'src/grant/module.json',
+    'src/binding/module.json',
+    'src/provider/module.json',
+    'src/readback/module.json',
+    'src/terminal/module.json',
+    'src/recovery/module.json',
+    'src/store-positive/module.json',
+    'src/store-positive/worker.ts'
+  ]);
+  expect(model.candidates.filter(({ code, paths }) => (
+    (code.startsWith('operation-issuer')
+      || code.startsWith('operation-recovery')
+      || code.startsWith('durable-worker'))
+    && paths.some((path) => validPaths.has(path))
+  ))).toEqual([
+    expect.objectContaining({
+      code: 'durable-worker-generic-input-exposed',
+      subject: 'runtime.store:append',
+      paths: ['src/store-positive/worker.ts'],
+      observationClass: 'unknown'
+    })
+  ]);
+
   const codes = model.candidates.map(({ code }) => code);
   expect(codes).toContain('operation-issuer-role-outside-owner');
   expect(codes).not.toContain('operation-issuer-role-conflict');
   expect(codes).toContain('durable-worker-generic-input-exposed');
   expect(codes).toContain('durable-worker-domain-import');
   expect(codes).toContain('operation-recovery-binding-unresolved');
+  expect(model.candidates.filter(({ code, paths }) => (
+    code === 'operation-issuer-role-outside-owner'
+    && paths.includes('src/grant-owner/module.json')
+  ))).toEqual([expect.objectContaining({
+    observationClass: 'derived',
+    paths: expect.arrayContaining(['src/foreign/issuer.ts'])
+  })]);
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'durable-worker-generic-input-exposed',
     subject: 'runtime.store:append',
     reason: 'durable worker exposes a caller-supplied callback',
-    observationClass: 'derived'
+    observationClass: 'derived',
+    paths: ['src/store/worker.ts']
   }));
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'operation-critical-role-unresolved',
@@ -458,7 +459,31 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
   }));
 });
 
-test('source program accepts a terminal issuer only through its unique same-capability semantic domain owner', () => {
+
+const operationObligation = (capability: string, operation: string) => ({
+  operation: { kind: 'capability', capability, operation },
+  consumerSupport: { consumers: [] },
+  effect: {
+    kinds: ['process'],
+    failureKinds: ['example.failed'],
+    recovery: 'owner-intervention'
+  },
+  evolution: {
+    migration: 'not-required',
+    retirement: 'replacement-obligations-satisfied'
+  },
+  resources: {
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: 1_000 },
+      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'output-bytes', maximum: 1 },
+      { resource: 'processes', maximum: 1 }
+    ]
+  },
+  futureSupport: { condition: 'semantic-superset-required' }
+});
+
+test('source program accepts terminal issuers only with one matching semantic domain owner', () => {
   type OperationRoleFixture = Readonly<{
     operation: string;
     role: string;
@@ -466,24 +491,6 @@ test('source program accepts a terminal issuer only through its unique same-capa
     requirementId: string | null;
     recovery: null;
   }>;
-  const compile = (capabilityProviders: readonly Readonly<{
-    capability: string;
-    operations: readonly string[];
-    effectKinds: readonly string[];
-    operationRoles: readonly OperationRoleFixture[];
-  }>[]) => compileIssuerRoleFixture({
-    sources: {
-      'src/lifecycle/operation.ts': [
-        'export function create(): void {}',
-        'export function createOther(): void {}',
-        'export function close(): void {}'
-      ].join('\n')
-    },
-    operationObligations: {
-      'src/lifecycle': [operationObligation('example.lifecycle', 'close')]
-    },
-    descriptors: { 'src/lifecycle': capabilityProviders }
-  });
   const terminalRole = {
     operation: 'close',
     role: 'terminal-issuer',
@@ -498,67 +505,114 @@ test('source program accepts a terminal issuer only through its unique same-capa
     requirementId: null,
     recovery: null
   } as const;
-  const provider = (operationRoles: readonly OperationRoleFixture[]) => ({
-    capability: 'example.lifecycle',
+  const provider = (capability: string, operationRoles: readonly OperationRoleFixture[]) => ({
+    capability,
     operations: ['create', 'createOther', 'close'],
-    effectKinds: [],
+    effectKinds: [] as string[],
     operationRoles
   });
-
-  const accepted = compile([provider([domainRole, terminalRole])]);
-  expect(accepted.candidates).not.toContainEqual(expect.objectContaining({
-    code: 'operation-critical-role-unresolved',
-    subject: 'example.lifecycle:close'
-  }));
-
-  const isolated = compile([provider([terminalRole])]);
-  expect(isolated.candidates).toContainEqual(expect.objectContaining({
-    code: 'operation-critical-role-unresolved',
-    subject: 'example.lifecycle:close'
-  }));
-
-  const crossCapability = compile([
-    provider([terminalRole]),
+  const cases = [
     {
-      capability: 'example.other-lifecycle',
-      operations: ['create'],
-      effectKinds: [],
-      operationRoles: [domainRole]
-    }
-  ]);
-  expect(crossCapability.candidates).toContainEqual(expect.objectContaining({
-    code: 'operation-critical-role-unresolved',
-    subject: 'example.lifecycle:close'
-  }));
-
-  const crossSemanticOperation = compile([provider([
-    { ...domainRole, semanticOperation: 'example.lifecycle.other-run' },
-    terminalRole
-  ])]);
-  expect(crossSemanticOperation.candidates).toContainEqual(expect.objectContaining({
-    code: 'operation-critical-role-unresolved',
-    subject: 'example.lifecycle:close'
-  }));
-
-  const requirementBoundClose = compile([provider([
-    domainRole,
+      id: 'accepted',
+      capability: 'example.lifecycle.accepted',
+      providers: [provider('example.lifecycle.accepted', [
+        { ...domainRole, semanticOperation: 'example.lifecycle.accepted.run' },
+        { ...terminalRole, semanticOperation: 'example.lifecycle.accepted.run' }
+      ])],
+      unresolved: false
+    },
     {
-      ...terminalRole,
-      role: 'provider-settlement-issuer',
-      requirementId: 'example.lifecycle.provider'
+      id: 'isolated',
+      capability: 'example.lifecycle.isolated',
+      providers: [provider('example.lifecycle.isolated', [
+        { ...terminalRole, semanticOperation: 'example.lifecycle.isolated.run' }
+      ])],
+      unresolved: true
+    },
+    {
+      id: 'cross-capability',
+      capability: 'example.lifecycle.cross-capability',
+      providers: [
+        provider('example.lifecycle.cross-capability', [
+          { ...terminalRole, semanticOperation: 'example.lifecycle.cross-capability.run' }
+        ]),
+        {
+          capability: 'example.other-lifecycle',
+          operations: ['create'],
+          effectKinds: [] as string[],
+          operationRoles: [{ ...domainRole, semanticOperation: 'example.lifecycle.cross-capability.run' }]
+        }
+      ],
+      unresolved: true
+    },
+    {
+      id: 'cross-semantic',
+      capability: 'example.lifecycle.cross-semantic',
+      providers: [provider('example.lifecycle.cross-semantic', [
+        { ...domainRole, semanticOperation: 'example.lifecycle.other-run' },
+        { ...terminalRole, semanticOperation: 'example.lifecycle.cross-semantic.run' }
+      ])],
+      unresolved: true
+    },
+    {
+      id: 'requirement-bound',
+      capability: 'example.lifecycle.requirement-bound',
+      providers: [provider('example.lifecycle.requirement-bound', [
+        { ...domainRole, semanticOperation: 'example.lifecycle.requirement-bound.run' },
+        {
+          ...terminalRole,
+          semanticOperation: 'example.lifecycle.requirement-bound.run',
+          role: 'provider-settlement-issuer',
+          requirementId: 'example.lifecycle.provider'
+        }
+      ])],
+      unresolved: true
     }
-  ])]);
-  expect(requirementBoundClose.candidates).toContainEqual(expect.objectContaining({
-    code: 'operation-critical-role-unresolved',
-    subject: 'example.lifecycle:close'
-  }));
+  ];
+  const source = [
+    'export function create(): void {}',
+    'export function createOther(): void {}',
+    'export function close(): void {}'
+  ].join('\n');
+  const model = compileIssuerRoleFixture({
+    sources: Object.fromEntries(cases.map(({ id }) => [
+      `src/lifecycle-${id}/operation.ts`, source
+    ])),
+    operationObligations: Object.fromEntries(cases.map(({ id, capability }) => [
+      `src/lifecycle-${id}`, [operationObligation(capability, 'close')]
+    ])),
+    descriptors: Object.fromEntries(cases.map(({ id, providers }) => [
+      `src/lifecycle-${id}`, providers
+    ]))
+  });
+  for (const { capability, unresolved } of cases) {
+    expect(model.candidates.filter(({ code, subject }) => (
+      code === 'operation-critical-role-unresolved'
+      && subject === `${capability}:close`
+    ))).toEqual(unresolved ? [
+      expect.objectContaining({
+        code: 'operation-critical-role-unresolved',
+        subject: `${capability}:close`,
+        observationClass: 'unknown'
+      })
+    ] : []);
+  }
 
-  expect(() => compile([provider([
-    domainRole,
-    { ...domainRole, operation: 'createOther' },
-    terminalRole
-  ])])).toThrow('repository snapshot descriptor is invalid');
+  expect(() => compileIssuerRoleFixture({
+    sources: { 'src/lifecycle-invalid/operation.ts': source },
+    operationObligations: {
+      'src/lifecycle-invalid': [operationObligation('example.lifecycle.invalid', 'close')]
+    },
+    descriptors: {
+      'src/lifecycle-invalid': [provider('example.lifecycle.invalid', [
+        domainRole,
+        { ...domainRole, operation: 'createOther' },
+        terminalRole
+      ])]
+    }
+  })).toThrow('repository snapshot descriptor is invalid');
 });
+
 
 function compileCausalReaderFixture(
   readerSources: Readonly<Record<string, string>>,
