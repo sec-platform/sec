@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test';
 
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
+
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import {
@@ -8,6 +11,7 @@ import {
 } from './producer-closure.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import { TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS } from './typescript-profile.ts';
 
 const OPERATION = Object.freeze({ capability: 'fixture.normalize', operation: 'verify' });
 
@@ -247,70 +251,142 @@ test('operation producer rejects independent invalid exports and reachable loade
   }
 });
 
-for (const runtime of [
-  'export class verify {}\n',
-  'export enum verify { Value = 1 }\n'
-]) test(`operation producer retains executable value export: ${runtime.trim()}`, () => {
-  const closure = compileSourceProgramOperationProducerClosure(fixture('', undefined, runtime), OPERATION);
-  expect(closure.entrypoint.path).toBe('src/normalize/runtime.ts');
-});
-
-for (const runtime of [
-  "export type * from './kernel.ts';\nexport function verify(): void {}\n",
-  "export function verify(): void {}\nexport type * from './kernel.ts';\n"
-]) test('explicit runtime exports supersede type-only stars in either source order', () => {
-  const closure = compileSourceProgramOperationProducerClosure(
-    fixture('export function verify(): void {}\n', undefined, runtime), OPERATION
-  );
-  expect(closure.entrypoint.path).toBe('src/normalize/runtime.ts');
-});
-
-import { runInNewContext } from 'node:vm';
-import ts from 'typescript';
-import { TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS } from './typescript-profile.ts';
-
-for (const runtime of [
-  'export const enum verify { Value = 1 }\n',
-  'export namespace verify { export const Value = 1; }\n'
-]) test(`review regression: emitted runtime value remains a producer: ${runtime.trim()}`, async () => {
-  const output = ts.transpileModule(runtime, {
-    compilerOptions: { ...TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS, noEmit: false },
-    fileName: 'runtime.mts'
-  }).outputText;
-  expect(output).toContain('export var verify;');
-  const emitted = { verify: undefined as undefined | { Value: number } };
-  runInNewContext(output.replace('export var verify;', 'var verify;'), emitted);
-  expect(emitted.verify?.Value).toBe(1);
-  const closure = compileSourceProgramOperationProducerClosure(fixture('', undefined, runtime), OPERATION);
-  expect(closure.entrypoint.path).toBe('src/normalize/runtime.ts');
-});
-
-for (const bridge of [
-  "export type * from './kernel.ts';\nexport default function real() { return 1; }\n",
-  "export default function real() { return 1; }\nexport type * from './kernel.ts';\n"
-]) test('review regression: explicit default remains available beside a type-only star', async () => {
-  const output = ts.transpileModule(bridge, {
-    compilerOptions: { ...TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS, noEmit: false },
-    fileName: 'other.mts'
-  }).outputText;
-  expect(output).toContain('export default function real');
-  const emitted = { real: undefined as undefined | (() => number) };
-  runInNewContext(output.replace('export default function real', 'function real'), emitted);
-  expect(emitted.real?.()).toBe(1);
-  const compilation = fixture('export default function ignored() {}\n', undefined,
-    "export { default as verify } from './other.ts';\n", bridge);
-  expect(compileSourceProgramOperationProducerClosure(compilation, OPERATION).entrypoint.path)
-    .toBe('src/normalize/runtime.ts');
-});
-
-
-test('default alias regression: value imports and identifier default assignments remain runtime producers', () => {
-  const compilation = fixture('export function verify(): void {}\n',
-    "export { verify } from './normalize/kernel.ts';\n",
-    "import verify from './other.ts';\nexport { verify };\n",
-    "import { verify } from '../unrelated.ts';\nexport default verify;\n");
-  const closure = compileSourceProgramOperationProducerClosure(compilation, OPERATION);
-  expect(closure.implementationFiles.map(({ path }) => path)).toEqual([
-    'src/normalize/kernel.ts', 'src/normalize/other.ts', 'src/normalize/runtime.ts', 'src/unrelated.ts'
-  ]);
+test('runtime producer exports retain isolated value, type-only star and default alias witnesses', () => {
+  const cases: readonly {
+    name: string;
+    runtime: string;
+    kernel?: string;
+    other?: string;
+    unrelated?: string;
+    emitted?: 'enum' | 'default';
+    implementation?: 'alias';
+  }[] = [
+  {
+    "name": "class",
+    "runtime": "export class verify {}\n"
+  },
+  {
+    "name": "enum",
+    "runtime": "export enum verify { Value = 1 }\n"
+  },
+  {
+    "name": "type-only star after value",
+    "runtime": "export function verify(): void {}\nexport type * from './kernel.ts';\n",
+    "kernel": "export function verify(): void {}\n"
+  },
+  {
+    "name": "type-only star before value",
+    "runtime": "export type * from './kernel.ts';\nexport function verify(): void {}\n",
+    "kernel": "export function verify(): void {}\n"
+  },
+  {
+    "name": "const enum emit",
+    "runtime": "export const enum verify { Value = 1 }\n",
+    "kernel": "",
+    "emitted": "enum"
+  },
+  {
+    "name": "namespace emit",
+    "runtime": "export namespace verify { export const Value = 1; }\n",
+    "kernel": "",
+    "emitted": "enum"
+  },
+  {
+    "name": "default after star",
+    "runtime": "export { default as verify } from './other.ts';\n",
+    "kernel": "export default function ignored() {}\n",
+    "other": "export type * from './kernel.ts';\nexport default function real() { return 1; }\n",
+    "emitted": "default"
+  },
+  {
+    "name": "default before star",
+    "runtime": "export { default as verify } from './other.ts';\n",
+    "kernel": "export default function ignored() {}\n",
+    "other": "export default function real() { return 1; }\nexport type * from './kernel.ts';\n",
+    "emitted": "default"
+  },
+  {
+    "name": "default identifier alias",
+    "runtime": "import verify from './other.ts';\nexport { verify };\n",
+    "kernel": "export function verify(): void {}\n",
+    "other": "import { verify } from '../unrelated.ts';\nexport default verify;\n",
+    "unrelated": "export { verify } from './normalize/kernel.ts';\n",
+    "implementation": "alias"
+  }
+];
+  // Only the immutable compilation is shared; every emitted-value VM
+  // observation remains separate, with exact source and operation identities.
+  const sources = new Map<string, string>();
+  const descriptorSources: { descriptorPath: string; source: string }[] = [];
+  for (const [index, item] of cases.entries()) {
+    const scope = 'src/producer-positive-' + index;
+    const root = scope + '/normalize';
+    const descriptorPath = root + '/module.json';
+    const descriptor = JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: [root + '/runtime.ts', root + '/other.ts'],
+      capabilityProviders: [{ capability: 'fixture.producer-positive-' + index, operations: ['verify'] }]
+    });
+    descriptorSources.push({ descriptorPath, source: descriptor });
+    sources.set(descriptorPath, descriptor);
+    sources.set(root + '/runtime.ts', item.runtime);
+    sources.set(root + '/other.ts', item.other ?? 'export const inspect = true;\n');
+    sources.set(root + '/kernel.ts', item.kernel ?? '');
+    sources.set(scope + '/unrelated.ts', item.unrelated ?? 'export const unrelated = true;\n');
+  }
+  const files = [...sources].map(([path, source]) => Object.freeze({
+    path, mode: '100644' as const, source, contentDigest: rawSha256(source)
+  }));
+  const membership = compileRepositoryModuleMembershipSnapshot({
+    repositoryFiles: files.map(({ path }) => path), descriptorSources
+  });
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    subject: Object.freeze({
+      kind: 'virtual-mutation',
+      provenance: Object.freeze({
+        kind: 'source-program-virtual-mutation',
+        baseSnapshotDigest: sha256('base') as `sha256:${string}`,
+        mutationDigest: sha256(files.map(({ path, contentDigest }) => ({
+          path, contentDigest
+        }))) as `sha256:${string}`
+      })
+    }),
+    files,
+    moduleMembership: membership
+  });
+  const compilation = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
+  for (const [index, item] of cases.entries()) {
+    if (item.emitted === 'enum') {
+      const output = ts.transpileModule(item.runtime, {
+        compilerOptions: { ...TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS, noEmit: false },
+        fileName: 'runtime.mts'
+      }).outputText;
+      expect(output).toContain('export var verify;');
+      const emitted = { verify: undefined as undefined | { Value: number } };
+      runInNewContext(output.replace('export var verify;', 'var verify;'), emitted);
+      expect(emitted.verify?.Value).toBe(1);
+    }
+    if (item.emitted === 'default') {
+      const output = ts.transpileModule(item.other!, {
+        compilerOptions: { ...TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS, noEmit: false },
+        fileName: 'other.mts'
+      }).outputText;
+      expect(output).toContain('export default function real');
+      const emitted = { real: undefined as undefined | (() => number) };
+      runInNewContext(output.replace('export default function real', 'function real'), emitted);
+      expect(emitted.real?.()).toBe(1);
+    }
+    const root = 'src/producer-positive-' + index + '/normalize';
+    const closure = compileSourceProgramOperationProducerClosure(compilation, {
+      capability: 'fixture.producer-positive-' + index, operation: 'verify'
+    });
+    expect(closure.entrypoint.path).toBe(root + '/runtime.ts');
+    expect(closure.entrypoint.source).toBe(item.runtime);
+    if (item.implementation === 'alias') {
+      expect(closure.implementationFiles.map(({ path }) => path)).toEqual([
+        root + '/kernel.ts', root + '/other.ts', root + '/runtime.ts',
+        'src/producer-positive-' + index + '/unrelated.ts'
+      ]);
+    }
+  }
 });
