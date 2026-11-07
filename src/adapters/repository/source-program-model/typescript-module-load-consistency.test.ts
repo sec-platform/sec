@@ -9,6 +9,7 @@ import {
 } from './typescript-fact-shards.ts';
 import {
   compileTypeScriptSourceProgramModel,
+  compileTypeScriptSourceProgramModelIncremental,
   releaseTypeScriptSourceProgramWorkspace,
   sourceProgramTypeScriptCompilerIdentity
 } from './typescript.ts';
@@ -74,4 +75,135 @@ test('fact shards from an independent foreign compiler revision cannot join the 
   });
   assert.throws(() => assembleTypeScriptSourceProgramModel({ sourceRevision: rawSha256('export {};'),
     compilerRevision: identity.compilerRevision, provider: identity.provider, shards: [shard] }), /incompatible fact shards/);
+});
+
+function packageInput(target: 'one' | 'two', extraLoad = '') {
+  const sources: Readonly<Record<string, string>> = {
+    'package.json': JSON.stringify({ type: 'module', imports: { '#entry': `./src/${target}.ts` } }),
+    'src/main.ts': `export { value } from '#entry'; void import('#entry'); ${extraLoad}`,
+    'src/one.ts': 'export const value = 1;',
+    'src/two.ts': 'export const value = 2;'
+  };
+  const files = Object.entries(sources).map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
+  return { files, moduleMembership, sourceRevision: sha256(files) };
+}
+
+test('graph and semantic lowering share the compiler-selected package import and retain its lookup inputs', () => {
+  try {
+    const input = packageInput('one');
+    const model = compileTypeScriptSourceProgramModel(input);
+    const sources = new Map(input.files.map((file) => [file.path, file.source]));
+    const graph = compileSourceProgramRepositoryModuleGraph({
+      files: [...sources.keys()], readSource: (path) => sources.get(path) ?? null
+    });
+    const imports = graph.references.filter((reference) => reference.from === 'src/main.ts');
+    assert.equal(imports.length, 2);
+    for (const reference of imports) {
+      assert.equal(reference.resolvedTarget, 'src/one.ts');
+      assert.ok(reference.candidateTargets.includes('package.json'));
+      assert.ok(reference.candidateTargets.includes('src/package.json'));
+    }
+    assert.deepEqual(graph.directConsumers('src/package.json'), ['src/main.ts']);
+    assert.ok(graph.directDependencies('src/main.ts').includes('package.json'));
+    assert.ok(graph.directRuntimeDependencies('src/main.ts').includes('src/one.ts'));
+    assert.deepEqual(graph.unresolvedFiles, []);
+    assert.ok(model.references.some((reference) => reference.moduleSpecifier === '#entry'
+      && reference.targetPath === 'src/one.ts'));
+    assert.equal(model.unknowns.some((unknown) => unknown.code === 'external-module-opaque'
+      && unknown.detail === '#entry'), false);
+  } finally {
+    releaseTypeScriptSourceProgramWorkspace();
+  }
+});
+
+test('a resolved package occurrence does not erase another computed load in the same module', () => {
+  try {
+    const input = packageInput('one', 'void import(dynamicTarget);');
+    const model = compileTypeScriptSourceProgramModel(input);
+    const sources = new Map(input.files.map((file) => [file.path, file.source]));
+    const graph = compileSourceProgramRepositoryModuleGraph({
+      files: [...sources.keys()], readSource: (path) => sources.get(path) ?? null
+    });
+    assert.ok(graph.references.some((reference) => reference.from === 'src/main.ts'
+      && reference.resolvedTarget === 'src/one.ts'));
+    assert.deepEqual(graph.unresolvedFiles, ['src/main.ts']);
+    assert.ok(model.unknowns.some((unknown) => unknown.path === 'src/main.ts'
+      && unknown.code === 'dynamic-module-unresolved'));
+  } finally {
+    releaseTypeScriptSourceProgramWorkspace();
+  }
+});
+
+test('package metadata changes invalidate semantic shards even when every TypeScript byte is unchanged', () => {
+  try {
+    const first = compileTypeScriptSourceProgramModelIncremental(packageInput('one'), null);
+    const second = compileTypeScriptSourceProgramModelIncremental(packageInput('two'), first.state);
+    assert.equal(second.mode, 'full');
+    assert.notEqual(second.state.resolutionMetadataDigest, first.state.resolutionMetadataDigest);
+    const targets = second.model.references.filter((reference) => reference.moduleSpecifier === '#entry')
+      .map((reference) => reference.targetPath);
+    assert.ok(targets.length > 0);
+    assert.ok(targets.every((target) => target === 'src/two.ts'));
+    assert.ok(first.model.references.some((reference) => reference.moduleSpecifier === '#entry'
+      && reference.targetPath === 'src/one.ts'));
+  } finally {
+    releaseTypeScriptSourceProgramWorkspace();
+  }
+});
+
+for (const [name, specifier, imports] of [
+  ['extension substitution', './one.js', {}],
+  ['conditional package target', '#entry', {
+    '#entry': { types: './src/one.ts', bun: './src/two.ts', default: './src/two.ts' }
+  }]
+] as const) {
+  test(`compiler resolution keeps unproved runtime selection visible: ${name}`, () => {
+    try {
+      const base = packageInput('one');
+      const files = base.files.map((file) => {
+        const source = file.path === 'package.json' ? JSON.stringify({ type: 'module', imports })
+          : file.path === 'src/main.ts'
+            ? `export { value } from '${specifier}'; void import('${specifier}');` : file.source;
+        return { ...file, source, contentDigest: rawSha256(source) };
+      });
+      const model = compileTypeScriptSourceProgramModel({ ...base, files, sourceRevision: sha256(files) });
+      const sources = new Map(files.map((file) => [file.path, file.source]));
+      const graph = compileSourceProgramRepositoryModuleGraph({
+        files: [...sources.keys()], readSource: (path) => sources.get(path) ?? null
+      });
+      const references = graph.references.filter((reference) => reference.from === 'src/main.ts');
+      assert.equal(references.length, 2);
+      assert.ok(references.every((reference) => reference.resolvedTarget === 'src/one.ts'));
+      assert.ok(references.every((reference) => reference.runtime.kind === 'unresolved'));
+      assert.ok(references.every((reference) => reference.candidateTargets.includes('src/one.ts')));
+      assert.deepEqual(graph.unresolvedFiles, ['src/main.ts']);
+      assert.ok(model.unknowns.some((unknown) => unknown.code === 'module-resolution-unresolved'));
+      assert.ok(model.unknowns.some((unknown) => unknown.code === 'dynamic-module-unresolved'));
+      // The compiler's symbolic target remains useful; it cannot close runtime loading.
+      assert.ok(model.references.some((reference) => reference.kind === 'reexport'
+        && reference.targetPath === 'src/one.ts'));
+    } finally {
+      releaseTypeScriptSourceProgramWorkspace();
+    }
+  });
+}
+
+test('type-only imports preserve compiler targets without requiring a runtime address', () => {
+  try {
+    const sources = new Map([
+      ['src/main.ts', "import type { Value } from './one.js'; export type Local = Value;"],
+      ['src/one.ts', 'export type Value = string;']
+    ]);
+    const files = [...sources].map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
+    const model = compileTypeScriptSourceProgramModel({ files, moduleMembership, sourceRevision: sha256(files) });
+    const graph = compileSourceProgramRepositoryModuleGraph({
+      files: [...sources.keys()], readSource: (path) => sources.get(path) ?? null
+    });
+    assert.equal(graph.references[0]?.resolvedTarget, 'src/one.ts');
+    assert.deepEqual(graph.directRuntimeDependencies('src/main.ts'), []);
+    assert.deepEqual(graph.unresolvedFiles, []);
+    assert.equal(model.unknowns.some((unknown) => unknown.code === 'module-resolution-unresolved'), false);
+  } finally {
+    releaseTypeScriptSourceProgramWorkspace();
+  }
 });

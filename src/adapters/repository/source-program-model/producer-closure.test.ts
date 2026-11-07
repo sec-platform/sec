@@ -4,6 +4,7 @@ import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import {
   compileSourceProgramOperationProducerClosure,
+  compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot,
   requireSourceProgramOperationProducerClosure
 } from './producer-closure.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
@@ -15,7 +16,8 @@ function fixture(
   implementation: string,
   unrelated = 'export const unrelated = true;\n',
   runtime = "import { normalize } from './kernel.ts';\nexport const verify = normalize;\n",
-  other = 'export const inspect = true;\n'
+  other = 'export const inspect = true;\n',
+  additionalSources: Readonly<Record<string, string>> = {}
 ) {
   const descriptor = JSON.stringify({
     importGraph: 'runtime',
@@ -27,7 +29,8 @@ function fixture(
     ['src/normalize/runtime.ts', runtime],
     ['src/normalize/other.ts', other],
     ['src/normalize/kernel.ts', implementation],
-    ['src/unrelated.ts', unrelated]
+    ['src/unrelated.ts', unrelated],
+    ...Object.entries(additionalSources)
   ]);
   const files = [...sources].map(([path, source]) => Object.freeze({
     path,
@@ -93,6 +96,23 @@ test('operation producer closure is the one descriptor-owned operation entrypoin
     OPERATION
   );
   expect(unrelatedChanged.closureDigest).toBe(closure.closureDigest);
+});
+
+test('operation closure retains assets and type views without treating asset contents as module evaluation', () => {
+  const compilation = fixture('export function normalize(): void {}\n', undefined,
+    "import asset from './asset.mjs' with { type: 'file' }; export function verify() { return asset; }",
+    undefined, {
+      'package.json': '{"type":"module"}',
+      'src/normalize/asset.d.mts': 'declare const asset: string; export default asset;',
+      'src/normalize/asset.mjs': 'await import(computedTarget); export default 1;'
+    });
+  expect(compilation.workspaceSnapshot.moduleGraph.unresolvedFiles).toContain('src/normalize/asset.mjs');
+  const closure = compileSourceProgramOperationProducerClosure(compilation, OPERATION);
+  expect(closure.implementationFiles.map(({ path }) => path)).toEqual([
+    'package.json', 'src/normalize/asset.d.mts', 'src/normalize/asset.mjs', 'src/normalize/runtime.ts'
+  ]);
+  const projected = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(compilation.workspaceSnapshot, OPERATION);
+  expect(projected.closureDigest).toBe(closure.closureDigest);
 });
 
 test('operation producer entrypoint follows TypeChecker aliases and re-exports', () => {

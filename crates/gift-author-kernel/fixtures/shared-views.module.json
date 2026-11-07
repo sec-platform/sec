@@ -1,0 +1,692 @@
+{
+  "schema": "gift.author-module/2",
+  "moduleId": "module:shared_ordered_views",
+  "definitions": {
+    "Rows": {
+      "kind": "core:constant",
+      "body": {
+        "type": {
+          "tag": "sequence",
+          "item": {
+            "tag": "record",
+            "fields": {
+              "score": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                }
+              },
+              "label": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                }
+              },
+              "enabled": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            },
+            "open": false
+          },
+          "ordered": true
+        },
+        "value": {
+          "op": "sequence",
+          "items": [
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "score",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "9"
+                  }
+                },
+                {
+                  "name": "label",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "nine"
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": true
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "score",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "5"
+                  }
+                },
+                {
+                  "name": "label",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "repeated-five"
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": true
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "score",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "8"
+                  }
+                },
+                {
+                  "name": "label",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "disabled-eight"
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": false
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "score",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "5"
+                  }
+                },
+                {
+                  "name": "label",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "repeated-five"
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": true
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "score",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "-922337203685477580812345678901234567890"
+                  }
+                },
+                {
+                  "name": "label",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "very-negative"
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": true
+                  }
+                }
+              ]
+            },
+            {
+              "op": "record",
+              "fields": [
+                {
+                  "name": "score",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "int"
+                    },
+                    "value": "922337203685477580812345678901234567890"
+                  }
+                },
+                {
+                  "name": "label",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "text"
+                    },
+                    "value": "very-positive"
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "value": {
+                    "op": "literal",
+                    "type": {
+                      "tag": "scalar",
+                      "name": "bool"
+                    },
+                    "value": true
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "DefaultThreshold": {
+      "kind": "core:constant",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "int"
+        },
+        "value": {
+          "op": "literal",
+          "type": {
+            "tag": "scalar",
+            "name": "int"
+          },
+          "value": "5"
+        }
+      }
+    },
+    "Unrelated": {
+      "kind": "core:constant",
+      "body": {
+        "type": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "value": {
+          "op": "literal",
+          "type": {
+            "tag": "scalar",
+            "name": "bool"
+          },
+          "value": true
+        }
+      }
+    },
+    "MeetsThreshold": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "left",
+            "type": {
+              "tag": "scalar",
+              "name": "int"
+            }
+          },
+          {
+            "name": "right",
+            "type": {
+              "tag": "scalar",
+              "name": "int"
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "match",
+          "value": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "std:IntCompare"
+            },
+            "arguments": [
+              {
+                "op": "var",
+                "name": "left"
+              },
+              {
+                "op": "var",
+                "name": "right"
+              }
+            ]
+          },
+          "cases": [
+            {
+              "constructor": "Less",
+              "binding": "unusedLess",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": false
+              }
+            },
+            {
+              "constructor": "Equal",
+              "binding": "unusedEqual",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              }
+            },
+            {
+              "constructor": "Greater",
+              "binding": "unusedGreater",
+              "body": {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                },
+                "value": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    "KeepInherited": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "row",
+            "type": {
+              "tag": "record",
+              "fields": {
+                "score": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  }
+                },
+                "label": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                },
+                "enabled": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  }
+                }
+              },
+              "open": false
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "field",
+            "record": {
+              "op": "var",
+              "name": "row"
+            },
+            "name": "enabled"
+          },
+          "then": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:MeetsThreshold"
+            },
+            "arguments": [
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "row"
+                },
+                "name": "score"
+              },
+              {
+                "op": "symbol",
+                "ref": "local:DefaultThreshold"
+              }
+            ]
+          },
+          "otherwise": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "value": false
+          }
+        }
+      }
+    },
+    "KeepFixed": {
+      "kind": "core:function",
+      "body": {
+        "parameters": [
+          {
+            "name": "row",
+            "type": {
+              "tag": "record",
+              "fields": {
+                "score": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  }
+                },
+                "label": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                },
+                "enabled": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  }
+                }
+              },
+              "open": false
+            }
+          }
+        ],
+        "returns": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "effects": [],
+        "termination": "total",
+        "body": {
+          "op": "if",
+          "condition": {
+            "op": "field",
+            "record": {
+              "op": "var",
+              "name": "row"
+            },
+            "name": "enabled"
+          },
+          "then": {
+            "op": "call",
+            "callee": {
+              "op": "symbol",
+              "ref": "local:MeetsThreshold"
+            },
+            "arguments": [
+              {
+                "op": "field",
+                "record": {
+                  "op": "var",
+                  "name": "row"
+                },
+                "name": "score"
+              },
+              {
+                "op": "literal",
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                },
+                "value": "5"
+              }
+            ]
+          },
+          "otherwise": {
+            "op": "literal",
+            "type": {
+              "tag": "scalar",
+              "name": "bool"
+            },
+            "value": false
+          }
+        }
+      }
+    },
+    "AcceptedInherited": {
+      "kind": "domain:meaning",
+      "body": {
+        "category": "predicate",
+        "parameters": [
+          {
+            "name": "row",
+            "type": {
+              "tag": "record",
+              "fields": {
+                "score": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "int"
+                  }
+                },
+                "label": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "text"
+                  }
+                },
+                "enabled": {
+                  "type": {
+                    "tag": "scalar",
+                    "name": "bool"
+                  }
+                }
+              },
+              "open": false
+            },
+            "cardinality": "one"
+          }
+        ],
+        "result": {
+          "tag": "scalar",
+          "name": "bool"
+        },
+        "interpretationRef": "local:KeepInherited"
+      }
+    },
+    "InheritedView": {
+      "kind": "data:query",
+      "body": {
+        "inputRefs": [
+          "local:Rows"
+        ],
+        "algebra": {
+          "op": "filter",
+          "source": {
+            "op": "scan",
+            "sourceRef": "local:Rows"
+          },
+          "predicateRef": "local:AcceptedInherited"
+        },
+        "result": {
+          "tag": "sequence",
+          "item": {
+            "tag": "record",
+            "fields": {
+              "score": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                }
+              },
+              "label": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                }
+              },
+              "enabled": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            },
+            "open": false
+          },
+          "ordered": true
+        }
+      }
+    },
+    "FixedView": {
+      "kind": "data:query",
+      "body": {
+        "inputRefs": [
+          "local:Rows"
+        ],
+        "algebra": {
+          "op": "filter",
+          "source": {
+            "op": "scan",
+            "sourceRef": "local:Rows"
+          },
+          "predicateRef": "local:KeepFixed"
+        },
+        "result": {
+          "tag": "sequence",
+          "item": {
+            "tag": "record",
+            "fields": {
+              "score": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "int"
+                }
+              },
+              "label": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "text"
+                }
+              },
+              "enabled": {
+                "type": {
+                  "tag": "scalar",
+                  "name": "bool"
+                }
+              }
+            },
+            "open": false
+          },
+          "ordered": true
+        }
+      }
+    }
+  },
+  "exports": {
+    "inherited": {
+      "definitionId": "InheritedView"
+    },
+    "fixed": {
+      "definitionId": "FixedView"
+    }
+  }
+}

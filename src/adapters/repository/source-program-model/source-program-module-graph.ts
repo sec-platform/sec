@@ -40,6 +40,8 @@ import {
 /** Canonical TypeScript module observation orchestration; graph assembly remains compiler-independent. */
 export type SourceProgramRepositoryModuleGraphInput = Readonly<{
   readonly files: readonly string[];
+  /** The full input subject, distinct from acquired text files. */
+  readonly membershipPaths?: readonly string[];
   /** Return null when the exact snapshot has no bytes for the address. */
   readonly readSource: (moduleFile: string) => string | null;
   /** Non-TypeScript embedded-language facts issued by their own frontend. */
@@ -85,7 +87,10 @@ export function compileSourceProgramRepositoryModuleGraph(
   const imports: RepositoryModuleGraphImportObservation[] = [];
   if (typeScriptFiles.size > 0) {
     const observations = typeScriptModuleImportFacts(
-      compileExactTypeScriptProgram(typeScriptFiles, identities, operation)
+      compileExactTypeScriptProgram(typeScriptFiles, identities, operation, {
+        files: [...sourceByPath].map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) })),
+        membershipPaths: input.membershipPaths ?? files
+      })
     );
     imports.push(...observations.imports);
     for (const file of observations.unresolvedFiles) unresolvedFiles.add(file);

@@ -30,7 +30,7 @@ for (const fault of ['package-acquire', 'lock-acquire', 'lock-acquire-and-dispos
         const sourcePath = ${source('src/adapters/release/release-git-tree-source.ts')};
         const sourceProvider = await import(sourcePath);
         const packageBytes = Buffer.from(JSON.stringify({ version: '1.0.0',
-          source: './src/entry.ts', bin: { fixture: './dist/index.js' },
+          imports: { [runtime.PACKAGE_SOURCE_IMPORT]: './src/entry.ts' }, bin: { fixture: './dist/index.js' },
           scripts: { fixture: runtime.PACKAGE_SOURCE_LAUNCHER_SCRIPT },
           packageManager: 'bun@' + Bun.version, dependencies: {} }));
         mock.module(runtimePath, () => ({ ...runtime, loadCanonicalBunRuntimeVersion: async () => Bun.version }));
@@ -122,7 +122,7 @@ test('release public entries preserve body and cleanup failures for every retain
       const directory = { path: '/frozen', device: '1', inode: '1', objectId: 'fixture-source' };
       const executableDigest = 'sha256:' + 'a'.repeat(64);
       const packageBytes = Buffer.from(JSON.stringify({ version: '1.0.0',
-        source: './src/entry.ts', bin: { fixture: './dist/index.js' },
+        imports: { [runtime.PACKAGE_SOURCE_IMPORT]: './src/entry.ts' }, bin: { fixture: './dist/index.js' },
         scripts: { fixture: runtime.PACKAGE_SOURCE_LAUNCHER_SCRIPT },
         packageManager: 'bun@' + Bun.version, dependencies: {} }));
       let phase, bodyFails, cleanupFails, primary, cleanup;

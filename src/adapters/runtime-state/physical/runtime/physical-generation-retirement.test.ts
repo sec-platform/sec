@@ -12,6 +12,10 @@ import {
   issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
+  closeWindowsHandlesBestEffort, WINDOWS_FILE_OPEN, WINDOWS_SHARE_READ,
+  windowsIdentity, windowsOpenPinnedReadDirectory, windowsOpenRelativeDirectory
+} from './physical-no-follow-native.ts';
+import {
   assertPhysicalGenerationRetirementReceipt,
   inspectNoFollowDirectoryChain,
   materializeRetainedNoFollowProvenDirectoryGeneration,
@@ -26,6 +30,158 @@ import {
 function digest(value: string): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
+
+async function withWindowsRetirementFixture(run: (parentPath: string, rootPath: string) => Promise<void>): Promise<void> {
+  const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-stack-'));
+  const rootPath = path.join(parentPath, 'tree');
+  await mkdir(rootPath);
+  try { await run(parentPath, rootPath); }
+  finally {
+    expect(path.dirname(parentPath)).toBe(path.resolve(tmpdir()));
+    expect(path.basename(parentPath).startsWith('sec-windows-tree-stack-')).toBe(true);
+    await rm(parentPath, { recursive: true, force: true });
+  }
+}
+
+function fixedRetirementInput(parentPath: string, rootPath: string) {
+  const root = inspectNoFollowDirectoryChain(rootPath, 'Windows tree fixture').target;
+  return {
+    parent: inspectNoFollowDirectoryChain(parentPath, 'Windows tree fixture parent').target,
+    root,
+    inventory: scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + 30_000, maximumBytes: 1024 * 1024, maximumEntries: 128
+    }),
+    deadlineAtMonotonicMs: performance.now() + 30_000
+  };
+}
+
+test.skipIf(process.platform !== 'win32')('Windows fixed inventory retirement visits nested and sibling directories in postorder', async () => {
+  await withWindowsRetirementFixture(async (parentPath, rootPath) => {
+    let directory = rootPath;
+    for (let depth = 0; depth < 8; depth += 1) {
+      directory = path.join(directory, `level-${depth}`);
+      await mkdir(directory);
+      await writeFile(path.join(directory, 'value.txt'), `depth ${depth}`);
+    }
+    await mkdir(path.join(rootPath, 'sibling'));
+    await writeFile(path.join(rootPath, 'sibling', 'other.txt'), 'sibling');
+    const input = fixedRetirementInput(parentPath, rootPath);
+    const receipt = retireNoFollowDirectoryTree(input);
+    expect(receipt.status).toBe('physically-absent');
+    expect(receipt.entryCount).toBe(input.inventory.length);
+    expect(receipt.root.objectId).toBe(input.root.objectId);
+    await expect(lstat(rootPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+test.skipIf(process.platform !== 'win32')('Windows fixed inventory validates duplicate paths and complete ancestors before deletion', async () => {
+  await withWindowsRetirementFixture(async (parentPath, rootPath) => {
+    await mkdir(path.join(rootPath, 'nested'));
+    const file = path.join(rootPath, 'nested', 'value.txt');
+    await writeFile(file, 'preserved');
+    const input = fixedRetirementInput(parentPath, rootPath);
+    expect(() => retireNoFollowDirectoryTree({ ...input, inventory: [...input.inventory, input.inventory[0]!] }))
+      .toThrow('duplicate');
+    expect(() => retireNoFollowDirectoryTree({ ...input, inventory: input.inventory.filter(entry => entry.relativePath !== 'nested') }))
+      .toThrow('ancestor inventory');
+    const leaf = input.inventory.find(entry => entry.kind === 'file')!;
+    for (const relativePath of ['../escape', 'nested//value.txt', 'nested/value.txt:stream']) {
+      expect(() => retireNoFollowDirectoryTree({ ...input, inventory: [{ ...leaf, relativePath }] })).toThrow();
+    }
+    expect(await readFile(file, 'utf8')).toBe('preserved');
+  });
+});
+
+test.skipIf(process.platform !== 'win32')('Windows retirement directory sharing prevents moving the retained stack scope', async () => {
+  await withWindowsRetirementFixture(async (parentPath, rootPath) => {
+    const nestedPath = path.join(rootPath, 'nested');
+    await mkdir(nestedPath);
+    const handles: bigint[] = [];
+    try {
+      const parent = windowsOpenPinnedReadDirectory(parentPath, 'retirement sharing fixture parent');
+      handles.push(parent);
+      const parentIdentity = windowsIdentity(parent, parentPath, 'retirement sharing fixture parent');
+      const root = windowsOpenRelativeDirectory(parent, parentIdentity, 'tree', rootPath,
+        WINDOWS_FILE_OPEN, 'retirement sharing fixture root', WINDOWS_SHARE_READ, true);
+      if (root === null) throw new Error('Fixture root is missing');
+      handles.push(root);
+      const rootIdentity = windowsIdentity(root, rootPath, 'retirement sharing fixture root');
+      const nested = windowsOpenRelativeDirectory(root, rootIdentity, 'nested', nestedPath,
+        WINDOWS_FILE_OPEN, 'retirement sharing fixture nested', WINDOWS_SHARE_READ, true);
+      if (nested === null) throw new Error('Fixture nested directory is missing');
+      handles.push(nested);
+      await expect(rename(parentPath, `${parentPath}-moved`)).rejects.toThrow();
+      await expect(rename(rootPath, path.join(parentPath, 'moved-root'))).rejects.toThrow();
+      await expect(rename(nestedPath, path.join(rootPath, 'moved-nested'))).rejects.toThrow();
+      expect((await lstat(nestedPath)).isDirectory()).toBe(true);
+    } finally {
+      const failure = closeWindowsHandlesBestEffort(handles.reverse(), 'retirement sharing fixture');
+      if (failure !== null) throw failure;
+    }
+    const moved = path.join(parentPath, 'moved-root');
+    await rename(rootPath, moved);
+    await rename(moved, rootPath);
+    expect((await lstat(nestedPath)).isDirectory()).toBe(true);
+  });
+});
+
+test.skipIf(process.platform !== 'win32')('Windows fixed inventory rejects a replaced directory or junction without deleting foreign entries', async () => {
+  for (const replacement of ['directory', 'junction']) {
+    await withWindowsRetirementFixture(async (parentPath, rootPath) => {
+      const nested = path.join(rootPath, 'nested');
+      await mkdir(nested);
+      await writeFile(path.join(nested, 'value.txt'), 'original');
+      const input = fixedRetirementInput(parentPath, rootPath);
+      await rename(nested, path.join(parentPath, 'original-nested'));
+      const foreign = replacement === 'directory' ? nested : path.join(parentPath, 'foreign');
+      await mkdir(foreign);
+      await writeFile(path.join(foreign, 'value.txt'), 'foreign');
+      if (replacement === 'junction') await symlink(foreign, nested, 'junction');
+      expect(() => retireNoFollowDirectoryTree(input)).toThrow();
+      expect(await readFile(path.join(foreign, 'value.txt'), 'utf8')).toBe('foreign');
+      expect(await readFile(path.join(parentPath, 'original-nested', 'value.txt'), 'utf8')).toBe('original');
+    });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')('Windows fixed inventory preserves new members during failed retirement and remaining-scope retry', async () => {
+  await withWindowsRetirementFixture(async (parentPath, rootPath) => {
+    await mkdir(path.join(rootPath, 'nested'));
+    await writeFile(path.join(rootPath, 'nested', 'known.txt'), 'known');
+    const input = fixedRetirementInput(parentPath, rootPath);
+    const newcomer = path.join(rootPath, 'nested', 'new.txt');
+    await writeFile(newcomer, 'outside inventory');
+    expect(() => retireNoFollowDirectoryTree(input)).toThrow();
+    expect(await readFile(newcomer, 'utf8')).toBe('outside inventory');
+    await expect(lstat(path.join(rootPath, 'nested', 'known.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(() => retireNoFollowDirectoryTree({ ...input, inventory: input.inventory.filter(entry => entry.kind === 'directory') })).toThrow();
+    expect(await readFile(newcomer, 'utf8')).toBe('outside inventory');
+  });
+});
+
+test.skipIf(process.platform !== 'win32')('Windows fixed inventory byte preimages fail safely and remaining original identities can retire after correction', async () => {
+  await withWindowsRetirementFixture(async (parentPath, rootPath) => {
+    await mkdir(path.join(rootPath, 'nested'));
+    await writeFile(path.join(rootPath, 'nested', 'a.txt'), 'first');
+    await writeFile(path.join(rootPath, 'nested', 'b.txt'), 'second');
+    const input = fixedRetirementInput(parentPath, rootPath);
+    const expectedFileBytes = new Map([['nested/a.txt', Buffer.from('first')], ['nested/b.txt', Buffer.from('second')]]);
+    await writeFile(path.join(rootPath, 'nested', 'b.txt'), 'edited');
+    expect(() => retireNoFollowDirectoryTree({ ...input, expectedFileBytes })).toThrow('file bytes changed');
+    await expect(lstat(path.join(rootPath, 'nested', 'a.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(path.join(rootPath, 'nested', 'b.txt'), 'utf8')).toBe('edited');
+    // Every directory handle must be closed even after a mid-tree failure.
+    const moved = path.join(parentPath, 'moved-tree');
+    await rename(rootPath, moved);
+    await rename(moved, rootPath);
+    await writeFile(path.join(rootPath, 'nested', 'b.txt'), 'second');
+    const receipt = retireNoFollowDirectoryTree({ ...input,
+      inventory: input.inventory.filter(entry => entry.relativePath !== 'nested/a.txt'),
+      expectedFileBytes: new Map([['nested/b.txt', Buffer.from('second')]]) });
+    expect(receipt.status).toBe('physically-absent');
+    await expect(lstat(rootPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
 
 function legacyRelocationOperation() {
   const requirementId = 'runtime-physical.legacy-relocation';

@@ -1,10 +1,15 @@
 import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import type { GitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { compileRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
+import { assertIssuedTestImpactProjection, issueTestImpactProjection } from '../../src/adapters/repository/source-program-model/test-impact-projection.ts';
 import {
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   compileVirtualWorkspaceSourceSnapshot,
@@ -17,6 +22,7 @@ import {
   repositoryChangeObserverBinding,
   type PreparedRepositoryChangeObserver
 } from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
+import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
@@ -37,6 +43,7 @@ import {
   isDefaultFastTestFile,
   planFastTestProcesses
 } from '../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
+import type { NativeTestExecutionInput } from '../../src/adapters/self-hosting/development/runner/native-test-runner.ts';
 import { applyDefaultFastTestConcurrency } from '../../src/adapters/self-hosting/development/runner/test-concurrency-policy.ts';
 import {
   admitFastTestBatchExecutionPolicy,
@@ -53,7 +60,7 @@ import {
   type TestExecutionHost,
   type TestSuiteExecutionAdmission
 } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
-import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, issueTestInventoryProjection, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
@@ -62,6 +69,9 @@ import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-prov
 
 const actualCommandRunner = await import('../../src/adapters/self-hosting/development/runner/command-runner.ts');
 const actualPhysicalProcess = await import('../../src/adapters/runtime-state/physical/runtime/process.ts');
+const actualNativeTestRunner = await import('../../src/adapters/self-hosting/development/runner/native-test-runner.ts');
+const actualRunNativeTests = actualNativeTestRunner.runNativeTests;
+const actualNativeTestExecutionRetainsDependency = actualNativeTestRunner.nativeTestExecutionRetainsDependency;
 const testImpactFixture = await createExactGitTreeTestRunnerFixture();
 afterAll(() => testImpactFixture.dispose());
 const samePathContentDriftPath = 'tests/unit/path-containment.test.ts';
@@ -89,11 +99,15 @@ if (samePathContentDriftSnapshot.snapshotDigest === samePathContentDriftBefore.s
   throw new Error('Drift fixture did not change the source snapshot digest.');
 }
 const actualWorkspaceSnapshots = await import('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts');
+const acquireActualWorkingSnapshot = actualWorkspaceSnapshots.acquireWorkingTreeWorkspaceSourceSnapshot;
+let useNativeTestFixture = false;
+let nativeTestFixture: Awaited<ReturnType<typeof createNativeRunnerSourceFixture>>;
 const testBudgetSnapshotOverrides: Array<WorkspaceSourceSnapshot | Error> = [];
 mock.module('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts', () => ({
   ...actualWorkspaceSnapshots,
   acquireWorkingTreeWorkspaceSourceSnapshot: async () => {
-    const snapshot = testBudgetSnapshotOverrides.shift() ?? testImpactFixture.workingTreeSnapshot;
+    const snapshot = testBudgetSnapshotOverrides.shift()
+      ?? (useNativeTestFixture ? nativeTestFixture.snapshot : testImpactFixture.workingTreeSnapshot);
     if (snapshot instanceof Error) throw snapshot;
     return snapshot;
   }
@@ -105,10 +119,98 @@ const compilerDependencyAuthority = await dependencyRuntime.observeCompilerDepen
 if (compilerDependencyAuthority === null) {
   throw new Error('Test runner requires one existing compiler generation authority.');
 }
-const compilerDependencyFixture = dependencyRuntime.projectCompilerDepsReadyState(
+const compilerDependencyReadyFixture = dependencyRuntime.projectCompilerDepsReadyState(
   compilerDependencyAuthority
 );
 const actualDependencyBootstrap = await import('../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts');
+const compilerDependencyFixture = await actualDependencyBootstrap.ensureOperationDependencies(
+  compileOperationDemandGraph({ operation: 'test-fast', terminalWorkIds: [] }),
+  { ensureCompilerDeps: async () => compilerDependencyReadyFixture,
+    readCompilerDeps: async () => compilerDependencyReadyFixture }
+);
+const nativeFastTestFiles = Object.freeze([...new Set([
+  ...DEFAULT_FAST_TEST_EXCLUDED_FILES, ...FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file),
+  'tests/unit/path-containment.test.ts', FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE
+])].sort());
+
+async function createNativeRunnerSourceFixture() {
+  const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-runner-native-'));
+  const sources = new Map<string, string>([
+    ['tsconfig.json', JSON.stringify({ compilerOptions: { noEmit: true }, include: ['src/**/*.ts', 'tests/**/*.ts', 'crates/**/*.ts'] })],
+    ['package.json', '{"name":"native-runner-fixture","private":true}'],
+    ['.bun-version', Bun.version], ['bun.lock', 'fixture lock'], ['bunfig.toml', ''],
+    ['crates/gift-author-kernel/Cargo.toml', '[package]\nname="native-runner-fixture"\nversion="0.1.0"\n'],
+    ['crates/gift-author-kernel/Cargo.lock', '# fixture lock\n'],
+    ['crates/gift-author-kernel/build.rs', 'fn main() {}\n'],
+    ['crates/gift-author-kernel/src/lib.rs', 'pub fn fixture() {}\n'],
+    ['crates/gift-author-kernel/src/main.rs', 'fn main() {}\n'],
+    ['crates/gift-author-kernel/fixtures/shared-views.module.json', '{}'],
+    ['schema/author/first-layer/codec-parameters.json', JSON.stringify({ schema: 'gift.design-codec-parameters/2',
+      scope: 'complete-candidate-structure-only', resources: [], externals: [], extensions: [] })],
+    ['schema/source/binding-lock-1.schema.json', '{}'],
+    ['src/adapters/compilation/module.json', '{"importGraph":"runtime","externalEntrypoints":[]}'],
+    ['tests/module.json', '{"importGraph":"runtime","externalEntrypoints":[]}'],
+    ['tools/documentation/codec_parameters.py', '# fixture oracle source\n'],
+    ['tools/documentation/source_inventory.py', '# fixture oracle source\n']
+  ]);
+  for (const name of ['codec', 'complete-base', 'schema', 'developer-surface', 'lexical-boundary']) {
+    sources.set(`examples/第一层作者/names-and-roots/${name}-cases.json`, '[]');
+  }
+  for (const file of ['src/contracts/author-native-methods.ts', 'src/contracts/author-kernel-verification.ts',
+    'src/adapters/self-hosting/development/runner/native-test-runner.ts',
+    'src/bootstrap/cli/cli.ts', 'src/adapters/toolchain/runtime/package-source-launcher.ts',
+    'src/adapters/compilation/author-kernel.ts', 'crates/gift-author-kernel/tests/reader-check.ts',
+    'crates/gift-author-kernel/tests/target-check.ts']) sources.set(file, 'export {};\n');
+  for (const file of nativeFastTestFiles) {
+    sources.set(file, "import { test } from 'bun:test'; test('fixture', () => {});\n");
+  }
+  try {
+    for (const [file, source] of sources) {
+      const target = path.join(repositoryRoot, ...file.split('/'));
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, source);
+    }
+    const git = (args: string[]) => {
+      const result = spawnSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true,
+        env: { ...isolatedGitReadEnvironment(), GIT_AUTHOR_NAME: 'SEC Test', GIT_AUTHOR_EMAIL: 'sec-test@example.invalid',
+          GIT_COMMITTER_NAME: 'SEC Test', GIT_COMMITTER_EMAIL: 'sec-test@example.invalid' } });
+      if (result.error) throw result.error;
+      if (result.status !== 0) throw new Error(result.stderr);
+    };
+    git(['init', '--quiet', '--initial-branch=main']);
+    git(['add', '--all']);
+    git(['commit', '--quiet', '-m', 'Native runner source fixture']);
+    const snapshot = await withAuthorityGitReadSession({ cwd: repositoryRoot, budget: { deadlineMs: 120_000 } },
+      session => acquireActualWorkingSnapshot({ session }));
+    const retained = await dependencyRuntime.retainCompilerDependencyReadGeneration(compilerDependencyAuthority!, {
+      deadlineAtUnixMs: Date.now() + 120_000
+    });
+    try {
+      const projectInput = actualWorkspaceSnapshots.compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json', {
+        dependencyGeneration: retained.physicalGeneration, dependencyGenerationDigest: retained.generationDigest
+      });
+      const compilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot: snapshot, projectInput, repositoryRoot });
+      const observation = Object.freeze({
+        projection: issueTestImpactProjection({ workspaceSnapshot: snapshot, projectGeneration: compilation.projectGeneration,
+          repositoryModel: compilation.model, typeScriptModel: compilation.typeScriptCompilation.model,
+          testObservations: compilation.testObservations }),
+        testInventory: issueTestInventoryProjection({ snapshot }),
+        projectGenerationEvidence: actualWorkspaceSnapshots.issueWorkspaceTypeScriptProjectGenerationEvidence(snapshot, projectInput)
+      });
+      return Object.freeze({ snapshot, observation, dispose: () => rmSync(repositoryRoot, { recursive: true, force: true }) });
+    } finally {
+      await retained.retire();
+    }
+  } catch (error) {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+// The native source and dependency observations are issued before transport
+// mocks are installed. Downstream dispatch alone is substituted by these tests.
+nativeTestFixture = await createNativeRunnerSourceFixture();
+afterAll(() => nativeTestFixture.dispose());
 
 const {
   bindTestWorkspaceSupervisorLeaseIssuerProjection,
@@ -150,11 +252,13 @@ const devCommandObservationOverrides: Array<Partial<DevCommandObservation> | und
 const devCommandSettlements: Array<Promise<void> | undefined> = [];
 const devCommandStartObservers: Array<(() => void) | undefined> = [];
 const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
+const nativeDispatchCalls: NativeTestExecutionInput[] = [];
+const nativeDispatchExitCodes: number[] = [];
 const DEFAULT_MANAGED_INNER_ARGS = ['--no-orphans', '--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY)] as const;
 let fastDependencyBootstrapCalls = 0;
 const gitReadSessionDeadlineRequests: Array<number | undefined> = [];
 const gitReadSessions: GitReadSession[] = [];
-const operationEvents: Array<'git-read-session' | 'dev-command'> = [];
+const operationEvents: Array<'git-read-session' | 'dev-command' | 'native-command'> = [];
 let hasTestDependencyBootstrapFailure = false;
 let testDependencyBootstrapFailure: unknown;
 let cleanupFailure: Error | null = null;
@@ -476,6 +580,20 @@ mock.module('../../src/adapters/self-hosting/development/runner/test-execution-p
   }
 }));
 
+mock.module('../../src/adapters/self-hosting/development/runner/native-test-runner.ts', () => ({
+  nativeTestExecutionRetainsDependency: actualNativeTestExecutionRetainsDependency,
+  runNativeTests: async (input: NativeTestExecutionInput) => {
+    assertIssuedTestImpactProjection(input.projection);
+    if (input.projection !== nativeTestFixture.observation.projection
+        || input.methods.some(method => !input.projection.nativeMethods.some(original => original === method))) {
+      throw new Error('Native runner dispatch lost its original issued source methods.');
+    }
+    operationEvents.push('native-command');
+    nativeDispatchCalls.push(input);
+    return nativeDispatchExitCodes.shift() ?? 0;
+  }
+}));
+
 const testRunnerModule = await import('../../src/adapters/self-hosting/development/runner/test-runner.ts');
 const canonicalAffectedIssuer = (await import(
   '../../src/adapters/self-hosting/development/runner/check-affected-source.ts'
@@ -485,6 +603,7 @@ const {
   runAffectedTests: runAffectedTestsWithIssuer,
   FAST_TEST_FAILURE_RECEIPT_PREFIX,
   runFastTests,
+  runNativeTestSelection,
   runSlowTests,
   runTests
 } = testRunnerModule;
@@ -574,6 +693,9 @@ beforeEach(() => {
   devCommandSettlements.length = 0;
   devCommandStartObservers.length = 0;
   devCommandCompletionObservers.length = 0;
+  nativeDispatchCalls.length = 0;
+  nativeDispatchExitCodes.length = 0;
+  useNativeTestFixture = false;
   fastDependencyBootstrapCalls = 0;
   gitReadSessionDeadlineRequests.length = 0;
   gitReadSessions.length = 0;
@@ -626,6 +748,10 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  mock.module('../../src/adapters/self-hosting/development/runner/native-test-runner.ts', () => ({
+    runNativeTests: actualRunNativeTests,
+    nativeTestExecutionRetainsDependency: actualNativeTestExecutionRetainsDependency
+  }));
   mock.restore();
 });
 
@@ -2255,6 +2381,107 @@ test.serial('slow suite selector rejects unknown suite ids', async () => {
   } finally {
     console.error = originalError;
   }
+});
+
+test.serial('native orchestration dispatches mixed fast and native selections once from the same issued source', async () => {
+  useNativeTestFixture = true;
+  changedFiles = ['crates/gift-author-kernel/Cargo.toml', 'tests/unit/path-containment.test.ts'];
+  const observation = nativeTestFixture.observation;
+  for (const method of observation.projection.nativeMethods) expect(method.unresolvedInputs).toEqual([]);
+  expect(observation.projectGenerationEvidence.projectInput.dependencyGenerationDigest)
+    .toBe(compilerDependencyAuthority!.generationDigest);
+
+  const code = await runAffectedTestsWithIssuer(async () => observation);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args))).toEqual([
+    TEST_ARCHITECTURE_POLICY_TEST_FILE, 'tests/unit/path-containment.test.ts', FAST_TEST_PROCESS_POLICY_TEST_FILE
+  ]);
+  expect(nativeDispatchCalls).toHaveLength(1);
+  expect(nativeDispatchCalls[0]!.projection).toBe(observation.projection);
+  expect(nativeDispatchCalls[0]!.methods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check']);
+  expect(operationEvents.indexOf('native-command')).toBeGreaterThan(operationEvents.lastIndexOf('dev-command'));
+});
+
+test.serial('native orchestration executes a native-only affected selection without a Bun test child', async () => {
+  useNativeTestFixture = true;
+  changedFiles = ['crates/gift-author-kernel/Cargo.toml'];
+
+  const code = await runAffectedTestsWithIssuer(async () => nativeTestFixture.observation);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([]);
+  expect(nativeDispatchCalls).toHaveLength(1);
+  expect(nativeDispatchCalls[0]!.methods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check']);
+});
+
+test.serial('native orchestration leaves mixed unresolved source ownership without any test dispatch', async () => {
+  useNativeTestFixture = true;
+  changedFiles = ['crates/gift-author-kernel/Cargo.toml', 'platform/unmapped-source.ts'];
+
+  expect(await runAffectedTestsWithIssuer(async () => nativeTestFixture.observation)).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(nativeDispatchCalls).toEqual([]);
+  expect(fastDependencyBootstrapCalls).toBe(0);
+});
+
+test.serial('native orchestration propagates the selected native family failure after successful fast dispatch', async () => {
+  useNativeTestFixture = true;
+  changedFiles = ['crates/gift-author-kernel/Cargo.toml', 'tests/unit/path-containment.test.ts'];
+  nativeDispatchExitCodes.push(7);
+
+  expect(await runAffectedTestsWithIssuer(async () => nativeTestFixture.observation)).toBe(7);
+  expect(devCommandCalls.length).toBeGreaterThan(0);
+  expect(nativeDispatchCalls).toHaveLength(1);
+});
+
+test.serial('native orchestration keeps affected plan observation free of test dispatch', async () => {
+  useNativeTestFixture = true;
+  changedFiles = ['crates/gift-author-kernel/Cargo.toml'];
+
+  expect(await runAffectedTestsWithIssuer(async () => nativeTestFixture.observation, ['--plan'])).toBe(0);
+  expect(devCommandCalls).toEqual([]);
+  expect(nativeDispatchCalls).toEqual([]);
+  expect(fastDependencyBootstrapCalls).toBe(0);
+});
+
+test.serial('native orchestration limits quick complete inventory to two native methods once', async () => {
+  useNativeTestFixture = true;
+  testImpactObservationOverrides.push(nativeTestFixture.observation);
+
+  expect(await runTests([], { omitSlowSuites: true, nativeScope: 'quick' })).toBe(0);
+  expect(nativeDispatchCalls).toHaveLength(1);
+  expect(nativeDispatchCalls[0]!.methods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check']);
+  expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args)).sort()).toEqual([...nativeFastTestFiles]);
+});
+
+test.serial('native orchestration includes the risk method once in full complete inventory', async () => {
+  useNativeTestFixture = true;
+  testImpactObservationOverrides.push(nativeTestFixture.observation);
+
+  expect(await runTests([], { omitSlowSuites: true, nativeScope: 'full' })).toBe(0);
+  expect(nativeDispatchCalls).toHaveLength(1);
+  expect(nativeDispatchCalls[0]!.methods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check', 'target-check']);
+  expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args)).sort()).toEqual([...nativeFastTestFiles]);
+});
+
+test.serial('native orchestration explicit method selection propagates failure without running other methods', async () => {
+  useNativeTestFixture = true;
+  testImpactObservationOverrides.push(nativeTestFixture.observation);
+  nativeDispatchExitCodes.push(9);
+
+  expect(await runNativeTestSelection(['--method', 'target-check'])).toBe(9);
+  expect(devCommandCalls).toEqual([]);
+  expect(nativeDispatchCalls).toHaveLength(1);
+  expect(nativeDispatchCalls[0]!.methods.map(({ id }) => id)).toEqual(['target-check']);
+});
+
+test.serial('native orchestration rejects unsupported method arguments before source or test effects', async () => {
+  expect(await runNativeTestSelection(['--method', 'cargo-tests', '--release'])).toBe(1);
+  expect(await runNativeTestSelection(['--method', 'unknown'])).toBe(1);
+  expect(commandCalls).toEqual([]);
+  expect(devCommandCalls).toEqual([]);
+  expect(nativeDispatchCalls).toEqual([]);
 });
 
 test.serial('affected tests fail before dependency bootstrap for unresolved source ownership', async () => {

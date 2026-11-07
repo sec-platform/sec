@@ -49,6 +49,8 @@ export interface AffectedSelectionClassificationInput {
   unresolvedModuleFiles: readonly string[];
   /** Number of selected fast tests (changed + affected). */
   selectedFastTestCount: number;
+  /** Distinct selected native methods from the same issued inventory. */
+  selectedNativeMethodCount?: number;
   /** SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1. */
   broadFallbackEnabled: boolean;
 }
@@ -80,6 +82,7 @@ export interface AffectedSelectionClassificationInput {
 export function classifyAffectedSelectionTrustBoundary(
   input: AffectedSelectionClassificationInput
 ): AffectedSelectionTrustBoundary {
+  const selectedMethodCount = input.selectedFastTestCount + (input.selectedNativeMethodCount ?? 0);
   if (input.gitDiscoveryFailed) return 'unresolved-git';
   if (!input.ownershipResolved) return 'unresolved-ownership';
   // A partial/unresolved module graph is unsafe regardless of how many tests
@@ -95,17 +98,17 @@ export function classifyAffectedSelectionTrustBoundary(
   // Source changed but no fast tests selected and no broad fallback.
   // This is the core empty-selection false-green scenario: fail closed.
   if (input.sourceChanged
-    && input.selectedFastTestCount === 0
+    && selectedMethodCount === 0
     && !input.broadFallbackEnabled) {
     return 'unresolved-selection';
   }
   // Broad fallback explicitly enabled for source change with empty closure.
   if (input.broadFallbackEnabled
     && input.sourceChanged
-    && input.selectedFastTestCount === 0) {
+    && selectedMethodCount === 0) {
     return 'broad-fallback';
   }
-  if (input.selectedFastTestCount > 0) return 'applicable-with-tests';
+  if (selectedMethodCount > 0) return 'applicable-with-tests';
   return 'applicable-no-tests';
 }
 

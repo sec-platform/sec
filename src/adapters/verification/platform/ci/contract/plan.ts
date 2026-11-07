@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CiVerificationGatePhase } from '../../../../../execution/verification/action.ts';
 
+import type { AuthorNativeMethodUnit } from '../../../../../contracts/author-native-methods.ts';
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { isSourceProgramInputPath } from '../../../../repository/source-program-model/contract.ts';
@@ -10,7 +11,7 @@ import {
 } from '../../../../self-hosting/control/documentation/active.ts';
 import { sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationGateStep } from '../../action/contract/ci.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
-import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
+import { selectTestImpactNativeMethods, testImpactNativeDeclarationUnresolvedInputs, testImpactNativeMethods, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../test-impact/slow-risk-selection.ts';
 
@@ -25,6 +26,7 @@ export type CodexDevelopmentVerificationPlan = {
   selectionReasons: string[];
   affectedOwners: string[];
   affectedSlowTests: string[];
+  requiredNativeMethods: readonly AuthorNativeMethodUnit[];
   gates: CiVerificationGateStep[];
 };
 
@@ -92,6 +94,7 @@ export function buildCiQuickGatePlan(options: {
   includeDocs: boolean;
   selectedSlowSuites?: readonly string[];
   selectedSlowTests?: readonly string[];
+  selectedNativeMethods?: readonly AuthorNativeMethodUnit[];
 }): CiVerificationGateStep[] {
   const riskGates = selectedRiskGates(
     options.selectedSlowSuites ?? [],
@@ -102,16 +105,20 @@ export function buildCiQuickGatePlan(options: {
     ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
     gate('affected-tests', 'quick', 'run', 'test', '--', '--affected'),
-    ...riskGates
+    ...riskGates,
+    ...(options.selectedNativeMethods ?? []).filter(({ phase }) => phase === 'risk').map(({ id }) => (
+      gate(`native-${id}`, 'risk', 'run', 'test', '--', '--scope', 'native', '--method', id)
+    ))
   ];
 }
 
-export function buildCiFullGatePlan(): CiVerificationGateStep[] {
+export function buildCiFullGatePlan(includeNative = false): CiVerificationGateStep[] {
   return [
     gate('imports', 'quick', 'run', 'imports:check'),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
     gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
     gate('full-fast', 'full', 'run', 'test', '--', '--scope', 'fast'),
+    ...(includeNative ? [gate('full-native', 'full', 'run', 'test', '--', '--scope', 'native')] : []),
     ...selectedRiskGates(slowTestSuiteIds(), []),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
     gate('resolve', 'workspace', 'run', 'sec', '--', 'resolve'),
@@ -179,19 +186,31 @@ export function CodexDevelopmentBuildVerificationPlan(
   sourceProgramTransition?: CiSourceProgramTransitionBinding
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
+  if (testImpactSourceProvider === null) {
+    throw new Error('Verification requires an owner-issued exact test-impact source provider.');
+  }
+  const requiredNativeMethods = profile === 'full' || changedFiles === null
+    ? testImpactNativeMethods(testImpactSourceProvider)
+    : [
+        ...selectTestImpactNativeMethods(testImpactSourceProvider, changedFiles, 'affected'),
+        ...selectTestImpactNativeMethods(testImpactSourceProvider, changedFiles, 'risk')
+      ];
+  const unresolvedNativeInputs = uniqueSorted([
+    ...requiredNativeMethods.flatMap(({ unresolvedInputs }) => unresolvedInputs),
+    ...testImpactNativeDeclarationUnresolvedInputs(testImpactSourceProvider)
+  ]);
+  const nativeSelectionReasons = unresolvedNativeInputs.map((input) => `native-input-unresolved:${input}`);
   if (profile === 'full') {
     return {
       profile,
       changedFiles,
-      selectionResolved: true,
-      selectionReasons: ['full-inventory'],
+      selectionResolved: unresolvedNativeInputs.length === 0,
+      selectionReasons: ['full-inventory', ...nativeSelectionReasons],
       affectedOwners: [],
       affectedSlowTests: [],
-      gates: [...buildCiFullGatePlan(), ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
+      requiredNativeMethods,
+      gates: [...buildCiFullGatePlan(requiredNativeMethods.length > 0), ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
     };
-  }
-  if (testImpactSourceProvider === null) {
-    throw new Error('Quick verification requires an owner-issued test-impact source provider.');
   }
   const selection = selectSlowTestRiskClosure(changedFiles, testImpactSourceProvider, transition);
   const documentationBaseline = documentationVerificationBaselineFromProvider(testImpactSourceProvider);
@@ -202,15 +221,17 @@ export function CodexDevelopmentBuildVerificationPlan(
       includeImports: changedFiles === null || hasTypeScriptChange(changedFiles, documentationBaseline),
       includeDocs: hasDocsLifecycleChange,
       selectedSlowSuites: selection.suites,
-      selectedSlowTests: selection.slowTests
+      selectedSlowTests: selection.slowTests,
+      selectedNativeMethods: requiredNativeMethods
     });
   return {
     profile,
     changedFiles,
-    selectionResolved: selection.resolved,
-    selectionReasons: [...selection.reasons],
+    selectionResolved: selection.resolved && unresolvedNativeInputs.length === 0,
+    selectionReasons: [...selection.reasons, ...nativeSelectionReasons],
     affectedOwners: [...selection.owners],
     affectedSlowTests: [...selection.affectedSlowTests],
+    requiredNativeMethods,
     gates: [...gates, ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
   };
 }

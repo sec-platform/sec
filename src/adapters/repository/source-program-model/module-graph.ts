@@ -88,7 +88,7 @@ export function assembleRepositoryModuleGraph(
     const imports = importsByFile.get(moduleFile) ?? Object.freeze([]);
     const uniqueImports = new Map<string, RepositoryModuleGraphImportObservation>();
     for (const reference of imports) {
-      const key = `${reference.kind}\0${reference.specifier}`;
+      const key = `${reference.kind}\0${reference.specifier}\0${JSON.stringify(reference.resolution ?? null)}`;
       const previous = uniqueImports.get(key);
       // Runtime membership is a union: a later type-only import must not erase
       // a value import of the same target. The result is input-order independent.
@@ -97,16 +97,36 @@ export function assembleRepositoryModuleGraph(
       }
     }
     for (const reference of uniqueImports.values()) {
-      const candidates = resolveRepositoryModuleImportCandidates(moduleFile, reference.specifier);
-      const resolvedTarget = candidates.find((candidate) => fileSet.has(candidate)) ?? null;
-      if (resolvedTarget !== null
-          && isTestOnlyRepositoryModulePath(resolvedTarget)
-          && !isTestOnlyRepositoryModulePath(moduleFile)) {
-        throw new Error(
-          `production repository module imports test-only module: ${moduleFile} -> ${resolvedTarget}`
-        );
+      const resolution = reference.resolution;
+      const candidates = resolution === undefined
+        ? resolveRepositoryModuleImportCandidates(moduleFile, reference.specifier)
+        : Object.freeze([...new Set([
+          ...resolution.lookupPaths,
+          ...(resolution.resolvedTarget === null ? [] : [resolution.resolvedTarget]),
+          ...('target' in resolution.runtime ? [resolution.runtime.target] : [])
+        ].map(canonicalRepositoryPath))].sort(textOrder));
+      const resolvedTarget = resolution === undefined
+        ? candidates.find((candidate) => fileSet.has(candidate)) ?? null
+        : resolution.resolvedTarget;
+      const runtime = reference.typeOnly ? Object.freeze({ kind: 'none' as const })
+        : resolution?.runtime ?? (resolvedTarget !== null
+          ? Object.freeze({ kind: 'module' as const, target: resolvedTarget })
+          : Object.freeze({ kind: candidates.length === 0 ? 'external' as const : 'unresolved' as const }));
+      const targets = new Set([
+        ...(resolvedTarget === null ? [] : [resolvedTarget]),
+        ...('target' in runtime ? [runtime.target] : [])
+      ]);
+      for (const target of targets) {
+        if (!fileSet.has(target)) {
+          throw new Error(`Compiler module resolution target is outside acquired inputs: ${target}`);
+        }
+        if (isTestOnlyRepositoryModulePath(target) && !isTestOnlyRepositoryModulePath(moduleFile)) {
+          throw new Error(`production repository module imports test-only module: ${moduleFile} -> ${target}`);
+        }
       }
-      if (reference.specifier.startsWith('.') && resolvedTarget === null) {
+      if (resolution?.status === 'unresolved'
+          || runtime.kind === 'unresolved'
+          || (reference.specifier.startsWith('.') && resolvedTarget === null)) {
         unresolvedFiles.add(moduleFile);
       }
       const graphReference = Object.freeze({
@@ -115,23 +135,32 @@ export function assembleRepositoryModuleGraph(
         specifier: reference.specifier,
         typeOnly: reference.typeOnly,
         candidateTargets: candidates,
-        resolvedTarget
+        resolutionLookupPaths: Object.freeze([...(resolution?.lookupPaths ?? [])].sort(textOrder)),
+        resolvedTarget,
+        runtime
       });
       references.push(graphReference);
-      if (resolvedTarget !== null) {
+      for (const target of targets) {
         const dependencies = forwardDependencies.get(moduleFile) ?? new Set<string>();
-        dependencies.add(resolvedTarget);
+        dependencies.add(target);
         forwardDependencies.set(moduleFile, dependencies);
-        if (!reference.typeOnly) {
-          const runtimeDependencies = runtimeForwardDependencies.get(moduleFile) ?? new Set<string>();
-          runtimeDependencies.add(resolvedTarget);
-          runtimeForwardDependencies.set(moduleFile, runtimeDependencies);
-        }
+      }
+      if (runtime.kind === 'module') {
+        const runtimeDependencies = runtimeForwardDependencies.get(moduleFile) ?? new Set<string>();
+        runtimeDependencies.add(runtime.target);
+        runtimeForwardDependencies.set(moduleFile, runtimeDependencies);
       }
       for (const candidate of candidates) {
         const consumers = reverseConsumers.get(candidate) ?? new Set<string>();
         consumers.add(moduleFile);
         reverseConsumers.set(candidate, consumers);
+        // Compiler reads such as package declarations belong to the input
+        // closure as well as to invalidation, without choosing another target.
+        if (resolution !== undefined && fileSet.has(candidate)) {
+          const dependencies = forwardDependencies.get(moduleFile) ?? new Set<string>();
+          dependencies.add(candidate);
+          forwardDependencies.set(moduleFile, dependencies);
+        }
       }
     }
   }

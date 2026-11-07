@@ -44,6 +44,8 @@ import {
   type CodexDevelopmentTestImpactTransitionObservation
 } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
+import { sha256 } from '../../src/contracts/canonical.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../src/contracts/repository-path.ts';
 import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -105,6 +107,9 @@ type ExactRepositoryTestImpactFixturePhaseEvent = Readonly<{
 type ExactRepositoryTestImpactFixtureOptions = Readonly<{
   deadlineAtUnixMs?: number;
   observePhase?: (event: ExactRepositoryTestImpactFixturePhaseEvent) => void;
+  /** Explicit fixture data applied only in its private Git database/index.
+   * The resulting physical tree goes through the original snapshot issuer. */
+  fixtureSourceChanges?: readonly Readonly<{ path: string; source: string }>[];
 }>;
 
 function observeFixturePhase(
@@ -311,7 +316,7 @@ export async function createRemovedDocumentationTestImpactFixture(
     });
     if (affectedSource === null) throw new Error('Removed documentation TestImpact source was unavailable.');
     const binding = readIssuedAffectedTestImpactBinding(affectedSource);
-    if (binding === null) throw new Error('Removed documentation TestImpact binding was unavailable.');
+    if (binding === null || binding.transition === null) throw new Error('Removed documentation TestImpact binding was unavailable.');
     if (JSON.stringify(binding.transition) !== JSON.stringify(transition)) {
       throw new Error('Removed documentation transition differs from its Git/source binding.');
     }
@@ -473,10 +478,21 @@ async function createExactRepositoryTestImpactProviderFixture(
     git(repositoryRoot, [
       'fetch', '--quiet', '--no-tags', '--depth=1', normalizedSourceRoot, sourceCommitSha
     ]);
-    const sourceTreeSha = exactObjectId(
+    let sourceTreeSha = exactObjectId(
       git(repositoryRoot, ['rev-parse', '--verify', `${sourceCommitSha}^{tree}`]),
       'TestImpact source tree'
     );
+    const fixtureChanges = options.fixtureSourceChanges ?? [];
+    if (fixtureChanges.length > 0) {
+      git(repositoryRoot, ['read-tree', sourceTreeSha]);
+      for (const change of fixtureChanges) {
+        const target = path.join(repositoryRoot, ...change.path.split('/'));
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, change.source, { encoding: 'utf8', flag: 'wx' });
+      }
+      git(repositoryRoot, ['add', '--', ...fixtureChanges.map(change => change.path)]);
+      sourceTreeSha = exactObjectId(git(repositoryRoot, ['write-tree']), 'TestImpact fixture source tree');
+    }
     const fixtureCommitSha = exactObjectId(
       git(repositoryRoot, [
         'commit-tree', sourceTreeSha, '-m', 'SEC exact repository TestImpact fixture'
@@ -580,7 +596,17 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
     git(normalizedSourceRoot, ['rev-parse', '--verify', 'HEAD^{commit}']),
     'TestImpact source commit'
   );
-  const fixtureKey = JSON.stringify([normalizedSourceRoot, sourceCommitSha]);
+  const fixtureSourceChanges = Object.freeze((options.fixtureSourceChanges ?? []).map(change => {
+    if (!CodexDevelopmentIsCanonicalRepositoryPath(change.path)
+        || change.path.split('/').some(segment => segment === '.git') || typeof change.source !== 'string') {
+      throw new Error('Exact TestImpact fixture source changes require canonical ordinary repository paths and bytes.');
+    }
+    return Object.freeze({ path: change.path, source: change.source });
+  }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  if (new Set(fixtureSourceChanges.map(change => change.path)).size !== fixtureSourceChanges.length) {
+    throw new Error('Exact TestImpact fixture source change paths repeat.');
+  }
+  const fixtureKey = JSON.stringify([normalizedSourceRoot, sourceCommitSha, sha256(fixtureSourceChanges)]);
   let state = sharedExactRepositoryFixtures.get(fixtureKey);
   const createsFixture = state === undefined;
   if (state === undefined) {
@@ -588,7 +614,7 @@ export async function acquireExactRepositoryTestImpactProviderFixture(
       fixture: createExactRepositoryTestImpactProviderFixture(
         normalizedSourceRoot,
         sourceCommitSha,
-        Object.freeze({ ...options, deadlineAtUnixMs: leaseDeadlineAtUnixMs })
+        Object.freeze({ ...options, fixtureSourceChanges, deadlineAtUnixMs: leaseDeadlineAtUnixMs })
       ),
       references: 0
     };

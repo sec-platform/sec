@@ -16,7 +16,7 @@ import {
   prepareFrozenReleaseSource,
   type ReleaseBuilderIdentity
 } from '../../src/adapters/release/release-source-materialization.ts';
-import { PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/adapters/toolchain/runtime.ts';
+import { PACKAGE_SOURCE_IMPORT, PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/adapters/toolchain/runtime.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'dist/index.js',
@@ -86,7 +86,7 @@ async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
     version: '1.0.0',
     private: true,
     type: 'module',
-    source: `./${FIXTURE_ENTRYPOINT.source}`,
+    imports: { [PACKAGE_SOURCE_IMPORT]: `./${FIXTURE_ENTRYPOINT.source}` },
     packageManager: `bun@${Bun.version}`,
     bin: {
       [FIXTURE_ENTRYPOINT.command]:

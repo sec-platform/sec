@@ -221,6 +221,7 @@ function usage(): never {
   console.error('Optional: --github-credential-store <absolute-private-directory> (Linux only; outside the operation checkout).');
   console.error('Source checkpoint, from the trusted main package: bun run dev commit <message> --source-checkpoint --workspace <candidate> --trusted-main <exact-sha> --base <exact-sha> --expected-head <exact-sha> --expected-ref <refs/heads/topic> --expected-tree <exact-staged-tree> --expected-index <sha256:digest> --owned-path <exact-path> [--owned-path <exact-path> ...].');
   console.error("Usage: bun ./src/bootstrap/development/runner-cli.ts <commit <message>|commit:recover <absolute-journal-path>|commit:recover --retire-superseded-local <exact-ref>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check [--affected [--plan]|--scope <fast|full>]|test [--affected [--plan]|--scope <fast|slow|full>] [test-args...]|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]");
+  console.error('Native verification: test --scope native [--method cargo-tests|reader-check|target-check]');
   process.exit(1);
 }
 
@@ -670,19 +671,24 @@ async function runWithCredentialBootstrap(argv: string[], composition: DevRunner
     isSelectorlessTestRunnerSelection,
     prepareSlowTestSuiteExecutions,
     runFastTests,
+    runNativeTestSelection,
     runTests
   } = await import('./test-runner.ts');
   const runPreparedSlowSuites = async (slowArgs: string[]): Promise<number> => {
     const preparedSuites = await prepareSlowTestSuiteExecutions(slowArgs, composition.dependencyBootstrap);
     return executePreparedSlowTestSuiteExecutions(preparedSuites, 'test');
   };
-  let testScope: 'auto' | 'fast' | 'slow' | 'full' = 'auto';
+  let testScope: 'auto' | 'fast' | 'slow' | 'full' | 'native' = 'auto';
   let testArgs = args;
   if (args[0] === '--scope') {
     const selectedScope = args[1];
-    if (selectedScope !== 'fast' && selectedScope !== 'slow' && selectedScope !== 'full') usage();
+    if (selectedScope !== 'fast' && selectedScope !== 'slow' && selectedScope !== 'full' && selectedScope !== 'native') usage();
     testScope = selectedScope;
     testArgs = args.slice(2);
+  }
+  if (testScope === 'native') {
+    process.exitCode = await runNativeTestSelection(testArgs, composition.dependencyBootstrap);
+    return;
   }
   if (testScope === 'slow' || (
     (testScope === 'auto' || testScope === 'full') && isExactSlowTestRunnerSelection(testArgs)
@@ -691,7 +697,7 @@ async function runWithCredentialBootstrap(argv: string[], composition: DevRunner
     return;
   }
   if (testScope === 'full' && isSelectorlessTestRunnerSelection(testArgs)) {
-    const fastCode = await runTests(testArgs, { omitSlowSuites: true, dependencyBootstrap: composition.dependencyBootstrap });
+    const fastCode = await runTests(testArgs, { omitSlowSuites: true, nativeScope: 'full', dependencyBootstrap: composition.dependencyBootstrap });
     process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(testArgs) : fastCode;
     return;
   }

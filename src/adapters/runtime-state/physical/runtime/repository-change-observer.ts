@@ -7,6 +7,7 @@ import {
   prepareLinuxImmutableRepositoryInput, settleLinuxImmutableRepositoryInput,
   type LinuxImmutableRepositoryInput, type LinuxImmutableRepositoryInputSettlement
 } from './linux-immutable-repository-input.ts';
+import type { RepositoryDerivedOutput } from './repository-derived-output.ts';
 import {
   armPreparedWindowsRepositoryChangeObserver,
   armWindowsRepositoryChangeObserver,
@@ -23,12 +24,21 @@ import {
 export type RepositoryChangeObserverSettlement = WindowsRepositoryChangeObserverSettlement | LinuxImmutableRepositoryInputSettlement;
 export type RepositoryChangeObserverUnavailableReason = WindowsRepositoryChangeObserverUnavailableReason;
 
-/** Enforcement and observation keep different evidence kinds while proving
- * the same no-write interval. Neither caller DTOs nor final-state equality
- * reach this boundary; settlement only consumes private owner-issued objects. */
+/** Namespace silence does not exclude content writes through another hardlink
+ * or an existing mapping. Only the enforcing provider proves this claim. */
 export function repositoryInputZeroWritesProven(value: RepositoryChangeObserverSettlement):
-  value is Extract<RepositoryChangeObserverSettlement, { status: 'zero-events' | 'immutable-input' }> {
-  return value.status === 'zero-events' || value.status === 'immutable-input';
+  value is Extract<RepositoryChangeObserverSettlement, { status: 'immutable-input' }> {
+  return value.status === 'immutable-input';
+}
+
+/** Necessary admission only. A true result still requires the original
+ * operation-bound provider to arm and settle its actual protected roots. */
+export function repositoryInputZeroWriteProtectionPrerequisites(): Readonly<
+  { status: 'available' } | { status: 'unavailable'; reason: 'input-protection-unavailable' }
+> {
+  return process.platform === 'linux' && linuxImmutableRepositoryInputPrerequisites()
+    ? Object.freeze({ status: 'available' })
+    : Object.freeze({ status: 'unavailable', reason: 'input-protection-unavailable' });
 }
 
 const preparedBrand: unique symbol = Symbol('prepared-repository-change-observer');
@@ -78,8 +88,8 @@ function issuedObserver(state: ObserverState): RepositoryChangeObserver {
 
 /**
  * Selects an implemented physical observer on this host. Unsupported means the
- * strict capability is absent: it never selects snapshots, polling or a weaker
- * event stream. A qualified immutable tmpfs uses actual kernel prevention,
+ * provider is absent: it never substitutes snapshots or polling. Windows
+ * supplies namespace observations only. A qualified immutable tmpfs uses kernel prevention,
  * retaining a distinct settlement kind. Location/DTOs do not select success.
  * The selected physical owner keeps native identity, coverage and cleanup.
  */
@@ -131,6 +141,7 @@ export function repositoryChangeObserverEffectKinds(prepared: PreparedRepository
 export async function armRepositoryChangeObserver(input: Readonly<{
   roots: readonly string[];
   deadlineAtUnixMs: number;
+  derivedOutput?: RepositoryDerivedOutput;
 }>): Promise<RepositoryChangeObserverResolution> {
   // This raw route has no issued operation/Effect admission for an irreversible
   // process-wide Linux fence. Only the prepared operation-bound route may arm.

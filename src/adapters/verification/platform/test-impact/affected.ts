@@ -1,10 +1,14 @@
+import { AUTHOR_KERNEL_TARGET_CHECK } from '../../../../contracts/author-kernel-verification.ts';
+import type { AuthorNativeMethodUnit } from '../../../../contracts/author-native-methods.ts';
 import { uniqueSorted } from '../../../../contracts/canonical.ts';
 import { isFastTestFile, isSlowTestFile } from './contract/budget.ts';
 import {
   isTestImpactModuleGraphInputFile,
   isTestImpactSourceFile,
   resolveTestImpactSelectionTrustBoundary,
+  selectTestImpactNativeMethods,
   selectTestsForSources,
+  testImpactNativeDeclarationUnresolvedInputs,
   type CodexDevelopmentTestImpactSourceProvider
 } from './runtime/impact.ts';
 
@@ -15,6 +19,8 @@ export type AffectedTestInventory = {
   affectedSlowTests: string[];
   selectedFastTests: string[];
   selectedSlowTests: string[];
+  selectedNativeMethods: readonly AuthorNativeMethodUnit[];
+  unresolvedNativeInputs: string[];
   affectedOwners: string[];
   sourceChanged: boolean;
   /**
@@ -50,6 +56,13 @@ export function buildAffectedTestInventory(
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));
   const impactSourceFiles = files.filter((file) => isTestImpactSourceFile(file, provider));
   const impact = selectTestsForSources(impactSourceFiles, provider);
+  const selectedNativeMethods = selectTestImpactNativeMethods(provider, files, 'affected');
+  const riskNativeMethods = selectTestImpactNativeMethods(provider, files, 'risk');
+  const nativeMethods = [...selectedNativeMethods, ...riskNativeMethods];
+  const unresolvedNativeInputs = uniqueSorted([
+    ...nativeMethods.flatMap(method => method.unresolvedInputs),
+    ...testImpactNativeDeclarationUnresolvedInputs(provider)
+  ]);
   // The reverse-import-map is built once during selectTestsForSources (cached
   // for the default provider). Re-fetch the trust boundary from the same cache
   // to avoid a second scan; in provider mode it rebuilds but the provider's
@@ -62,11 +75,18 @@ export function buildAffectedTestInventory(
   const graphImpactSourceFiles = impactSourceFiles.filter((file) => (
     isTestImpactModuleGraphInputFile(file, provider)
   ));
-  const resolution = graphImpactSourceFiles.length === 0
+  const nativeChanged = nativeMethods.length > 0 || unresolvedNativeInputs.length > 0;
+  const resolution = graphImpactSourceFiles.length === 0 && !nativeChanged
     ? { selectionResolved: true, unresolvedModuleFiles: [] }
     : resolveTestImpactSelectionTrustBoundary(provider);
   const affectedFastTests = uniqueSorted(impact.fast.filter(isFastTestFile));
   const affectedSlowTests = uniqueSorted(impact.slow.filter(isSlowTestFile));
+  const selectionResolved = resolution.selectionResolved && unresolvedNativeInputs.length === 0;
+  // The registered target oracle follows the original slow-only test rule.
+  // This exemption never applies to its source dependencies or unknown inputs.
+  const sourceChanged = impactSourceFiles.some(file => file !== AUTHOR_KERNEL_TARGET_CHECK)
+    || selectedNativeMethods.length > 0
+    || (nativeChanged && !selectionResolved);
   return {
     changedFastTests,
     changedSlowTests,
@@ -74,9 +94,11 @@ export function buildAffectedTestInventory(
     affectedSlowTests,
     selectedFastTests: uniqueSorted([...changedFastTests, ...affectedFastTests]),
     selectedSlowTests: uniqueSorted([...changedSlowTests, ...affectedSlowTests]),
-    affectedOwners: uniqueSorted(impact.owners),
-    sourceChanged: impactSourceFiles.length > 0,
-    selectionResolved: resolution.selectionResolved,
+    selectedNativeMethods,
+    unresolvedNativeInputs,
+    affectedOwners: uniqueSorted([...impact.owners, ...nativeMethods.map(method => method.owner)]),
+    sourceChanged,
+    selectionResolved,
     unresolvedModuleFiles: resolution.unresolvedModuleFiles
   };
 }

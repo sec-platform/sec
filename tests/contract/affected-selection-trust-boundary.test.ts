@@ -28,6 +28,7 @@ function baseInput(overrides: Partial<AffectedSelectionClassificationInput> = {}
     selectionResolved: true,
     unresolvedModuleFiles: [],
     selectedFastTestCount: 0,
+    selectedNativeMethodCount: 0,
     broadFallbackEnabled: false,
     ...overrides
   };
@@ -54,6 +55,7 @@ function makePlan(
     selectedFastTests: hasFastTests && boundary === 'applicable-with-tests'
       ? ['tests/unit/example.test.ts']
       : [],
+    selectedNativeMethods: [],
     selectedSlowTests: [],
     riskSuites: [],
     riskTests: [],
@@ -61,6 +63,8 @@ function makePlan(
     unresolvedPaths: [],
     resolved: !ownershipUnresolved,
     selectionResolved: Object.freeze({
+      selectedNativeMethods: [],
+      unresolvedNativeInputs: [],
       tests: [],
       slowTests: [],
       affectedTests: [],
@@ -72,6 +76,7 @@ function makePlan(
     }),
     selectionTrustBoundary: boundary,
     verificationResult,
+    broadFallbackEnabled: boundary === 'broad-fallback',
     ...overrides
   }) as AffectedTestPlan;
 }
@@ -81,6 +86,30 @@ function makePlan(
 // that prevent false-greens: classification priority, projection correctness,
 // fail-closed behaviour, and check-runner gate selection.
 describe('affected-selection-trust-boundary contract (Issue #206)', () => {
+  test('a resolved native-only selection is applicable while removing its sole method leaves an unresolved source closure', () => {
+    const nativeOnly = baseInput({ selectedFastTestCount: 0, selectedNativeMethodCount: 1 });
+    expect(classifyAffectedSelectionTrustBoundary(nativeOnly)).toBe('applicable-with-tests');
+    expect(isAffectedSelectionFailClosed(classifyAffectedSelectionTrustBoundary(nativeOnly))).toBe(false);
+    expect(classifyAffectedSelectionTrustBoundary({ ...nativeOnly, selectedNativeMethodCount: 0 }))
+      .toBe('unresolved-selection');
+  });
+
+  test('selected native methods preserve Git, owner and incomplete selection precedence', () => {
+    const valid = baseInput({ selectedNativeMethodCount: 1 });
+    expect(classifyAffectedSelectionTrustBoundary(valid)).toBe('applicable-with-tests');
+    const mutations: Array<{ change: Partial<AffectedSelectionClassificationInput>; expected: AffectedSelectionTrustBoundary }> = [
+      { change: { gitDiscoveryFailed: true }, expected: 'unresolved-git' },
+      { change: { ownershipResolved: false }, expected: 'unresolved-ownership' },
+      { change: { selectionResolved: false }, expected: 'unresolved-selection' },
+      { change: { selectionResolved: false, unresolvedModuleFiles: ['src/missing-consumer.ts'] }, expected: 'unresolved-module-graph' }
+    ];
+    for (const { change, expected } of mutations) {
+      const boundary = classifyAffectedSelectionTrustBoundary({ ...valid, ...change });
+      expect(boundary).toBe(expected);
+      expect(isAffectedSelectionFailClosed(boundary)).toBe(true);
+    }
+  });
+
   // 1. source change + empty closure + fallback off → invalidated/non-zero
   test('source change with empty closure and no fallback classifies as unresolved-selection', () => {
     const boundary = classifyAffectedSelectionTrustBoundary(baseInput({

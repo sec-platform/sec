@@ -491,6 +491,70 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
   expect(dynamic?.unknownEdges.some((edge) => edge.startsWith('dynamic-module-unresolved:'))).toBe(true);
 });
 
+test('static read strings follow compiler bindings across sibling tests and source-text fixtures', () => {
+  const imports = "import { expect, test } from 'bun:test'; import { readFileSync } from 'node:fs';\n";
+  const read = "test('read', () => { const source = 'tests/data/right.json'; readFileSync(source); });\n";
+  const fixture = `test('source fixture', () => { const source = ${JSON.stringify("import config from '../../tsconfig.json'; export const value = config.compilerOptions;\n")}; expect(source).toContain('config'); });\n`;
+  for (const body of [read + fixture, fixture + read]) {
+    const observations = compileFixture({ 'tests/scoped-reads.test.ts': imports + body });
+    const footprint = observations.definitionInputs.find(({ path }) => path === 'tests/scoped-reads.test.ts')!;
+    expect(footprint.readEnvelopes).toEqual([{ root: 'tests/data/right.json', descendants: false }]);
+    expect(footprint.inputs.map(({ path }) => path)).toContain('tests/data/right.json');
+    expect(footprint.inputs.map(({ path }) => path).some(path => path.includes('compilerOptions'))).toBe(false);
+  }
+});
+
+test('static read aliases retain distinct same-name declaration identities through nested scopes', () => {
+  const observations = compileFixture({ 'tests/scoped-aliases.test.ts': [
+    "import { test } from 'bun:test'; import { readFileSync } from 'node:fs';",
+    "const directory = 'tests/data';",
+    "test('read aliases', () => {",
+    "  const source = directory + '/outer.json';",
+    '  { const alias = source;',
+    '    { const source = alias; readFileSync(source); }',
+    '  }',
+    '});',
+    ''
+  ].join('\n') });
+  expect(observations.definitionInputs.find(({ path }) => path === 'tests/scoped-aliases.test.ts')?.readEnvelopes)
+    .toEqual([{ root: 'tests/data/outer.json', descendants: false }]);
+});
+
+test('static read paths outside the canonical input domain remain observed unknown reads', () => {
+  const observations = compileFixture({ 'tests/noncanonical-read.test.ts': [
+    "import { test } from 'bun:test'; import { readFileSync } from 'node:fs';",
+    "const source = 'tests/data/non\\ncanonical.json';",
+    "test('noncanonical read', () => readFileSync(source));",
+    ''
+  ].join('\n') });
+  const footprint = observations.definitionInputs.find(({ path }) => path === 'tests/noncanonical-read.test.ts')!;
+  expect(footprint.readEnvelopes).toEqual([]);
+  expect(footprint.hasUnknownReadScope).toBe(true);
+  expect(footprint.unresolved.filter(reason => reason.includes(':unresolved-read:'))).toHaveLength(1);
+  expect(footprint.inputs.some(({ path }) => path.includes('\n'))).toBe(false);
+});
+
+test('static read parameters mutable bindings missing initializers and cycles preserve unknown scope', () => {
+  const observations = compileFixture({
+    'tests/global-fixture.ts': "const inheritedPath = 'tests/data/global.json';\n",
+    'tests/unknown-static-reads.test.ts': [
+      "import { test } from 'bun:test'; import { readFileSync } from 'node:fs';",
+      "const source = 'tests/data/outer.json';",
+      'function parameter(source: string) { readFileSync(source); }',
+      'function uninitialized() { let pending: string; readFileSync(pending); }',
+      'function cyclic() { const left = right; const right = left; readFileSync(left); }',
+      "function mutable() { let source = 'tests/data/before.json'; source = 'tests/data/after.json'; readFileSync(source); }",
+      'function inherited() { readFileSync(inheritedPath); }',
+      "test('unknown reads', () => parameter('runtime'));",
+      ''
+    ].join('\n')
+  });
+  const footprint = observations.definitionInputs.find(({ path }) => path === 'tests/unknown-static-reads.test.ts')!;
+  expect(footprint.readEnvelopes).toEqual([]);
+  expect(footprint.hasUnknownReadScope).toBe(true);
+  expect(footprint.unresolved.filter(reason => reason.includes(':unresolved-read:'))).toHaveLength(5);
+});
+
 test('overlapping cyclic test inputs preserve exact reads, negative paths, and fresh revisions', () => {
   const sources = {
     'tests/left.test.ts': "import { test } from 'bun:test'; import { read } from './shared.ts'; test('left', () => read());\n",

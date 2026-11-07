@@ -7,6 +7,8 @@ import {
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import type { AuthorNativeMethodUnit } from '../../src/contracts/author-native-methods.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import {
@@ -25,17 +27,22 @@ function affectedPlan(
   changedPaths: string[],
   selectedFastTests: string[] = [],
   resolved = true,
-  unresolvedModuleFiles: readonly string[] = []
+  unresolvedModuleFiles: readonly string[] = [],
+  native: Readonly<{ selectedNativeMethods?: readonly AuthorNativeMethodUnit[]; unresolvedNativeInputs?: readonly string[] }> = {}
 ): AffectedTestPlan {
   const sourceChanged = changedPaths.some((file) => !file.endsWith('.md'));
   const ownershipResolved = resolved;
+  const selectedNativeMethods = native.selectedNativeMethods ?? [];
+  const unresolvedNativeInputs = native.unresolvedNativeInputs ?? [];
+  const selectionResolved = unresolvedModuleFiles.length === 0 && unresolvedNativeInputs.length === 0;
   const boundary = classifyAffectedSelectionTrustBoundary({
     gitDiscoveryFailed: false,
     ownershipResolved,
     sourceChanged,
-    selectionResolved: unresolvedModuleFiles.length === 0,
+    selectionResolved,
     unresolvedModuleFiles,
     selectedFastTestCount: selectedFastTests.length,
+    selectedNativeMethodCount: selectedNativeMethods.length,
     broadFallbackEnabled: false
   });
   return {
@@ -43,6 +50,7 @@ function affectedPlan(
     changedPaths,
     owners: [],
     selectedFastTests,
+    selectedNativeMethods,
     selectedSlowTests: [],
     riskSuites: [],
     riskTests: [],
@@ -50,13 +58,15 @@ function affectedPlan(
     unresolvedPaths: resolved ? [] : changedPaths,
     resolved,
     selectionResolved: {
+      selectedNativeMethods,
+      unresolvedNativeInputs,
       tests: selectedFastTests,
       slowTests: [],
       affectedTests: selectedFastTests,
       affectedSlowTests: [],
       affectedOwners: [],
       sourceChanged,
-      selectionResolved: unresolvedModuleFiles.length === 0,
+      selectionResolved,
       unresolvedModuleFiles
     },
     selectionTrustBoundary: boundary,
@@ -71,6 +81,47 @@ function affectedPlan(
 function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAffectedGateId[] {
   return plan.gates.map(({ id }) => id);
 }
+
+// Plain source-only method data for pure gate planning, with no issued
+// projection, execution capability or environment qualification.
+function nativeMethod(): AuthorNativeMethodUnit {
+  const fields = { id: 'cargo-tests' as const, owner: 'adapters.compilation' as const, phase: 'quick' as const,
+    inputs: [], selectionPaths: ['crates/gift-author-kernel/src/binding.rs'],
+    absentLookupPaths: [], unresolvedInputs: [] };
+  return { ...fields, inputClosureDigest: sha256(fields) };
+}
+
+test('native-only and mixed Bun/native selection share exactly one affected test gate', () => {
+  const method = nativeMethod();
+  for (const selectedFastTests of [[], ['tests/unit/native-consumer.test.ts']]) {
+    const affected = affectedPlan(['crates/gift-author-kernel/src/binding.rs'], selectedFastTests,
+      true, [], { selectedNativeMethods: [method] });
+    expect(affected.selectionTrustBoundary).toBe('applicable-with-tests');
+    expect(affected.selectionResolved.unresolvedNativeInputs).toEqual([]);
+    const plan = buildLocalAffectedCheckPlan(affected);
+    expect(gateIds(plan)).toEqual(['test:affected']);
+    expect(plan.subsumedStandaloneCommands).toEqual(['bun run test -- --affected']);
+    expect(plan.affectedPlan.selectionResolved.selectedNativeMethods).toEqual([method]);
+  }
+});
+
+test('a selected native method preserves missing-native, module-graph and ownership failures', () => {
+  const method = nativeMethod();
+  const paths = ['crates/gift-author-kernel/src/binding.rs'];
+  const selected = { selectedNativeMethods: [method] };
+  expect(affectedPlan(paths, [], true, [], selected).selectionTrustBoundary).toBe('applicable-with-tests');
+  const missing = affectedPlan(paths, [], true, [], {
+    ...selected, unresolvedNativeInputs: ['crates/gift-author-kernel/Cargo.lock']
+  });
+  expect(missing.selectionTrustBoundary).toBe('unresolved-selection');
+  expect(missing.selectionResolved.selectionResolved).toBe(false);
+  expect(missing.selectionResolved.unresolvedNativeInputs).toEqual(['crates/gift-author-kernel/Cargo.lock']);
+  const graph = affectedPlan(paths, [], true, ['src/missing-consumer.ts'], selected);
+  expect(graph.selectionTrustBoundary).toBe('unresolved-module-graph');
+  const owner = affectedPlan(paths, [], false, [], selected);
+  expect(owner.selectionTrustBoundary).toBe('unresolved-ownership');
+  expect(owner.resolved).toBe(false);
+});
 
 test('local affected plan selects docs doctor alone for pure active documentation', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(

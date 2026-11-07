@@ -231,7 +231,7 @@ VS Code API对只含文本编辑的WorkspaceEdit给出all-or-nothing行为；涉
 
 ### 接口升级与新codec只改变真实支持域
 
-扩展可识别短codec不等于后端能解释。协商准确Reader/Schema/EngineImage修订；不支持时保留源与诊断，不把新字段删掉后提交旧Reader。固定字符串compact-design-draft是交付中的设计标识，不是可不加约束永远原地改义的稳定版本；正式采用沿原版本迁移与单Writer规则。原形和短形可在同一选定codec内混用，不产生第二份可写工程。
+扩展可识别短codec不等于后端能解释。当前作者入口按[唯一完整codec](../作者/紧凑结构与同源编辑.md#final-first-layer-codec)协商准确Reader/Schema/EngineImage修订；不支持时保留源与诊断，不把新字段删掉后提交旧Reader。compact-design-draft只标识按准确内容保留的旧输入，不能作为另一当前Writer或原地改义的稳定版本；正式采用沿原迁移与单Writer规则。完整形和短形在同一design-converged模块内混用，不产生第二份可写工程。
 
 本轮仍没有独立IDE壳、第二Monaco、独立业务store或新的平台首页。语义图、状态表、专业编辑器继续作为当前TextDocument/SourceSnapshot的按需投影；无网络和不使用模型时，真实受支持的编辑/读取路径仍成立。源文件与专业payload中的安装命令、模型指令、URL和伪造角色均属于数据，不因语言服务补全就获得执行权。
 

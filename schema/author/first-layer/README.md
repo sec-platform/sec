@@ -1,4 +1,4 @@
-# 本轮专业结构、语义与供给
+# 第一层专业结构、语义与供给
 
 [SEMANTICS.md](SEMANTICS.md)拥有本目录的专业模型规则与供给分派；开放trait的独立计算语义沿下表链接回到原计算owner，不在此复制。所有manifest是符合既有author-dialect-supply/1字段的**设计声明**；签名文件明确NOT_IMPLEMENTED。它们不授予安装、网络、模型运行或真实效果权限，也不假装已经存在可执行解释器。
 
@@ -15,7 +15,7 @@
 
 [semantic-supply](semantic-supply.json)与[surface-supply](surface-supply.json)引用真实本地合同，内容摘要只覆盖各自supply-content列明的准确成员；按UTF-8文件名排序，名/字节各以8字节大端长度封帧，前缀见内容文件。摘要不自含manifest，从而不存在循环哈希。规范源有修改就重算；摘要匹配不证明规范正确。
 
-设计供给的解释入口是规范和[签名](consumer-signatures.json)，不是函数地址。实际Reader以后须固定本地Schema依赖，不按URL获取latest。本轮用三个准确结构联合核对新源，并明确没有取得全仓官方Schema闭包。
+设计供给的解释入口是规范和[签名](consumer-signatures.json)，不是函数地址。结构Reader消费[完整参数化文法](../../../docs/作者/紧凑结构与同源编辑.md#final-first-layer-codec)固定的本地Schema闭包，不按URL获取latest。表中的有限校准Schema只承担其列明范围，不能替代该完整图；结构读取资格也不代签这些专业解释入口已实现。
 
 requirement旧方言仍由它原来的Body合同负责；本次只给实际校准与同构适配，不复制一份缩水专业语义。通用类型、未知帧、Unicode等新构造属于候选codec的明确修订，不借供给注册覆盖旧核心解释。
 
@@ -28,7 +28,7 @@ requirement旧方言仍由它原来的Body合同负责；本次只给实际校�
 [语言分层与26项范围](../../../docs/作者/表达范围与专业接合.md)定位编码、专业解释、决定坐标和阶段的区别；[验收](../../../docs/运行/验收/第一层开发面.md#inherited-contract-acceptance)检查应用差异和下层责任。当前专业边界修订同步修改下述语义、签名和结构；名称闭包修订加入Name/SourceRef终结符及完整候选文法接合。两份供给摘要按各自列明成员共同重算，不覆盖正文链接到的全部外部规范，真实Reader仍须固定完整解析闭包。NOT_IMPLEMENTED与有限画像限制保持，不沿用失效摘要或旧分析通过。
 
 
-## 专业边界修订的实际成员
+## 专业边界的实际成员
 
 当前semantic修订为`design-semantic-boundaries`，surface修订为`design-surface-boundaries`；具体内容身份仍由各自manifest及content文件给出。`FiniteModel.propositions`新增准确命题声明，`ProgramTerm.tuple/project`补齐多元积形成/消去；两项是有权新解释中的增量结构，旧Reader不得忽略新字段。CTL当前状态、策略information与horizon、空原子约束、零概率证据和混合事件优先次序的精确规则由[SEMANTICS](SEMANTICS.md#profile-revision-and-boundary-witnesses)拥有。surface的eligible改为当前未证被支配，不冒称缺测候选已经组成真实Pareto前沿。
 

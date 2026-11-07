@@ -38,6 +38,11 @@ export interface TypeScriptModelInput {
 export type TypeScriptModelInternalInput = TypeScriptModelInput & Readonly<{
   repositoryCompilation?: SourceProgramCompilation;
   sourceFileIdentities?: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>;
+  /** Subset semantic recompilation retains the original sealed resolution domain. */
+  resolutionInput?: Readonly<{
+    files: readonly SourceProgramFileInput[];
+    membershipPaths: readonly string[];
+  }>;
 }>;
 
 const preparedTypeScriptSourceProgramInputBrand: unique symbol = Symbol(
@@ -50,6 +55,11 @@ export type PreparedTypeScriptModelInput = TypeScriptModelInternalInput & Readon
   readonly [preparedTypeScriptSourceProgramInputBrand]: true;
   readonly operation: SourceProgramCompilationOperation;
   sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>;
+  resolutionInput: Readonly<{
+    files: readonly SourceProgramFileInput[];
+    membershipPaths: readonly string[];
+  }>;
+  resolutionMetadataDigest: `sha256:${string}`;
 }>;
 
 export type TypeScriptSourceProgramFileIdentity = Readonly<{
@@ -135,10 +145,27 @@ export function issuePreparedTypeScriptSourceProgramInput(
   }>,
   sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>
 ): PreparedTypeScriptModelInput {
+  const resolutionInput = input.resolutionInput ?? Object.freeze({
+    files: input.files,
+    membershipPaths: input.repositoryCompilation?.sourceMembershipPaths
+      ?? Object.freeze(input.files.map(({ path }) => path))
+  });
+  // Ordinary TS edits retain per-file invalidation. Package/config bytes and
+  // uncaptured membership are separate resolver inputs and cannot reuse shards
+  // merely because all semantic-root bytes stayed identical.
+  const semanticPaths = new Set(sourceFileIdentities.keys());
+  const resolutionMetadataDigest = sha256({
+    files: resolutionInput.files.filter(({ path }) => !semanticPaths.has(path))
+      .map(({ path, source, contentDigest }) => ({ path, contentDigest, sourceDigest: rawSha256(source) }))
+      .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
+    membershipPaths: [...resolutionInput.membershipPaths].filter((path) => !semanticPaths.has(path)).sort()
+  }) as `sha256:${string}`;
   const prepared = Object.freeze({
     ...input,
     [preparedTypeScriptSourceProgramInputBrand]: true as const,
-    sourceFileIdentities
+    sourceFileIdentities,
+    resolutionInput,
+    resolutionMetadataDigest
   });
   issuedPreparedTypeScriptSourceProgramInputs.add(prepared);
   return prepared;

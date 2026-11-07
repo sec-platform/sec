@@ -1,9 +1,11 @@
 import { afterAll, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import {
   currentActiveDocumentationPaths,
   currentDocumentationVerificationBaseline
 } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
+import { assertCiVerificationNativeEnvironment } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
@@ -12,13 +14,27 @@ import {
 } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { parseGitChangedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { CodedFailure } from '../../src/contracts/failure.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | null = null;
 let testImpactProviderPromise: Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> | null = null;
 const testImpactProvider = () => {
   testImpactProviderPromise ??= (async () => {
-    testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+    // The private immutable tree binds the actual method rules and the source
+    // package declaration/consumer being migrated together in this candidate.
+    const fixtureSourceChanges = [
+      'src/contracts/author-native-methods.ts',
+      'src/contracts/author-kernel-verification.ts',
+      'package.json',
+      'src/adapters/toolchain/runtime/package-source-launcher.ts',
+      'src/adapters/toolchain/runtime/package-entrypoint.ts',
+      'src/adapters/toolchain/runtime/layout.ts'
+    ].map(path => ({
+      path,
+      source: readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
+    }));
+    testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture(undefined, { fixtureSourceChanges });
     return bindDocumentationVerificationGateInput(
       testImpactFixture.provider,
       currentDocumentationVerificationBaseline()
@@ -77,18 +93,68 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
   ]);
 });
 
+test('native inventory reaches Quick risk and Full through fixed package-script gates', async () => {
+  const frontend = await buildVerificationPlanForTest('quick', ['crates/gift-author-kernel/src/captured_input.rs']);
+  expect(frontend.requiredNativeMethods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check']);
+  expect(frontend.gates.filter(({ id }) => id.startsWith('native-'))).toEqual([]);
+
+  const cargo = await buildVerificationPlanForTest('quick', ['crates/gift-author-kernel/Cargo.toml']);
+  expect(cargo.requiredNativeMethods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check', 'target-check']);
+  expect(cargo.gates.filter(({ id }) => id === 'native-target-check')).toEqual([{
+    id: 'native-target-check', phase: 'risk',
+    args: ['run', 'test', '--', '--scope', 'native', '--method', 'target-check']
+  }]);
+  const full = await buildVerificationPlanForTest('full', []);
+  expect(full.requiredNativeMethods.map(({ id }) => id)).toEqual(['cargo-tests', 'reader-check', 'target-check']);
+  expect(full.gates.filter(({ id }) => id === 'full-native')).toEqual([{
+    id: 'full-native', phase: 'full', args: ['run', 'test', '--', '--scope', 'native']
+  }]);
+  // The exact fixture binds a physical source tree. Required but absent or
+  // unresolved inputs stay visible even while a newer producer is under edit.
+  for (const plan of [frontend, cargo, full]) {
+    if (plan.requiredNativeMethods.some(({ unresolvedInputs }) => unresolvedInputs.length > 0)) {
+      expect(plan.selectionResolved).toBe(false);
+      expect(plan.selectionReasons.some((reason) => reason.startsWith('native-input-unresolved:'))).toBe(true);
+    }
+  }
+}, 180_000);
+
+test('Bun-only and caller-named Rust environments cannot qualify native Actions', async () => {
+  const plan = await buildVerificationPlanForTest('full', []);
+  expect(() => assertCiVerificationNativeEnvironment({ requiredNativeMethods: [],
+    executionEnvironment: { toolchainRevision: 'bun@fixture', executionEnvironmentRevision: 'local-fixture' } }))
+    .not.toThrow();
+  for (const executionEnvironment of [
+    { toolchainRevision: 'bun@fixture', executionEnvironmentRevision: 'local-fixture' },
+    { toolchainRevision: 'bun@fixture', executionEnvironmentRevision: 'github-actions:fixture' },
+    { toolchainRevision: 'bun@fixture:rust@caller-named', executionEnvironmentRevision: 'native-verification-unit-v1' }
+  ]) {
+    let failure: unknown;
+    try {
+      assertCiVerificationNativeEnvironment({ requiredNativeMethods: plan.requiredNativeMethods, executionEnvironment });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(CodedFailure);
+    expect((failure as CodedFailure).details).toMatchObject({ kind: 'missing-native-environment',
+      requiredMethods: ['cargo-tests', 'reader-check', 'target-check'],
+      toolchainRevision: executionEnvironment.toolchainRevision,
+      executionEnvironmentRevision: executionEnvironment.executionEnvironmentRevision });
+  }
+}, 180_000);
+
 test('CI translates owner-issued selection into executable plan gates', async () => {
   const pipeline = await buildVerificationPlanForTest('quick', [
     'src/adapters/compilation/compose/generate-runtime-library.ts'
   ]);
-  expect(pipeline.selectionResolved).toBe(true);
+  expect(pipeline.selectionResolved, pipeline.selectionReasons.join('\n')).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
   expect(pipeline.affectedOwners).toContain('adapters.compilation');
 
   const runtime = await buildVerificationPlanForTest('quick', [
     'src/adapters/verification/run-runtime-verification.ts'
   ]);
-  expect(runtime.selectionResolved).toBe(true);
+  expect(runtime.selectionResolved, runtime.selectionReasons.join('\n')).toBe(true);
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);
 
   const directSlow = await buildVerificationPlanForTest('quick', [
@@ -105,18 +171,23 @@ test('CI translates owner-issued selection into executable plan gates', async ()
 test('Quick plan resolves the canonical active documentation corpus', async () => {
   const plan = await buildVerificationPlanForTest('quick', [...currentActiveDocumentationPaths()]);
 
-  expect(plan.selectionResolved).toBe(true);
+  expect(plan.selectionResolved, plan.selectionReasons.join('\n')).toBe(true);
   expect(plan.gates.map((gate) => gate.id).filter((id) => !id.startsWith('slow-suite-'))).toEqual([
     'docs-doctor',
     'typecheck',
-    'affected-tests'
+    'affected-tests',
+    'native-target-check'
   ]);
-});
+  // This corpus includes the registry/boundary JSON read by the real CLI
+  // closure. Their native target obligation survives documentation ownership.
+  expect(plan.requiredNativeMethods.find(({ id }) => id === 'target-check')?.selectionPaths)
+    .toEqual(expect.arrayContaining(['.documentation/baseline.json', '.documentation/documents.json']));
+}, 180_000);
 
 test('Quick docs gate follows the canonical documentation lifecycle owner', async () => {
   for (const file of currentActiveDocumentationPaths()) {
     const plan = await buildVerificationPlanForTest('quick', [file]);
-    expect(plan.selectionResolved).toBe(true);
+    expect(plan.selectionResolved, `${file}\n${plan.selectionReasons.join('\n')}`).toBe(true);
     expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
     expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
     expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');

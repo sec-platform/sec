@@ -95,7 +95,8 @@ export function baseOptions(root: string) {
       selectionResolved: true,
       selectionReasons: [],
       affectedOwners: ['product'],
-      affectedSlowTests: [],
+    affectedSlowTests: [],
+    requiredNativeMethods: [],
       gates: [docsGate]
     },
     runGate: executeSentinelGate(root, 0)

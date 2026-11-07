@@ -433,7 +433,7 @@ async function readFrozenPackageConfig(
   const raw = JSON.parse(packageBytes.toString('utf8')) as {
     version?: unknown;
     packageManager?: unknown;
-    source?: unknown;
+    imports?: unknown;
     bin?: unknown;
     scripts?: unknown;
     dependencies?: Record<string, unknown>;

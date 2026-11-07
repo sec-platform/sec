@@ -17,6 +17,11 @@ import {
   retainNoFollowDirectoryForChildProcess,
   type RetainedNoFollowChildProcessDirectory
 } from './physical-no-follow.ts';
+import {
+  claimRepositoryDerivedOutput,
+  type RepositoryDerivedOutput,
+  type RepositoryDerivedOutputObservation
+} from './repository-derived-output.ts';
 
 const MAXIMUM_ROOTS = 8;
 const MAXIMUM_EVENTS = 100_000;
@@ -100,6 +105,7 @@ interface WatchRequest {
   readonly scope: WatchScope;
   readonly filterName: string | null;
   readonly maxEvents: number;
+  readonly derivedOutputPrefix: string | null;
 }
 
 interface WorkerArmedMessage {
@@ -142,6 +148,7 @@ interface LiveObserver {
   readonly watchers: readonly WatcherLease[];
   readonly rootIdentityDigest: `sha256:${string}`;
   readonly deadlineAtUnixMs: number;
+  readonly derivedOutput?: RepositoryDerivedOutputObservation;
   settled: boolean;
 }
 
@@ -255,7 +262,7 @@ async function setWindowsEvent(handle: bigint): Promise<boolean> {
   }
 }
 
-function watchRequest(root: string, rootIndex: number): readonly WatchRequest[] {
+function watchRequest(root: string, rootIndex: number, derivedOutputPrefix: string | null = null): readonly WatchRequest[] {
   return Object.freeze([
     Object.freeze({
       rootIndex,
@@ -263,7 +270,8 @@ function watchRequest(root: string, rootIndex: number): readonly WatchRequest[] 
       subtree: true,
       scope: 'subtree' as const,
       filterName: null,
-      maxEvents: MAXIMUM_EVENTS
+      maxEvents: MAXIMUM_EVENTS,
+      derivedOutputPrefix
     }),
     Object.freeze({
       rootIndex,
@@ -271,7 +279,8 @@ function watchRequest(root: string, rootIndex: number): readonly WatchRequest[] 
       subtree: false,
       scope: 'root-entry' as const,
       filterName: path.basename(root),
-      maxEvents: MAXIMUM_EVENTS
+      maxEvents: MAXIMUM_EVENTS,
+      derivedOutputPrefix: null
     })
   ]);
 }
@@ -339,7 +348,8 @@ function startWatcher(
 
 function retainUnsettledObserverRecovery(
   retainedRoots: readonly RetainedNoFollowChildProcessDirectory[],
-  workers: readonly UnsettledWatcher[]
+  workers: readonly UnsettledWatcher[],
+  derivedOutput?: RepositoryDerivedOutputObservation
 ): void {
   const recovery = Object.freeze({
     retainedRoots: Object.freeze([...retainedRoots]),
@@ -347,6 +357,7 @@ function retainUnsettledObserverRecovery(
   });
   retainedUnsettledObservers.add(recovery);
   void Promise.all(recovery.workers.map(({ closed }) => closed)).then(() => {
+    derivedOutput?.release();
     if (disposeRoots(recovery.retainedRoots)) retainedUnsettledObservers.delete(recovery);
   });
 }
@@ -551,6 +562,7 @@ export function disposePreparedWindowsRepositoryChangeObserver(
 export async function armWindowsRepositoryChangeObserver(input: Readonly<{
   roots: readonly string[];
   deadlineAtUnixMs: number;
+  derivedOutput?: RepositoryDerivedOutput;
 }>): Promise<WindowsRepositoryChangeObserverResolution> {
   if (process.platform !== 'win32') return unavailable('unsupported-platform');
   if (process.arch !== 'x64' && process.arch !== 'arm64') {
@@ -563,13 +575,19 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
       || input.deadlineAtUnixMs - now > MAXIMUM_OBSERVATION_MS) {
     return unavailable('invalid-input');
   }
+  // This provider reports namespace events, including a bounded output-path
+  // exclusion. It never proves content immutability; the consumer must retain
+  // its actual positive inputs before using namespace silence in that claim.
   const retainedRoots: RetainedNoFollowChildProcessDirectory[] = [];
   const watchers: WatcherLease[] = [];
   const unsettledWorkers: UnsettledWatcher[] = [];
+  let derivedOutput: RepositoryDerivedOutputObservation | undefined;
   try {
     const projections = [];
+    const chains = [];
     for (const [index, root] of roots.entries()) {
       const chain = inspectNoFollowDirectoryChain(root, `repository change root[${index}]`);
+      chains.push(chain);
       projections.push(rootIdentityProjection(chain));
       retainedRoots.push(retainNoFollowDirectoryForChildProcess(
         chain,
@@ -577,9 +595,16 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
         `repository change root[${index}]`
       ));
     }
-    const rootIdentityDigest = sha256(Object.freeze(projections)) as `sha256:${string}`;
+    if (input.derivedOutput !== undefined) {
+      try { derivedOutput = claimRepositoryDerivedOutput(input.derivedOutput, chains); }
+      catch {
+        return unavailable(disposeRoots(retainedRoots) ? 'invalid-input' : 'arm-failed');
+      }
+    }
+    const rootIdentityDigest = sha256(derivedOutput === undefined ? Object.freeze(projections)
+      : { roots: projections, derivedOutput: derivedOutput.identityDigest }) as `sha256:${string}`;
     for (const [rootIndex, root] of roots.entries()) {
-      for (const request of watchRequest(root, rootIndex)) {
+      for (const request of watchRequest(root, rootIndex, derivedOutput?.relativePaths[rootIndex] ?? null)) {
         const watcher = await startWatcher(request, input.deadlineAtUnixMs);
         if (watcher !== null && !('stopEventHandle' in watcher)) {
           unsettledWorkers.push(watcher);
@@ -590,6 +615,7 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
       }
     }
     for (const retained of retainedRoots) retained.assertCurrent();
+    derivedOutput?.assertCurrent();
     const observer = Object.freeze({
       [observerBrand]: undefined as never,
       rootIdentityDigest
@@ -599,16 +625,20 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
       watchers: Object.freeze(watchers),
       rootIdentityDigest,
       deadlineAtUnixMs: input.deadlineAtUnixMs,
+      ...(derivedOutput === undefined ? {} : { derivedOutput }),
       settled: false
     });
     return Object.freeze({ status: 'ready', observer });
   } catch {
     const watchersSettled = unsettledWorkers.length === 0
       && await settleStartedWatchers(watchers, input.deadlineAtUnixMs).catch(() => false);
-    if (watchersSettled) disposeRoots(retainedRoots);
+    if (watchersSettled) {
+      derivedOutput?.release();
+      disposeRoots(retainedRoots);
+    }
     else {
       for (const watcher of watchers) watcher.worker.terminate();
-      retainUnsettledObserverRecovery(retainedRoots, [...watchers, ...unsettledWorkers]);
+      retainUnsettledObserverRecovery(retainedRoots, [...watchers, ...unsettledWorkers], derivedOutput);
     }
     return unavailable(Date.now() >= input.deadlineAtUnixMs ? 'deadline-exhausted' : 'arm-failed');
   }
@@ -628,6 +658,7 @@ export async function settleWindowsRepositoryChangeObserver(
   let identityCurrent = true;
   try {
     for (const root of live.retainedRoots) root.assertCurrent();
+    live.derivedOutput?.assertCurrent();
   } catch {
     identityCurrent = false;
   }
@@ -654,15 +685,17 @@ export async function settleWindowsRepositoryChangeObserver(
     live.deadlineAtUnixMs
   );
   if (workersClosed === null) {
-    retainUnsettledObserverRecovery(live.retainedRoots, live.watchers);
+    retainUnsettledObserverRecovery(live.retainedRoots, live.watchers, live.derivedOutput);
     liveObservers.delete(observer);
     return Object.freeze({ status: 'deadline-exhausted', rootIdentityDigest: live.rootIdentityDigest });
   }
   try {
     for (const root of live.retainedRoots) root.assertCurrent();
+    live.derivedOutput?.assertCurrent();
   } catch {
     identityCurrent = false;
   }
+  live.derivedOutput?.release();
   if (!disposeRoots(live.retainedRoots)) identityCurrent = false;
   liveObservers.delete(observer);
   if (!identityCurrent) {
@@ -763,7 +796,11 @@ function parseChangeBuffer(
     const observed = buffer.subarray(offset + 12, offset + 12 + nameBytes).toString('utf16le');
     const eventPath = canonicalEventPath(observed, request);
     if (eventPath === null) return null;
-    if (eventPath !== '') {
+    const rawPath = observed.replace(/\\/gu, '/');
+    const derivedEvent = request.derivedOutputPrefix !== null
+      && (rawPath.startsWith(`${request.derivedOutputPrefix}/`)
+        || (rawPath === request.derivedOutputPrefix && action === 'modified'));
+    if (eventPath !== '' && !derivedEvent) {
       events.push(Object.freeze({ rootIndex: request.rootIndex, path: eventPath, action }));
     }
     if (next === 0) break;
@@ -776,7 +813,7 @@ function parseChangeBuffer(
 function workerRequest(value: unknown): WatchRequest | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)
       || !exactKeys(value, [
-        'filterName', 'maxEvents', 'rootIndex', 'scope', 'subtree', 'watchPath'
+        'derivedOutputPrefix', 'filterName', 'maxEvents', 'rootIndex', 'scope', 'subtree', 'watchPath'
       ])) return null;
   const candidate = value as Record<string, unknown>;
   if (!Number.isSafeInteger(candidate.rootIndex) || (candidate.rootIndex as number) < 0
@@ -784,10 +821,15 @@ function workerRequest(value: unknown): WatchRequest | null {
       || typeof candidate.subtree !== 'boolean'
       || (candidate.scope !== 'subtree' && candidate.scope !== 'root-entry')
       || (candidate.filterName !== null && typeof candidate.filterName !== 'string')
+      || (candidate.derivedOutputPrefix !== null && (typeof candidate.derivedOutputPrefix !== 'string'
+        || candidate.derivedOutputPrefix.length === 0
+        || candidate.derivedOutputPrefix.includes('\\') || candidate.derivedOutputPrefix.includes('\0')
+        || candidate.derivedOutputPrefix.split('/').some(part => part === '' || part === '.' || part === '..')))
       || !Number.isSafeInteger(candidate.maxEvents) || (candidate.maxEvents as number) <= 0
       || (candidate.maxEvents as number) > MAXIMUM_EVENTS) return null;
   if ((candidate.scope === 'subtree') !== candidate.subtree
-      || (candidate.scope === 'root-entry') !== (candidate.filterName !== null)) return null;
+      || (candidate.scope === 'root-entry') !== (candidate.filterName !== null)
+      || (candidate.scope === 'root-entry' && candidate.derivedOutputPrefix !== null)) return null;
   return Object.freeze(candidate as unknown as WatchRequest);
 }
 

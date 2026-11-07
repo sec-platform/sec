@@ -1103,10 +1103,10 @@ async function executeObservedTypecheckWithProvider(
           || materializedProjectIdentity.projectConfigDigest !== projectGeneration.identity.projectConfigDigest) {
         const admittedPaths = new Set(projectGeneration.identity.rootSourcePaths);
         const materializedPaths = new Set(materializedProjectIdentity.rootSourcePaths);
-        const missingPaths = materializedProjectIdentity.rootSourcePaths.filter((sourcePath) => (
+        const additionalInMaterialization = materializedProjectIdentity.rootSourcePaths.filter((sourcePath) => (
           !admittedPaths.has(sourcePath)
         ));
-        const extraPaths = projectGeneration.identity.rootSourcePaths.filter((sourcePath) => (
+        const missingFromMaterialization = projectGeneration.identity.rootSourcePaths.filter((sourcePath) => (
           !materializedPaths.has(sourcePath)
         ));
         throw new Error(
@@ -1114,8 +1114,8 @@ async function executeObservedTypecheckWithProvider(
             projectGeneration.identity.projectInputDigest
           }; materialized=${materializedProjectIdentity.projectInputDigest}; sources=${
             projectInput.sourceFacts.length
-          }; missing=${JSON.stringify(missingPaths.slice(0, 12))}; extra=${
-            JSON.stringify(extraPaths.slice(0, 12))}.`
+          }; missingFromMaterialization=${JSON.stringify(missingFromMaterialization.slice(0, 12))}; additionalInMaterialization=${
+            JSON.stringify(additionalInMaterialization.slice(0, 12))}.`
         );
       }
       const executionGenerationDigest = typeScriptExecutionGenerationDigest(projectGenerationEvidence);

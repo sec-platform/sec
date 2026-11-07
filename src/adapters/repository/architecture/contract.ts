@@ -161,6 +161,14 @@ export type RepositoryModuleOperationObligation = Readonly<{
  */
 export type RepositoryModuleImportKind = 'static' | 'dynamic' | 'require';
 
+/** An input address is not necessarily a module evaluation target. */
+export type RepositoryModuleRuntimeRelation =
+  | Readonly<{ kind: 'module'; target: string }>
+  | Readonly<{ kind: 'asset'; target: string }>
+  | Readonly<{ kind: 'external' }>
+  | Readonly<{ kind: 'unresolved' }>
+  | Readonly<{ kind: 'none' }>;
+
 export type RepositoryModuleGraphImport = Readonly<{
   readonly kind: RepositoryModuleImportKind;
   readonly specifier: string;
@@ -168,7 +176,17 @@ export type RepositoryModuleGraphImport = Readonly<{
 }>;
 
 export type RepositoryModuleGraphImportObservation =
-  RepositoryModuleGraphImport & Readonly<{ readonly from: string }>;
+  RepositoryModuleGraphImport & Readonly<{
+    readonly from: string;
+    /** Supplied by the language frontend; assembly must not resolve it again. */
+    readonly resolution?: Readonly<{
+      readonly status: 'resolved' | 'unresolved' | 'external';
+      readonly resolvedTarget: string | null;
+      readonly runtime: RepositoryModuleRuntimeRelation;
+      readonly lookupPaths: readonly string[];
+      readonly missingInputs: readonly string[];
+    }>;
+  }>;
 
 export type RepositoryModuleGraphReference = Readonly<{
   readonly from: string;
@@ -176,7 +194,11 @@ export type RepositoryModuleGraphReference = Readonly<{
   readonly specifier: string;
   readonly typeOnly: boolean;
   readonly candidateTargets: readonly string[];
+  /** Exact compiler file probes, including package metadata and negative lookups. */
+  readonly resolutionLookupPaths: readonly string[];
+  /** Compiler-selected type/symbol view, independently of runtime loading. */
   readonly resolvedTarget: string | null;
+  readonly runtime: RepositoryModuleRuntimeRelation;
 }>;
 
 export type RepositoryModuleGraph = Readonly<{
@@ -185,6 +207,7 @@ export type RepositoryModuleGraph = Readonly<{
   readonly unresolvedFiles: readonly string[];
   readonly directConsumers: (modulePath: string) => readonly string[];
   readonly directDependencies: (modulePath: string) => readonly string[];
+  /** Module evaluation edges only; assets and resolution metadata are inputs. */
   readonly directRuntimeDependencies: (modulePath: string) => readonly string[];
 }>;
 

@@ -2,6 +2,42 @@
   "scope": "Independent S2/S3 equations and S4 shape expectations. No S0 lexical, linker, type/Profile, runtime or migration proof. Expected values are authored independently of the expander.",
   "cases": [
     {
+      "name": "inferred-constant-type-is-not-inserted-by-expansion",
+      "slot": "definition",
+      "input": {"core:constant": {"value": {"literal": {"type": {"tag": "scalar", "name": "bool"}, "value": true}}}},
+      "expectedExpanded": {"kind": "core:constant", "body": {"value": {"op": "literal", "type": {"tag": "scalar", "name": "bool"}, "value": true}}},
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "inferred-function-return-is-not-inserted-by-expansion",
+      "slot": "definition",
+      "input": {"core:function": {"parameters": [{"name": "x", "type": {"tag": "scalar", "name": "int"}}], "body": {"var": {"name": "x"}}}},
+      "expectedExpanded": {"kind": "core:function", "body": {"parameters": [{"name": "x", "type": {"tag": "scalar", "name": "int"}}], "body": {"op": "var", "name": "x"}}},
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "explicit-constant-constraint-survives-short-expansion",
+      "slot": "definition",
+      "input": {"core:constant": {"type": "bool", "value": {"literal": {"type": {"tag": "scalar", "name": "int"}, "value": "1"}}}},
+      "expectedExpanded": {"kind": "core:constant", "body": {"type": {"tag": "scalar", "name": "bool"}, "value": {"op": "literal", "type": {"tag": "scalar", "name": "int"}, "value": "1"}}},
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Definition",
+      "expectedValid": true
+    },
+    {
+      "name": "raw-constant-literal-still-requires-type",
+      "slot": "definition",
+      "input": {"core:constant": {"literal": true}},
+      "expectedExpansionError": true
+    },
+    {
+      "name": "constant-literal-and-value-still-exclusive",
+      "slot": "definition",
+      "input": {"core:constant": {"type": "bool", "literal": true, "value": {"var": {"name": "x"}}}},
+      "expectedExpansionError": true
+    },
+    {
       "name": "subject-generic-and-display-name",
       "slot": "definition",
       "input": {
@@ -3108,6 +3144,182 @@
         }
       },
       "expectedExpansionError": true
+    },
+    {
+      "name": "try-expression-branches-remain-expressions",
+      "slot": "expression",
+      "input": {
+        "try": {
+          "body": {"var": {"name": "value"}},
+          "errorName": "error",
+          "onError": {"var": {"name": "fallback"}}
+        }
+      },
+      "expectedExpanded": {
+        "op": "try",
+        "body": {"op": "var", "name": "value"},
+        "errorName": "error",
+        "onError": {"op": "var", "name": "fallback"}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": true
+    },
+    {
+      "name": "try-block-body-with-expression-handler",
+      "slot": "expression",
+      "input": {
+        "try": {
+          "body": {"op": "exec:block", "statements": [], "result": {"op": "var", "name": "value"}},
+          "errorName": "error",
+          "onError": {"var": {"name": "fallback"}}
+        }
+      },
+      "expectedExpanded": {
+        "op": "try",
+        "body": {"op": "exec:block", "statements": [], "result": {"op": "var", "name": "value"}},
+        "errorName": "error",
+        "onError": {"op": "var", "name": "fallback"}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": true
+    },
+    {
+      "name": "try-expression-body-with-returning-handler",
+      "slot": "expression",
+      "input": {
+        "try": {
+          "body": {"var": {"name": "value"}},
+          "errorName": "error",
+          "onError": {"op": "exec:block", "statements": [{"op": "return", "value": {"op": "var", "name": "fallback"}}]}
+        }
+      },
+      "expectedExpanded": {
+        "op": "try",
+        "body": {"op": "var", "name": "value"},
+        "errorName": "error",
+        "onError": {"op": "exec:block", "statements": [{"op": "return", "value": {"op": "var", "name": "fallback"}}]}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": true
+    },
+    {
+      "name": "try-recursive-blocks-retain-loop-exits",
+      "slot": "expression",
+      "input": {
+        "try": {
+          "body": {
+            "op": "exec:block",
+            "statements": [{
+              "op": "while",
+              "condition": {"op": "var", "name": "running"},
+              "body": {
+                "op": "exec:block",
+                "statements": [{
+                  "op": "eval",
+                  "value": {
+                    "op": "try",
+                    "body": {
+                      "op": "exec:block",
+                      "statements": [
+                        {"op": "if", "condition": {"op": "var", "name": "finished"}, "then": {"op": "exec:block", "statements": [{"op": "break"}]}},
+                        {"op": "eval", "value": {"op": "throw", "error": {"op": "var", "name": "failure"}}}
+                      ]
+                    },
+                    "errorName": "innerError",
+                    "onError": {"op": "exec:block", "statements": [{"op": "continue"}]}
+                  }
+                }]
+              }
+            }]
+          },
+          "errorName": "outerError",
+          "onError": {"op": "exec:block", "statements": [{"op": "return"}]}
+        }
+      },
+      "expectedExpanded": {
+        "op": "try",
+        "body": {
+          "op": "exec:block",
+          "statements": [{
+            "op": "while",
+            "condition": {"op": "var", "name": "running"},
+            "body": {
+              "op": "exec:block",
+              "statements": [{
+                "op": "eval",
+                "value": {
+                  "op": "try",
+                  "body": {
+                    "op": "exec:block",
+                    "statements": [
+                      {"op": "if", "condition": {"op": "var", "name": "finished"}, "then": {"op": "exec:block", "statements": [{"op": "break"}]}},
+                      {"op": "eval", "value": {"op": "throw", "error": {"op": "var", "name": "failure"}}}
+                    ]
+                  },
+                  "errorName": "innerError",
+                  "onError": {"op": "exec:block", "statements": [{"op": "continue"}]}
+                }
+              }]
+            }
+          }]
+        },
+        "errorName": "outerError",
+        "onError": {"op": "exec:block", "statements": [{"op": "return"}]}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": true
+    },
+    {
+      "name": "try-complete-block-does-not-expand-short-result",
+      "slot": "expression",
+      "input": {
+        "try": {
+          "body": {"op": "exec:block", "statements": [], "result": {"var": {"name": "value"}}},
+          "errorName": "error",
+          "onError": {"var": {"name": "fallback"}}
+        }
+      },
+      "expectedExpanded": {
+        "op": "try",
+        "body": {"op": "exec:block", "statements": [], "result": {"var": {"name": "value"}}},
+        "errorName": "error",
+        "onError": {"op": "var", "name": "fallback"}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": false
+    },
+    {
+      "name": "throw-payload-does-not-acquire-exec-body",
+      "slot": "expression",
+      "input": {
+        "op": "throw",
+        "error": {"op": "exec:block", "statements": [], "result": {"op": "var", "name": "failure"}}
+      },
+      "expectedExpanded": {
+        "op": "throw",
+        "error": {"op": "exec:block", "statements": [], "result": {"op": "var", "name": "failure"}}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": false
+    },
+    {
+      "name": "try-malformed-block-still-rejected",
+      "slot": "expression",
+      "input": {
+        "try": {
+          "body": {"op": "exec:block", "result": {"op": "var", "name": "value"}},
+          "errorName": "error",
+          "onError": {"var": {"name": "fallback"}}
+        }
+      },
+      "expectedExpanded": {
+        "op": "try",
+        "body": {"op": "exec:block", "result": {"op": "var", "name": "value"}},
+        "errorName": "error",
+        "onError": {"op": "var", "name": "fallback"}
+      },
+      "schema": "urn:gift:design-schema:universal-author-module-2-converged-base#/$defs/Expr",
+      "expectedValid": false
     }
   ]
 }

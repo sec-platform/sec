@@ -47,7 +47,7 @@ import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/ru
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, createCiVerificationNativeLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, resolveCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../action/contract/environment.ts';
+import { assertCiVerificationNativeEnvironment, CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, parseVerificationActionProviderStartMarker, verificationActionProviderStartArtifactName, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName } from '../action/contract/provider.ts';
 import {
   writeVerificationActionProviderStartMarkerAtomic,
@@ -376,8 +376,7 @@ async function runCodexDevelopmentCiVerification(
                   observedHeadSha,
                   exactBlobPaths
                 );
-            const observedWorkspaceSnapshot = parsedProfile?.profile === 'quick'
-                && options.testVerificationPlan === undefined
+            const observedWorkspaceSnapshot = options.testVerificationPlan === undefined
                 && options.testImpactSourceProvider === undefined
               ? await CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, observedHeadSha)
               : null;
@@ -483,16 +482,14 @@ async function runCodexDevelopmentCiVerification(
     // vary the transition input in tests, but cannot inject or suppress the
     // Source Program authority used to interpret those paths.
     const plan = options.testVerificationPlan ?? (() => {
-      const testImpactProvider = profile === 'full'
-        ? null
-        : options.testImpactSourceProvider
+      const testImpactProvider = options.testImpactSourceProvider
           ?? (exactWorkspaceSnapshot === null
             ? null
             : CodexDevelopmentTestImpactSourceProviderFromSnapshot(
                 exactWorkspaceSnapshot,
                 repositoryRoot
               ));
-      if (profile === 'quick' && testImpactProvider === null) {
+      if (testImpactProvider === null) {
         throw new Error('CI verification did not receive an owner-issued exact test-impact source provider.');
       }
       return CodexDevelopmentBuildVerificationPlan(
@@ -542,6 +539,7 @@ async function runCodexDevelopmentCiVerification(
           arch: process.arch,
           bunVersion: Bun.version
         });
+    assertCiVerificationNativeEnvironment({ requiredNativeMethods: plan.requiredNativeMethods, executionEnvironment });
     const localDependencyBlobs = formalBinding === null
       ? CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS.map((dependencyPath) => {
           const blob = options.readExactGitBlob === undefined

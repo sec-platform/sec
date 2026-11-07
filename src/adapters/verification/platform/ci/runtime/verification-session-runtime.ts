@@ -32,7 +32,7 @@ import { CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/m
 import { createScopeAuthorization, createScopeAuthorizationRevision, type ScopeAuthorizationInput } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENTS, ciVerificationGateStep, parseCiVerificationActionPlanClosure, parseCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
+import { assertCiVerificationNativeEnvironment, CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, type VerificationSessionInput } from '../../session/contract/session.ts';
@@ -265,6 +265,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
     transition.observation
   );
   if (!plan.selectionResolved) throw new Error('observe-hosted verification plan selection is unresolved.');
+  assertCiVerificationNativeEnvironment({ requiredNativeMethods: plan.requiredNativeMethods, executionEnvironment });
   const actionPlanClosure = buildCiVerificationActionPlanClosure({
     candidate: {
       baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
@@ -695,6 +696,7 @@ export function prepareTrustedMainVerificationSession(input: {
     input.sourceProgramTransition
   );
   if (!plan.selectionResolved) throw new Error('trusted-main preparation verification plan is unresolved.');
+  assertCiVerificationNativeEnvironment({ requiredNativeMethods: plan.requiredNativeMethods, executionEnvironment });
   const actionPlan = buildCiVerificationActionPlanClosure({ candidate: { baseSha: candidate.baseSha,
     baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
     manifestPath: input.manifestPath, manifestDigest: input.manifestDigest, scopeAuthorizationRevision: scopeRevision,
@@ -840,6 +842,10 @@ export function prepareLocalQuickVerificationActionPlan(input: {
   if (quickGates.length === 0) {
     throw new Error('local quick Action preparation resolved no quick gates.');
   }
+  assertCiVerificationNativeEnvironment({
+    requiredNativeMethods: plan.requiredNativeMethods.filter(({ phase }) => phase === 'quick'),
+    executionEnvironment: environment
+  });
   return buildCiVerificationActionPlanClosure({ candidate: {
     baseSha: input.candidate.baseSha,
     baseTreeSha: input.candidate.baseTreeSha,
@@ -1000,7 +1006,9 @@ export function prepareLocalVerificationIntent(input: Pick<Parameters<
     }),
     verificationPlanDigest: verificationSessionDataDigest({
       contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
-      gates: plan.gates.map(ciVerificationGateStep)
+      gates: plan.gates.map(ciVerificationGateStep),
+      requiredNativeMethods: plan.requiredNativeMethods,
+      nativeEnvironmentQualificationRequired: plan.requiredNativeMethods.length > 0
     }),
     qualificationRequirements: {
       trustedRevision: candidate.baseSha,

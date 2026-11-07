@@ -1,6 +1,11 @@
 import path from 'node:path';
 import ts from 'typescript';
 import { createTypeScriptSnapshotDirectoryReader } from '../../toolchain/typescript/snapshot-directory.ts';
+import {
+  directTypeScriptPackageImportAddress,
+  directTypeScriptSourceAddress,
+  observeTypeScriptImportLoader
+} from './typescript-module-loader.ts';
 import type { WorkspaceSourceFile } from './workspace-source-content.ts';
 import { parseContainedTypeScriptProjectConfig, parseTypeScriptProjectConfiguration } from './workspace-typescript-config.ts';
 
@@ -163,12 +168,40 @@ export function createTypeScriptDeclaredInputClosure(input: Readonly<{
                     && repositoryPath(path.resolve(path.dirname(containingFile), reference.text)) === null)) {
                 throw new Error(`TypeScript ProjectInput import escapes its snapshot: ${relative}`);
               }
-              const resolved = ts.resolveModuleName(reference.text, containingFile, options, host, cache,
+              const loader = observeTypeScriptImportLoader(reference);
+              let nearestManifest: WorkspaceSourceFile | null = null;
+              const assetHost: ts.ModuleResolutionHost = loader !== 'file' ? host : {
+                ...host,
+                readFile: (fileName) => {
+                  const source = read(fileName);
+                  const candidate = repositoryPath(fileName);
+                  if (nearestManifest === null && source !== undefined && candidate !== null
+                      && path.posix.basename(candidate) === 'package.json') {
+                    const relativeDirectory = path.posix.relative(path.posix.dirname(candidate), path.posix.dirname(relative));
+                    if (relativeDirectory === '' || (relativeDirectory !== '..' && !relativeDirectory.startsWith('../'))) {
+                      nearestManifest = input.file(candidate);
+                    }
+                  }
+                  return source;
+                }
+              };
+              if (loader === 'file') ts.getImpliedNodeFormatForFile(containingFile, undefined, assetHost, options);
+              const resolved = ts.resolveModuleName(reference.text, containingFile, options, assetHost,
+                loader === 'file' ? undefined : cache,
                 undefined, ts.getModeForUsageLocation(sourceFile, reference, options)).resolvedModule;
               const javascript = resolved?.extension === ts.Extension.Js || resolved?.extension === ts.Extension.Jsx
                 || resolved?.extension === ts.Extension.Mjs || resolved?.extension === ts.Extension.Cjs;
               if (resolved !== undefined && (!javascript || options.allowJs === true)
                   && exists(resolved.resolvedFileName)) resolvedSources.push(resolved.resolvedFileName);
+              if (loader === 'file') {
+                const asset = reference.text.startsWith('#')
+                  ? nearestManifest === null ? null
+                    : directTypeScriptPackageImportAddress(nearestManifest, reference.text, loader)
+                  : directTypeScriptSourceAddress(path.posix.dirname(relative), reference.text, loader);
+                // Capture the literal resource through the original reader.
+                // It is not a TypeScript module root or code-parse frontier.
+                if (asset !== null) read(virtualFile(asset));
+              }
             }
             for (const reference of sourceFile.referencedFiles) {
               const resolved = ts.resolveTripleslashReference(reference.fileName, containingFile);

@@ -74,7 +74,8 @@ export function compileTypeScriptDiagnosticSnapshot(input: Readonly<{
   const exact = compileExactTypeScriptProgram(
     filesByPath,
     sourceFileIdentities,
-    resolveSourceProgramCompilationOperation()
+    resolveSourceProgramCompilationOperation(),
+    { files: input.files, membershipPaths: input.files.map(({ path }) => path) }
   );
   const diagnostics = exact.sourceFiles.flatMap((sourceFile) => [
     ...exact.program.getSyntacticDiagnostics(sourceFile),

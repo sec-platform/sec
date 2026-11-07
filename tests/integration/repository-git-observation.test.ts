@@ -9,11 +9,19 @@ import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
 
 import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import { createAuthorityGitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { retainWorkingSourceInputGeneration, type RetainedWorkingSourceInputGeneration } from '../../src/adapters/repository/source-program-model/workspace-source-authority.ts';
+import { acquireWorkingTreeWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import type { ProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  armRepositoryChangeObserver, repositoryInputZeroWriteProtectionPrerequisites,
+  settleRepositoryChangeObserver, type RepositoryChangeObserver
+} from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import {
   compileAffectedTestSelectionSemanticOperation
 } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import {
   projectRepositoryObserverFailureDiagnostic,
+  runRepositorySourceInputOperation,
   runRepositoryZeroWriteOperation
 } from '../../src/adapters/self-hosting/development/runner/repository-mutation-fence.ts';
 import {
@@ -57,6 +65,22 @@ async function createRepository(prefix: string): Promise<string> {
   git(root, ['add', '--all']);
   git(root, ['commit', '--quiet', '-m', 'initial']);
   return root;
+}
+
+async function sourceInputObservation(root: string) {
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  await fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: { noEmit: true }, include: ['src/**/*.ts']
+  }));
+  await fs.writeFile(path.join(root, 'src', 'captured.ts'), 'export const committed = true;\n');
+  await fs.writeFile(path.join(root, 'src', 'entry.ts'), "import { missing } from './missing.ts'; export { missing };\n");
+  return withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
+    budget: GIT_READ_OPERATION_BUDGET }, async session => {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const sourceInputs = await retainWorkingSourceInputGeneration({ snapshot, session,
+      deadlineAtUnixMs: Date.now() + 20_000 });
+    return Object.freeze({ snapshot, sourceInputs });
+  });
 }
 
 test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
@@ -336,8 +360,8 @@ test('repository mutation fence preserves dirty candidates and detects tracked, 
   }
 });
 
-test.skipIf(process.platform === 'win32')(
-  'repository mutation fence rejects an unavailable physical observer before the workload',
+test(
+  'repository whole-input fence rejects unavailable protection before the workload',
   async () => {
     const root = await createRepository('sec-dev-observer-unavailable-');
     const diagnostics: string[] = [];
@@ -355,9 +379,13 @@ test.skipIf(process.platform === 'win32')(
       expect(called).toBe(false);
       expect(diagnostics).toHaveLength(1);
       expect(diagnostics[0]).toContain('strict-zero-write-unproven');
-      // Raw Linux arming has no issued process Effect admission; other enabled hosts lack an observer.
-      const reason = process.platform === 'linux' ? 'arm-failed' : 'unsupported-platform';
-      expect(diagnostics[0]).toContain(`(${reason})`);
+      const prerequisites = repositoryInputZeroWriteProtectionPrerequisites();
+      if (prerequisites.status === 'unavailable') {
+        expect(diagnostics[0]).toContain(prerequisites.reason);
+      } else {
+        // The raw Linux route still requires an issued process Effect admission.
+        expect(diagnostics[0]).toContain('(arm-failed)');
+      }
       expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
         .toBe('export const committed = true;\n');
     } finally {
@@ -366,43 +394,36 @@ test.skipIf(process.platform === 'win32')(
   }
 );
 
-test.skipIf(process.platform !== 'win32')('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
+test.skipIf(process.platform !== 'win32')('raw repository namespace observation preserves the actual child-write diagnostic', async () => {
   const root = await createRepository('sec-dev-mutation-operation-');
-  const diagnostics: string[] = [];
   let operationCallCount = 0;
+  let observer: RepositoryChangeObserver | undefined;
+  let settled = false;
   try {
-    const result = await runRepositoryZeroWriteOperation(
-      'test:fixture',
-      async () => {
-        operationCallCount += 1;
-        await fs.writeFile(path.join(root, 'committed.ts'), 'export const escaped = true;\n');
-        return 0;
-      },
-      {
-        operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
-        repositoryRoot: root,
-        report: (message) => diagnostics.push(message)
-      }
-    );
-    expect(result).toBe(1);
-    expect(operationCallCount).toBe(1);
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]).toContain('mutated or lost continuous observation');
-    const encoded = diagnostics[0]!.match(/diagnostic=(\{.*\})\.$/u)?.[1];
-    expect(encoded).toBeDefined();
-    const diagnostic = JSON.parse(encoded!) as {
-      eventCount: number;
-      firstEvent: { action: string; path: string; root: string; rootIndex: number };
-      observationDigest: string;
+    const resolution = await armRepositoryChangeObserver({ roots: [root], deadlineAtUnixMs: Date.now() + 20_000 });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') throw new Error('Raw namespace observer did not arm.');
+    observer = resolution.observer;
+    const workload = async () => {
+      operationCallCount += 1;
+      await fs.writeFile(path.join(root, 'committed.ts'), 'export const escaped = true;\n');
     };
-    expect(diagnostic.eventCount).toBeGreaterThan(0);
-    expect(diagnostic.firstEvent.root).toBe(root);
-    expect(diagnostic.firstEvent.rootIndex).toBe(0);
-    expect(diagnostic.firstEvent.path).toBe('committed.ts');
-    expect(['added', 'modified']).toContain(diagnostic.firstEvent.action);
-    expect(diagnostic.observationDigest).toStartWith('sha256:');
+    await workload();
+    const settlement = await settleRepositoryChangeObserver(observer);
+    settled = true;
+    expect(settlement.status).toBe('events');
+    if (settlement.status !== 'events') throw new Error('Raw namespace observation lost the source write.');
+    expect(operationCallCount).toBe(1);
+    const diagnostic = projectRepositoryObserverFailureDiagnostic(settlement, [root]);
+    expect(diagnostic.eventCount!).toBeGreaterThan(0);
+    expect(diagnostic.firstEvent!.root).toBe(root);
+    expect(diagnostic.firstEvent!.rootIndex).toBe(0);
+    expect(diagnostic.firstEvent!.path).toBe('committed.ts');
+    expect(['added', 'modified']).toContain(diagnostic.firstEvent!.action);
+    expect(diagnostic.observationDigest!).toStartWith('sha256:');
     expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8')).toBe('export const escaped = true;\n');
   } finally {
+    if (observer !== undefined && !settled) await settleRepositoryChangeObserver(observer);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -431,14 +452,23 @@ test('repository mutation fence rejects a reconstructed fast batch admission bef
   )).rejects.toThrow('owner-issued admission');
 });
 
-test.skipIf(process.platform !== 'win32')('repository mutation fence shares one process ledger with a nested Git admission', async () => {
+test.skipIf(process.platform !== 'win32')('repository source-input fence shares one real process ledger with a nested Git admission', async () => {
   const root = await createRepository('sec-dev-mutation-shared-ledger-');
+  let sourceInputs: RetainedWorkingSourceInputGeneration | undefined;
   try {
+    const observation = await sourceInputObservation(root);
+    sourceInputs = observation.sourceInputs;
+    expect(observation.snapshot.file('src/captured.ts')?.source).toBe('export const committed = true;\n');
+    expect(Object.isFrozen(observation.snapshot.files)).toBe(true);
     const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
     let nestedSessionReady = false;
-    const result = await runRepositoryZeroWriteOperation(
+    let sharedLedger: ProcessResourceSession | undefined;
+    const result = await runRepositorySourceInputOperation(
       'test:shared-ledger',
-      async (processSession) => {
+      async (processSession?: ProcessResourceSession) => {
+        expect(processSession).toBeDefined();
+        sharedLedger = processSession;
+        const before = processSession!.processCount;
         const resolution = createAuthorityGitReadSession({
           cwd: root,
           operation,
@@ -448,16 +478,125 @@ test.skipIf(process.platform !== 'win32')('repository mutation fence shares one 
         expect(resolution.status).toBe('ready');
         if (resolution.status !== 'ready') return 1;
         nestedSessionReady = true;
-        const head = await resolution.session.run(['rev-parse', '--verify', 'HEAD^{commit}']);
-        expect(head.kind).toBe('completed');
-        await resolution.session.close?.();
+        try {
+          const head = await resolution.session.run(['rev-parse', '--verify', 'HEAD^{commit}']);
+          expect(head.kind).toBe('completed');
+          expect(processSession!.processCount).toBeGreaterThan(before);
+          expect(await fs.readFile(path.join(root, 'src', 'captured.ts'), 'utf8')).toBe('export const committed = true;\n');
+        } finally {
+          await resolution.session.close?.();
+        }
         return 0;
       },
-      { operation, repositoryRoot: root }
+      { operation, repositoryRoot: root, sourceInputs }
     );
     expect(result).toBe(0);
     expect(nestedSessionReady).toBe(true);
+    expect(() => sharedLedger!.cooperativeDeadlineAtUnixMs()).toThrow('closed');
+    sourceInputs.assertCurrent();
+    expect(observation.snapshot.file('src/captured.ts')?.source).toBe('export const committed = true;\n');
+    expect(await fs.readFile(path.join(root, 'src', 'captured.ts'), 'utf8')).toBe('export const committed = true;\n');
   } finally {
+    sourceInputs?.retire();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')('repository source-input fence blocks hardlink source writes while preserving its captured bytes', async () => {
+  const root = await createRepository('sec-dev-source-hardlink-');
+  const alias = path.join(root, 'committed.alias');
+  const diagnostics: string[] = [];
+  let sourceInputs: RetainedWorkingSourceInputGeneration | undefined;
+  try {
+    await fs.mkdir(path.join(root, 'src'));
+    await fs.writeFile(path.join(root, 'src', 'captured.ts'), 'export const committed = true;\n');
+    await fs.link(path.join(root, 'src', 'captured.ts'), alias);
+    const observation = await sourceInputObservation(root);
+    sourceInputs = observation.sourceInputs;
+    const original = observation.snapshot.file('src/captured.ts')!.source;
+    const result = await runRepositorySourceInputOperation('test:source-hardlink', async () => {
+      await expect(fs.writeFile(alias, 'export const committed = false;\n')).rejects.toThrow();
+      expect(await fs.readFile(alias, 'utf8')).toBe(original);
+      return 0;
+    }, { operation: gitReadOperation(), repositoryRoot: root, sourceInputs, report: message => diagnostics.push(message) });
+    // The denied write notifies this alias. The namespace fence preserves that
+    // event while retained source bytes remain protected.
+    expect(result).toBe(1);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toContain('observer=events');
+    const encoded = diagnostics[0]!.match(/diagnostic=(\{.*\})\.$/u)?.[1];
+    expect(encoded).toBeDefined();
+    const diagnostic = JSON.parse(encoded!) as { firstEvent: { path: string; action: string } };
+    expect(diagnostic.firstEvent).toMatchObject({ path: 'committed.alias', action: 'modified' });
+    expect(observation.snapshot.file('src/captured.ts')!.source).toBe(original);
+    expect(await fs.readFile(path.join(root, 'src', 'captured.ts'), 'utf8')).toBe(original);
+    sourceInputs.assertCurrent();
+  } finally {
+    sourceInputs?.retire();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')('repository source-input fence rejects added source and a formerly negative lookup', async () => {
+  for (const repositoryPath of ['src/added.ts', 'src/missing.ts']) {
+    const root = await createRepository('sec-dev-source-added-');
+    let sourceInputs: RetainedWorkingSourceInputGeneration | undefined;
+    const diagnostics: string[] = [];
+    try {
+      const observation = await sourceInputObservation(root);
+      sourceInputs = observation.sourceInputs;
+      expect(observation.snapshot.file(repositoryPath)).toBeNull();
+      expect(observation.snapshot.moduleGraph.references.some(reference => reference.candidateTargets.includes('src/missing.ts'))).toBe(true);
+      const original = observation.snapshot.file('src/captured.ts')!.source;
+      let invoked = 0;
+      const result = await runRepositorySourceInputOperation('test:source-added', async () => {
+        invoked += 1;
+        await fs.writeFile(path.join(root, ...repositoryPath.split('/')), 'export const missing = true;\n');
+        return 0;
+      }, { operation: gitReadOperation(), repositoryRoot: root, sourceInputs, report: message => diagnostics.push(message) });
+      expect(result).toBe(1);
+      expect(invoked).toBe(1);
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toContain('mutated or lost continuous observation');
+      expect(diagnostics[0]).toContain('observer=events');
+      expect(observation.snapshot.file(repositoryPath)).toBeNull();
+      expect(observation.snapshot.file('src/captured.ts')!.source).toBe(original);
+      expect(await fs.readFile(path.join(root, 'src', 'captured.ts'), 'utf8')).toBe(original);
+    } finally {
+      sourceInputs?.retire();
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('repository source-input fence rejects caller-authored generations before invocation', async () => {
+  let invoked = false;
+  await expect(runRepositorySourceInputOperation('test:source-forged', async () => {
+    invoked = true;
+    return 0;
+  }, { operation: gitReadOperation(), sourceInputs: Object.freeze({}) as RetainedWorkingSourceInputGeneration }))
+    .rejects.toThrow('original-issued');
+  expect(invoked).toBe(false);
+});
+
+test.skipIf(process.platform !== 'win32')('repository source-input fence rejects a different repository before invocation', async () => {
+  const root = await createRepository('sec-dev-source-owner-');
+  const other = await createRepository('sec-dev-source-foreign-');
+  let sourceInputs: RetainedWorkingSourceInputGeneration | undefined;
+  let invoked = false;
+  try {
+    sourceInputs = (await sourceInputObservation(root)).sourceInputs;
+    await expect(runRepositorySourceInputOperation('test:source-foreign', async () => {
+      invoked = true;
+      return 0;
+    }, { operation: gitReadOperation(), repositoryRoot: other, sourceInputs }))
+      .rejects.toThrow('exact repository');
+    expect(invoked).toBe(false);
+    sourceInputs.assertCurrent();
+    expect(await fs.readFile(path.join(root, 'src', 'captured.ts'), 'utf8')).toBe('export const committed = true;\n');
+  } finally {
+    sourceInputs?.retire();
+    await rm(other, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
 });

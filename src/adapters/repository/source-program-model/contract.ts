@@ -1,3 +1,4 @@
+import { isAuthorKernelVerificationProgram, isAuthorKernelVerificationRootInput } from '../../../contracts/author-kernel-verification.ts';
 import { isSecRepositoryTestModulePath, SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
@@ -52,6 +53,7 @@ const SOURCE_PROGRAM_ROOT_INPUT = new Set([
  * inputs; a real declared dependency must not be discarded by this root filter.
  */
 export function isSourceProgramInputPath(repositoryPath: string): boolean {
+  if (isAuthorKernelVerificationRootInput(repositoryPath)) return true;
   if (SOURCE_PROGRAM_ROOT_INPUT.has(repositoryPath)) return true;
   if (/^\.githooks\/[^/]+$/u.test(repositoryPath)) return true;
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(repositoryPath)) return true;
@@ -67,6 +69,7 @@ export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string):
 }
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
+  if (isAuthorKernelVerificationProgram(repositoryPath)) return 'resource';
   if (SOURCE_PROGRAM_EXECUTABLE_RESOURCES.has(repositoryPath)) return 'resource';
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
   if (SOURCE_PROGRAM_TEST_DIRECTORY_PATH.test(repositoryPath)
@@ -106,6 +109,8 @@ export type SourceProgramCompilationMatchInput = Readonly<{
 
 export interface SourceProgramCompilation {
   readonly identityDigest: `sha256:${string}`;
+  /** Exact source-subject census, including members whose bytes are not selected. */
+  readonly sourceMembershipPaths: readonly string[];
   readonly moduleGraphDigest: `sha256:${string}`;
   readonly moduleGraph: RepositoryModuleGraph;
   file(repositoryPath: string): SourceProgramFileInput | null;

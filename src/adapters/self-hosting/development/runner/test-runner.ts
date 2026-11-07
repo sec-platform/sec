@@ -6,6 +6,7 @@ import { boundedAffectedBaseRef, createAffectedGitRevalidationLedger, observeGit
 
 import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
 
+import { AUTHOR_NATIVE_METHOD_IDS, type AuthorNativeMethodUnit } from '../../../../contracts/author-native-methods.ts';
 import { deepFreeze, rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
@@ -72,6 +73,7 @@ import {
   runDevCommand,
   type DevCommandObservation
 } from './command-runner.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import {
   ensureOperationDependencies,
   reuseOperationDependencies,
@@ -102,6 +104,7 @@ import {
   isDefaultFastTestFile,
   type FastTestProcessResourceClass
 } from './fast-test-policy.ts';
+import { nativeTestExecutionRetainsDependency, runNativeTests } from './native-test-runner.ts';
 import type { RepositoryMutationFenceExecutionContext } from './repository-mutation-fence.ts';
 import {
   admitFastTestBatchExecutionPolicy,
@@ -316,6 +319,7 @@ export async function issueCurrentTestBudgetProjection(): Promise<TestBudgetProj
 type TestBudgetExecutionSource = Readonly<{
   testInventory: IssuedTestInventoryProjection;
   budgetProjection: TestBudgetProjection;
+  nativeProjection?: IssuedTestImpactProjection;
   dependencyGenerationDigest?: `sha256:${string}`;
   reobserve: (deadlineAtUnixMs: number) => Promise<boolean>;
 }>;
@@ -377,7 +381,7 @@ async function reobserveTestBudgetExecutionSource(input: Readonly<{
   return result;
 }
 
-async function issueCurrentTestBudgetExecutionSource(): Promise<TestBudgetExecutionSource> {
+async function issueCurrentTestBudgetExecutionSource(includeNative = false): Promise<TestBudgetExecutionSource> {
   const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'budget-projection' });
   const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs;
   const resolution = createAuthorityGitReadSession({
@@ -390,16 +394,37 @@ async function issueCurrentTestBudgetExecutionSource(): Promise<TestBudgetExecut
     throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
   }
   const session = resolution.session;
+  let dependencyGeneration: RetainedCompilerDependencyReadGeneration | undefined;
   let outcome: TestBudgetExecutionSource | undefined;
   let primaryPresent = false;
   let primary: unknown;
   try {
-    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
-    const testInventory = issueTestInventoryProjection({ snapshot });
+    let nativeProjection: IssuedTestImpactProjection | undefined;
+    let testInventory: IssuedTestInventoryProjection;
+    if (includeNative) {
+      const dependency = await observeOperationDependencyReadGeneration({ deadlineAtUnixMs });
+      if (dependency.status !== 'ready') throw new Error(`Native source dependency generation is unavailable: ${dependency.reason}`);
+      dependencyGeneration = dependency.generation;
+      const source = await issueCheckAffectedTestImpactProjection({
+        dependencyGeneration,
+        compilationOperation: createSourceProgramCompilationOperation({
+          deadlineAtUnixMs: affectedSelectionSourceCompilationDeadlineAtUnixMs(operation),
+          observePhase: sourceProgramProgressObserver('native-selection')
+        }),
+        repositoryRoot: compilerRoot, session
+      });
+      nativeProjection = source.projection;
+      testInventory = source.testInventory;
+    } else {
+      const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+      testInventory = issueTestInventoryProjection({ snapshot });
+    }
     const budgetProjection = compileTestBudgetProjection(testInventory);
     outcome = Object.freeze({
       testInventory,
       budgetProjection,
+      ...(nativeProjection === undefined ? {} : { nativeProjection }),
+      ...(dependencyGeneration === undefined ? {} : { dependencyGenerationDigest: dependencyGeneration.generationDigest }),
       reobserve: (revalidationDeadlineAtUnixMs) => reobserveTestBudgetExecutionSource({
         expectedTestInventory: testInventory,
         expectedBudgetProjection: budgetProjection,
@@ -415,6 +440,9 @@ async function issueCurrentTestBudgetExecutionSource(): Promise<TestBudgetExecut
       cleanup: [{
         label: 'git-read-session',
         settle: async () => { await session.close?.(); }
+      }, {
+        label: 'native source dependency generation',
+        settle: async () => { await dependencyGeneration?.retire(); }
       }]
     });
   }
@@ -838,6 +866,8 @@ function affectedTestSelection(
   const policySentinels = unionTestFiles(processPolicySentinels, architecturePolicySentinels);
   return {
     tests: inventory.changedFastTests,
+    selectedNativeMethods: inventory.selectedNativeMethods,
+    unresolvedNativeInputs: inventory.unresolvedNativeInputs,
     slowTests: inventory.changedSlowTests,
     affectedTests: unionTestFiles(inventory.affectedFastTests, policySentinels),
     affectedSlowTests: inventory.affectedSlowTests,
@@ -914,6 +944,7 @@ function affectedTestPlan(
     selectionResolved: observedSelection.selectionResolved,
     unresolvedModuleFiles: observedSelection.unresolvedModuleFiles,
     selectedFastTestCount: selectedFastTests.length,
+    selectedNativeMethodCount: observedSelection.selectedNativeMethods.length,
     broadFallbackEnabled
   });
   const subjectRevision = gitObservation?.headSha ?? (affectedTestsBaseRef() ?? 'HEAD');
@@ -947,6 +978,7 @@ function affectedTestPlan(
     changedPaths: files,
     owners: uniqueSorted([...observedSelection.affectedOwners, ...risk.owners]),
     selectedFastTests,
+    selectedNativeMethods: observedSelection.selectedNativeMethods,
     selectedSlowTests: unionTestFiles([...observedSelection.slowTests], [...observedSelection.affectedSlowTests]),
     riskSuites: risk.suites,
     riskTests: unionTestFiles(
@@ -970,12 +1002,15 @@ function freezeAffectedTestPlan(plan: AffectedTestPlan): AffectedTestPlan {
     changedPaths: Object.freeze([...plan.changedPaths]),
     owners: Object.freeze([...plan.owners]),
     selectedFastTests: Object.freeze([...plan.selectedFastTests]),
+    selectedNativeMethods: Object.freeze([...plan.selectedNativeMethods]),
     selectedSlowTests: Object.freeze([...plan.selectedSlowTests]),
     riskSuites: Object.freeze([...plan.riskSuites]),
     riskTests: Object.freeze([...plan.riskTests]),
     riskReasons: Object.freeze([...plan.riskReasons]),
     unresolvedPaths: Object.freeze([...plan.unresolvedPaths]),
     selectionResolved: Object.freeze({
+      selectedNativeMethods: Object.freeze([...plan.selectionResolved.selectedNativeMethods]),
+      unresolvedNativeInputs: Object.freeze([...plan.selectionResolved.unresolvedNativeInputs]),
       tests: Object.freeze([...plan.selectionResolved.tests]),
       slowTests: Object.freeze([...plan.selectionResolved.slowTests]),
       affectedTests: Object.freeze([...plan.selectionResolved.affectedTests]),
@@ -1034,7 +1069,12 @@ async function runAffectedTestPlan(
         owners: [...selection.affectedOwners]
       }));
     }
-    return code;
+    if (code !== 0) return code;
+    return runNativeTestsForSource(selection.selectedNativeMethods, executionSource, preparedDependencies, bootstrap);
+  }
+
+  if (selection.selectedNativeMethods.length > 0) {
+    return runNativeTestsForSource(selection.selectedNativeMethods, executionSource, preparedDependencies, bootstrap);
   }
 
   if (selection.sourceChanged) {
@@ -1156,7 +1196,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
         changed = {
           files: [...source.files],
           gitObservation: source.gitObservation,
-          ...(binding === null ? {} : { transitionObservation: binding.transition })
+          ...(binding?.transition == null ? {} : { transitionObservation: binding.transition })
         };
         testImpactObservation = source;
       }
@@ -1254,6 +1294,7 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   const executionSource: TestBudgetExecutionSource = Object.freeze({
     testInventory,
     budgetProjection: initialBudgetProjection,
+    nativeProjection: testImpactProjection,
     ...(projectGenerationEvidence.projectInput.dependencyGenerationDigest === null
       ? {}
       : { dependencyGenerationDigest: projectGenerationEvidence.projectInput.dependencyGenerationDigest }),
@@ -1389,9 +1430,70 @@ export async function runAffectedTests(
   return execution.run(undefined, options.dependencyBootstrap);
 }
 
+async function runNativeTestsForSource(
+  methods: readonly AuthorNativeMethodUnit[],
+  source: TestBudgetExecutionSource | undefined,
+  preparedDependencies?: OperationDependencyBootstrapResult,
+  bootstrap: OperationDependencyBootstrapOptions = {}
+): Promise<number> {
+  if (methods.length === 0) return 0;
+  if (source?.nativeProjection === undefined || source.dependencyGenerationDigest === undefined) {
+    throw new Error('Native execution is missing its issued source and dependency generation.');
+  }
+  return withOperationDependencies('test-fast', async ({ binPath, dependencies }) => {
+    if (dependencies.executionGenerationAuthority.generationDigest !== source.dependencyGenerationDigest) {
+      throw new Error('Native dependency generation differs from its Source Program observation.');
+    }
+    const retained = await retainOperationDependencyReadGeneration({
+      dependencies, deadlineAtUnixMs: Date.now() + DEV_COMMAND_MAX_DURATION_MS
+    });
+    if (retained.status !== 'ready') throw new Error('Native dependency generation is unavailable for execution.');
+    let failure: Readonly<{ error: unknown }> | undefined;
+    let code = 1;
+    try {
+      if (retained.generation.generationDigest !== source.dependencyGenerationDigest) {
+        throw new Error('Native dependency generation changed before execution.');
+      }
+      code = await runNativeTests({
+        projection: source.nativeProjection!, methods, reobserve: source.reobserve,
+        dependencyGeneration: retained.generation,
+        environment: pathEnv(binPath)
+      });
+    } catch (error) {
+      failure = { error };
+    }
+    await settlePhysicalResourcesAsync({
+      ...(failure === undefined ? {} : { primary: { label: 'native test execution', error: failure.error } }),
+      cleanup: nativeTestExecutionRetainsDependency(failure?.error, retained.generation) ? []
+        : [{ label: 'native test dependency generation', settle: async () => { await retained.generation.retire(); } }]
+    });
+    return code;
+  }, preparedDependencies, bootstrap);
+}
+
+export async function runNativeTestSelection(
+  args: string[],
+  bootstrap: OperationDependencyBootstrapOptions = {}
+): Promise<number> {
+  const method = args.length === 0 ? undefined
+    : args.length === 2 && args[0] === '--method'
+      ? AUTHOR_NATIVE_METHOD_IDS.find(id => id === args[1]) : undefined;
+  if (args.length !== 0 && method === undefined) {
+    console.error('Native tests accept only --method cargo-tests|reader-check|target-check, or no arguments.');
+    return 1;
+  }
+  const source = await issueCurrentTestBudgetExecutionSource(true);
+  const methods = source.nativeProjection!.nativeMethods.filter(unit => method === undefined || unit.id === method);
+  if (method !== undefined && methods.length === 0) {
+    console.error(`Native method ${method} is not present in the issued source inventory.`);
+    return 1;
+  }
+  return runNativeTestsForSource(methods, source, undefined, bootstrap);
+}
+
 export async function runTests(
   args: string[] = [],
-  options: Readonly<{ omitSlowSuites?: boolean; dependencyBootstrap?: OperationDependencyBootstrapOptions }> = {}
+  options: Readonly<{ omitSlowSuites?: boolean; nativeScope?: 'quick' | 'full'; dependencyBootstrap?: OperationDependencyBootstrapOptions }> = {}
 ): Promise<number> {
   const { selectors } = partitionBunTestArgs(args);
   if (selectors.length > 0) {
@@ -1400,8 +1502,13 @@ export async function runTests(
     console.error('Direct test selection must resolve entirely to exact fast or exact slow test files.');
     return 1;
   }
-  const fastExitCode = await runFastTestsForInventory(args, undefined, 'complete', undefined, options.dependencyBootstrap);
-  if (fastExitCode !== 0 || options.omitSlowSuites) return fastExitCode;
+  const source = await issueCurrentTestBudgetExecutionSource(true);
+  const fastExitCode = await runFastTestsForInventory(args, undefined, 'complete', { commandId: 'test:full:fast', source }, options.dependencyBootstrap);
+  if (fastExitCode !== 0) return fastExitCode;
+  const scope = options.nativeScope ?? (options.omitSlowSuites ? 'quick' : 'full');
+  const nativeMethods = source.nativeProjection!.nativeMethods.filter(method => scope === 'full' || method.phase === 'quick');
+  const nativeExitCode = await runNativeTestsForSource(nativeMethods, source, undefined, options.dependencyBootstrap);
+  if (nativeExitCode !== 0 || options.omitSlowSuites) return nativeExitCode;
   return runSlowTests(args, options.dependencyBootstrap);
 }
 

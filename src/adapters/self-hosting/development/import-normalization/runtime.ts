@@ -57,7 +57,7 @@ import {
   type CandidateNormalizationSubject
 } from './contract.ts';
 import type { ImportCheckOutcome } from './kernel.ts';
-import { checkImmutableImportSnapshot } from './kernel.ts';
+import { checkImmutableImportSnapshot, compileImmutableImportInputClosure } from './kernel.ts';
 
 const candidateNormalizationActionRunner = createVerificationActionRunner();
 const issuedCandidateNormalizationAdmissionReceipts = new WeakSet<object>();
@@ -465,10 +465,7 @@ export async function checkStagedCandidateImportNormalizationWithSelection(
       projectRoot: input.session.cwd,
       files,
       targetPaths: selection.selectedPaths.filter(isCandidateNormalizationPath),
-      expectedInputClosure: files.map(({ relativePath, contentDigest }) => Object.freeze({
-        path: relativePath,
-        digest: contentDigest
-      }))
+      expectedInputClosure: compileImmutableImportInputClosure(files)
     }));
   await observeExecutionProgressPhase(progressCommand, 'staged-source-readback',
     () => readBackStagedIndexWorkspaceSourceSnapshot(snapshot, input.session));
