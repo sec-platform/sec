@@ -16,10 +16,6 @@ import {
 import { moduleMembership, sourceInput } from './test/typescript-model-input.ts';
 
 const targetSource = 'export const value = 1;';
-const targetFile = Object.freeze({
-  path: 'src/b.ts', source: targetSource, contentDigest: rawSha256(targetSource)
-});
-
 const cases = [
   ['ordinary same-named function', 'function require() {} require();', false, false],
   ['ordinary same-named parameter', "function run(require: () => void) { require(); }", false, false],
@@ -39,51 +35,92 @@ const cases = [
   ['indirect invocation', "require.call(null, './b.ts');", false, true]
 ] as const;
 
-for (const [name, source, hasDependency, unresolved] of cases) {
-  test(`graph and semantic facts share loader identity: ${name}`, () => {
+// The two factory imports are external modules with their own lexical bindings.
+// Keep global require/module shadowing and competing top-level load bindings in
+// separate Programs. Only non-capturing scripts share an immutable compilation.
+const cohorts = [
+  ['ordinary same-named function'],
+  ['ordinary same-named binding'],
+  ['ordinary module member'],
+  ['immutable alias chain'],
+  ['computed alias'],
+  ['mutable alias'],
+  ['conditional alias'],
+  ['dynamic missing operand'],
+  [
+    'ordinary same-named parameter', 'literal require', 'immutable require alias',
+    'module require', 'unwrapped dynamic operand', 'factory has a different root',
+    'namespace factory has unresolved root', 'indirect invocation'
+  ]
+] as const;
+
+const carried = cohorts.flat();
+assert.deepEqual([...carried].sort(), cases.map(([name]) => name).sort(),
+  'each semantic loader scenario must have exactly one execution cohort');
+
+for (const [cohortIndex, names] of cohorts.entries()) {
+  test(`graph and semantic facts share loader identity: ${names.join(', ')}`, () => {
     try {
-      const sourceRevision = rawSha256(source);
-      const files = [{ path: 'src/a.ts', source, contentDigest: sourceRevision }, targetFile];
-      const model = compileTypeScriptSourceProgramModel({ sourceRevision, files, moduleMembership });
-      const graph = compileSourceProgramRepositoryModuleGraph({ files: files.map(({ path }) => path),
-        readSource: (path) => files.find((file) => file.path === path)?.source ?? null });
-      const references = model.references.filter((reference) => reference.kind === 'import'
-        && reference.targetPath === 'src/b.ts');
-      assert.equal(references.length, hasDependency ? 1 : 0);
-      for (const reference of references) assert.equal(reference.moduleSpecifier, './b.ts');
-      assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), hasDependency ? ['src/b.ts'] : []);
-      assert.equal(model.unknowns.some(({ code }) => code === 'dynamic-module-unresolved'), unresolved);
-      assert.deepEqual(graph.unresolvedFiles, unresolved ? ['src/a.ts'] : []);
-      if (name === 'dynamic missing operand') {
-        // Separate malformed source paths share one generation/recovery transition.
-        // Their syntax classifiers have fixed inputs in module-import-cases.json.
-        const malformed = sourceInput({
-          'src/incomplete-dynamic.ts': 'void import();',
-          'src/incomplete-await.ts': 'const { value } = await import();',
-          'src/incomplete-require.ts': 'export function run() { return require(); }'
-        });
-        const first = compileTypeScriptSourceProgramModelIncremental(malformed, null);
-        for (const file of malformed.files) {
-          assert.ok(first.model.unknowns.some(({ path, code }) =>
-            path === file.path && code === 'dynamic-module-unresolved'), file.path);
-          assert.equal(first.model.references.some(({ path, kind }) =>
-            path === file.path && kind === 'import'), false, file.path);
+      const selected = names.map((name) => {
+        const entry = cases.find(([candidate]) => candidate === name);
+        if (entry === undefined) throw new Error(`Missing loader consistency case: ${name}`);
+        return entry;
+      });
+      const sources = new Map<string, string>([['src/b.ts', targetSource]]);
+      selected.forEach(([, source], index) => sources.set(
+        `src/loader-case-${cohortIndex}-${index}.ts`, source
+      ));
+      const input = sourceInput(Object.fromEntries(sources));
+      const model = compileTypeScriptSourceProgramModel(input);
+      const graph = compileSourceProgramRepositoryModuleGraph({
+        files: input.files.map(({ path }) => path),
+        readSource: (path) => sources.get(path) ?? null
+      });
+
+      for (const [index, [name, , hasDependency, unresolved]] of selected.entries()) {
+        const path = `src/loader-case-${cohortIndex}-${index}.ts`;
+        const references = model.references.filter((reference) =>
+          reference.path === path && reference.kind === 'import'
+          && reference.targetPath === 'src/b.ts');
+        assert.equal(references.length, hasDependency ? 1 : 0, name);
+        for (const reference of references) assert.equal(reference.moduleSpecifier, './b.ts', name);
+        assert.deepEqual(graph.directRuntimeDependencies(path),
+          hasDependency ? ['src/b.ts'] : [], name);
+        assert.equal(model.unknowns.some(({ path: from, code }) =>
+          from === path && code === 'dynamic-module-unresolved'), unresolved, name);
+        assert.deepEqual(graph.unresolvedFiles.filter((from) => from === path),
+          unresolved ? [path] : [], name);
+        if (name === 'dynamic missing operand') {
+          // Keep malformed source generation and recovery independently scoped.
+          const malformed = sourceInput({
+            'src/incomplete-dynamic.ts': 'void import();',
+            'src/incomplete-await.ts': 'const { value } = await import();',
+            'src/incomplete-require.ts': 'export function run() { return require(); }'
+          });
+          const first = compileTypeScriptSourceProgramModelIncremental(malformed, null);
+          for (const file of malformed.files) {
+            assert.ok(first.model.unknowns.some(({ path, code }) =>
+              path === file.path && code === 'dynamic-module-unresolved'), file.path);
+            assert.equal(first.model.references.some(({ path, kind }) =>
+              path === file.path && kind === 'import'), false, file.path);
+          }
+          const recovered = sourceInput({
+            'src/incomplete-dynamic.ts': 'export const readyDynamic = 1;',
+            'src/incomplete-await.ts': 'export const readyAwait = 1;',
+            'src/incomplete-require.ts': 'export const readyRequire = 1;'
+          });
+          const next = compileTypeScriptSourceProgramModelIncremental(recovered, first.state);
+          assert.deepEqual(next.model.unknowns, []);
+          assert.deepEqual(
+            next.model.declarations.map(({ name }) => name).sort(),
+            ['readyAwait', 'readyDynamic', 'readyRequire']
+          );
         }
-        const recovered = sourceInput({
-          'src/incomplete-dynamic.ts': 'export const readyDynamic = 1;',
-          'src/incomplete-await.ts': 'export const readyAwait = 1;',
-          'src/incomplete-require.ts': 'export const readyRequire = 1;'
-        });
-        const next = compileTypeScriptSourceProgramModelIncremental(recovered, first.state);
-        assert.deepEqual(next.model.unknowns, []);
-        assert.deepEqual(
-          next.model.declarations.map(({ name }) => name).sort(),
-          ['readyAwait', 'readyDynamic', 'readyRequire']
-        );
-      }
-      if (name === 'ordinary same-named function') {
-        assert.deepEqual(model.unknowns, []);
-        assert.ok(model.references.some(({ kind, name }) => kind === 'call' && name === 'require'));
+        if (name === 'ordinary same-named function') {
+          assert.deepEqual(model.unknowns, []);
+          assert.ok(model.references.some(({ path: from, kind, name }) =>
+            from === path && kind === 'call' && name === 'require'));
+        }
       }
     } finally {
       releaseTypeScriptSourceProgramWorkspace();
