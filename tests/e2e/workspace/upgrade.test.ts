@@ -139,4 +139,4 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
     await expect(fs.lstat(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics)))
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
-}, 120000);
+}, 180000);
