@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { AUTHOR_KERNEL_GRAMMAR_MANIFEST, authorKernelDeclaredInputPaths } from '../../../contracts/author-kernel-verification.ts';
+import { AUTHOR_NATIVE_METHOD_IDS, authorNativeMethodTypeScriptClosure, compileAuthorNativeMethodUnits, isAuthorNativeMethodCatalogPresent, type AuthorNativeMethodUnit } from '../../../contracts/author-native-methods.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../contracts/repository-path.ts';
 
 import {
   canonicalJson,
@@ -9,6 +12,7 @@ import {
 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
 import { CodedFailure } from '../../../contracts/failure.ts';
+import type { GitReadSession } from '../../providers/git-read/runtime/session.ts';
 import { normalizeRepositoryPath } from '../architecture/contract.ts';
 import type {
   SourceProgramEntrypointKind,
@@ -25,6 +29,7 @@ import {
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import { workspaceSourceSnapshotIdentityForTypeScriptModel } from './typescript.ts';
+import { retainWorkingSourceInputGeneration, type RetainedWorkingSourceInputGeneration } from './workspace-source-authority.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
   assertWorkspaceSourceSnapshot,
@@ -36,7 +41,7 @@ import {
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/u;
 const PURPOSE = 'test-impact-selection' as const;
-const SCHEMA = 'sec-source-program-test-impact-projection-v5' as const;
+const SCHEMA = 'sec-source-program-test-impact-projection-v6' as const;
 
 const digestSchema = z.string().regex(DIGEST);
 const repositoryPathSchema = z.string().min(1).refine(
@@ -79,6 +84,7 @@ const virtualSubjectSchema = z.object({
 }).strict();
 const fileSchema = z.object({
   path: repositoryPathSchema,
+  contentDigest: digestSchema,
   moduleId: z.string().min(1).nullable(),
   surface: z.enum(['production', 'test', 'fixture', 'workflow', 'resource'])
 }).strict();
@@ -92,7 +98,15 @@ const moduleReferenceSchema = z.object({
   typeOnly: z.boolean(),
   specifier: z.string(),
   candidateTargets: z.array(repositoryPathSchema),
-  resolvedTarget: repositoryPathSchema.nullable()
+  resolutionLookupPaths: z.array(repositoryPathSchema),
+  resolvedTarget: repositoryPathSchema.nullable(),
+  runtime: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('module'), target: repositoryPathSchema }).strict(),
+    z.object({ kind: z.literal('asset'), target: repositoryPathSchema }).strict(),
+    z.object({ kind: z.literal('external') }).strict(),
+    z.object({ kind: z.literal('unresolved') }).strict(),
+    z.object({ kind: z.literal('none') }).strict()
+  ])
 }).strict();
 const semanticReferenceSchema = z.object({
   path: repositoryPathSchema,
@@ -115,6 +129,17 @@ const entrypointSchema = z.object({
 const observedTestConsumerSchema = z.object({
   targetPath: repositoryPathSchema,
   testPath: repositoryPathSchema
+}).strict();
+const nativePathSchema = z.string().refine(CodexDevelopmentIsCanonicalRepositoryPath, 'Native method path must be canonical');
+const nativeMethodSchema = z.object({
+  id: z.enum(AUTHOR_NATIVE_METHOD_IDS),
+  owner: z.literal('adapters.compilation'),
+  phase: z.enum(['quick', 'risk']),
+  inputs: z.array(z.object({ path: nativePathSchema, contentDigest: digestSchema.nullable() }).strict()),
+  selectionPaths: z.array(nativePathSchema),
+  absentLookupPaths: z.array(nativePathSchema),
+  unresolvedInputs: z.array(nativePathSchema),
+  inputClosureDigest: digestSchema
 }).strict();
 
 const projectionUnsignedSchema = z.object({
@@ -143,13 +168,17 @@ const projectionUnsignedSchema = z.object({
     unresolvedFiles: z.array(repositoryPathSchema)
   }).strict(),
   testFiles: z.array(repositoryPathSchema),
-  semanticReferences: z.array(semanticReferenceSchema)
+  semanticReferences: z.array(semanticReferenceSchema),
+  nativeMethods: z.array(nativeMethodSchema),
+  nativeDeclarationPaths: z.array(nativePathSchema)
 }).strict();
 const projectionSchema = projectionUnsignedSchema.extend({
   projectionDigest: digestSchema
 }).strict();
 
-type TestImpactProjectionUnsigned = z.infer<typeof projectionUnsignedSchema>;
+type TestImpactProjectionUnsigned = Omit<z.infer<typeof projectionUnsignedSchema>, 'nativeMethods'> & Readonly<{
+  nativeMethods: readonly AuthorNativeMethodUnit[];
+}>;
 export type TestImpactProjectionReceipt = Readonly<z.infer<typeof projectionSchema>>;
 
 declare const issuedProjectionBrand: unique symbol;
@@ -158,6 +187,7 @@ export interface IssuedTestImpactProjection extends TestImpactProjectionReceipt 
 }
 
 const issuedProjections = new WeakSet<object>();
+const projectionSourceSnapshots = new WeakMap<object, PhysicalWorkspaceSourceSnapshot>();
 
 function referenceOrder(left: SourceProgramReference, right: SourceProgramReference): number {
   return compareCodeUnits(
@@ -178,7 +208,7 @@ function compactReference(reference: SourceProgramReference): z.infer<typeof sem
 }
 
 function moduleReferenceKey(reference: z.infer<typeof moduleReferenceSchema>): string {
-  return `${reference.from}\0${reference.kind}\0${reference.typeOnly}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}`;
+  return `${reference.from}\0${reference.kind}\0${reference.typeOnly}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}\0${JSON.stringify(reference.runtime)}`;
 }
 
 function semanticReferenceKey(reference: z.infer<typeof semanticReferenceSchema>): string {
@@ -196,6 +226,63 @@ function assertUniqueSorted(values: readonly string[], label: string): void {
     if (compareCodeUnits(values[index - 1]!, values[index]!) >= 0) {
       throw new Error(`${label} must be unique and sorted`);
     }
+  }
+}
+
+function validateNativeMethods(value: TestImpactProjectionReceipt): void {
+  const files = new Map(value.files.map(file => [file.path, file.contentDigest] as const));
+  const expected = isAuthorNativeMethodCatalogPresent([...files.keys()]) ? AUTHOR_NATIVE_METHOD_IDS : [];
+  const identities = value.nativeMethods.map(method => method.id);
+  assertUniqueSorted(identities, 'Test impact native method identities');
+  if (JSON.stringify(identities) !== JSON.stringify(expected)) {
+    throw new Error('Test impact native inventory does not match its source presence');
+  }
+  assertUniqueSorted(value.nativeDeclarationPaths, 'Test impact native declaration paths');
+  const cargoInputs = new Set(value.nativeMethods.find(method => method.id === 'cargo-tests')?.inputs.map(input => input.path) ?? []);
+  if (value.nativeDeclarationPaths.some(path => !cargoInputs.has(path))) {
+    throw new Error('Test impact native declarations have no corresponding Cargo input');
+  }
+  for (const method of value.nativeMethods) {
+    if (method.phase !== (method.id === 'target-check' ? 'risk' : 'quick')) {
+      throw new Error('Test impact native method phase is inconsistent');
+    }
+    assertUniqueSorted(method.inputs.map(input => input.path), 'Test impact native inputs');
+    assertUniqueSorted(method.selectionPaths, 'Test impact native selection paths');
+    assertUniqueSorted(method.absentLookupPaths, 'Test impact native negative lookups');
+    assertUniqueSorted(method.unresolvedInputs, 'Test impact native unresolved inputs');
+    const required = new Set(method.inputs.map(input => input.path));
+    const absent = new Set(method.absentLookupPaths);
+    const unresolved = new Set(method.unresolvedInputs);
+    const selection = new Set(method.selectionPaths);
+    const closure = authorNativeMethodTypeScriptClosure(method.id, {
+      filePaths: [...files.keys()], moduleGraph: value.moduleGraph
+    });
+    for (const input of method.inputs) {
+      const digest = files.get(input.path) ?? null;
+      if (input.contentDigest !== digest || (digest === null && !unresolved.has(input.path))) {
+        throw new Error('Test impact native input differs from its snapshot or unresolved frontier');
+      }
+    }
+    if (method.unresolvedInputs.some(path => !required.has(path))
+        || method.selectionPaths.some(path => !required.has(path) && !absent.has(path))) {
+      throw new Error('Test impact native frontier selects an unrelated source');
+    }
+    if (closure.requiredPaths.some(path => !required.has(path))
+        || closure.selectionPaths.some(path => !selection.has(path))) {
+      throw new Error('Test impact native closure omitted a compiler-observed input');
+    }
+    const expectedUnresolved = uniqueSorted([
+      ...closure.unresolvedPaths, ...method.inputs.filter(input => !files.has(input.path)).map(input => input.path)
+    ]);
+    if (JSON.stringify(method.unresolvedInputs) !== JSON.stringify(expectedUnresolved)) {
+      throw new Error('Test impact native closure differs from its unresolved module frontier');
+    }
+    if (JSON.stringify(method.absentLookupPaths) !== JSON.stringify(closure.absentLookupPaths)
+        || method.absentLookupPaths.some(path => files.has(path) || !selection.has(path))) {
+      throw new Error('Test impact native negative lookup has no matching absent source observation');
+    }
+    const { inputClosureDigest, ...fields } = method;
+    if (sha256(fields) !== inputClosureDigest) throw new Error('Test impact native input digest is inconsistent');
   }
 }
 
@@ -247,9 +334,29 @@ function validateCanonicalProjection(value: TestImpactProjectionReceipt): void {
   }
   for (const reference of value.moduleGraph.references) {
     assertUniqueSorted(reference.candidateTargets, 'Test impact reference candidate targets');
+    assertUniqueSorted(reference.resolutionLookupPaths, 'Test impact reference resolution lookups');
+    if (reference.resolutionLookupPaths.some((path) => !reference.candidateTargets.includes(path))) {
+      throw new Error('Test impact resolution lookup is absent from its input candidates');
+    }
+    if (reference.typeOnly !== (reference.runtime.kind === 'none')) {
+      throw new Error('Test impact erased imports cannot carry a runtime relation');
+    }
+    if ('target' in reference.runtime && (!projectedPaths.has(reference.runtime.target)
+        || !reference.candidateTargets.includes(reference.runtime.target))) {
+      throw new Error('Test impact runtime target is outside its captured inputs');
+    }
+    if (reference.runtime.kind === 'module' && (reference.runtime.target !== reference.resolvedTarget
+        || /\.d\.[cm]?ts$/u.test(reference.runtime.target))) {
+      throw new Error('Test impact module evaluation differs from its compiler source address');
+    }
+    if (reference.runtime.kind === 'unresolved'
+        && !value.moduleGraph.unresolvedFiles.includes(reference.from)) {
+      throw new Error('Test impact omitted an unresolved runtime import');
+    }
   }
   assertUniqueSorted(value.moduleGraph.references.map(moduleReferenceKey), 'Test impact module references');
   assertUniqueSorted(value.semanticReferences.map(semanticReferenceKey), 'Test impact semantic references');
+  validateNativeMethods(value);
   const { projectionDigest, ...unsigned } = value;
   if (sha256(unsigned) !== projectionDigest) {
     throw new Error('Test impact projection digest is inconsistent');
@@ -297,6 +404,10 @@ function compileTestImpactProjection(input: Readonly<{
   assertProjectionInputsIssued(input);
   const { workspaceSnapshot, repositoryModel, typeScriptModel, testObservations } = input;
   const moduleGraph = workspaceSnapshot.moduleGraph;
+  const nativeMethods = compileAuthorNativeMethodUnits({ files: workspaceSnapshot.files, moduleGraph });
+  const nativeManifest = workspaceSnapshot.file(AUTHOR_KERNEL_GRAMMAR_MANIFEST);
+  const nativeDeclarationPaths = nativeMethods.length === 0 || nativeManifest === null ? []
+    : [...authorKernelDeclaredInputPaths(nativeManifest.source)];
   const repositoryFilePaths = new Set(repositoryModel.files.map(({ path: repositoryPath }) => repositoryPath));
   const semanticReferenceMap = new Map<string, z.infer<typeof semanticReferenceSchema>>();
   for (const reference of [
@@ -352,7 +463,11 @@ function compileTestImpactProjection(input: Readonly<{
     repositoryModelDigest: repositoryModel.modelDigest as `sha256:${string}`,
     testObservationDigest: testObservations.observationDigest as `sha256:${string}`,
     files: repositoryModel.files
-      .map(({ path, moduleId, surface }) => ({ path, moduleId, surface }))
+      .map(({ path, moduleId, surface }) => {
+        const source = workspaceSnapshot.file(path);
+        if (source === null) throw new Error('Test impact source row has no corresponding snapshot bytes');
+        return { path, moduleId, surface, contentDigest: source.contentDigest };
+      })
       .sort((left, right) => compareCodeUnits(left.path, right.path)),
     moduleOwners: workspaceSnapshot.moduleMembership.descriptors
       .map(({ moduleId, root }) => ({
@@ -388,15 +503,21 @@ function compileTestImpactProjection(input: Readonly<{
         typeOnly: reference.typeOnly,
         specifier: reference.specifier,
         candidateTargets: uniqueSorted(reference.candidateTargets.map(normalizeRepositoryPath)),
+        resolutionLookupPaths: uniqueSorted(reference.resolutionLookupPaths.map(normalizeRepositoryPath)),
         resolvedTarget: reference.resolvedTarget === null
           ? null
-          : normalizeRepositoryPath(reference.resolvedTarget)
+          : normalizeRepositoryPath(reference.resolvedTarget),
+        runtime: 'target' in reference.runtime
+          ? { kind: reference.runtime.kind, target: normalizeRepositoryPath(reference.runtime.target) }
+          : { kind: reference.runtime.kind }
       })).sort((left, right) => compareCodeUnits(moduleReferenceKey(left), moduleReferenceKey(right))),
       unresolvedFiles: uniqueSorted(moduleGraph.unresolvedFiles.map(normalizeRepositoryPath))
     },
     testFiles: uniqueSorted(testObservations.testPaths.map(normalizeRepositoryPath)),
     semanticReferences: [...semanticReferenceMap.values()]
-      .sort((left, right) => compareCodeUnits(semanticReferenceKey(left), semanticReferenceKey(right)))
+      .sort((left, right) => compareCodeUnits(semanticReferenceKey(left), semanticReferenceKey(right))),
+    nativeMethods,
+    nativeDeclarationPaths
   };
   const parsedUnsigned = projectionUnsignedSchema.parse(canonicalJson(unsigned));
   const projection = deepFreeze(projectionSchema.parse({
@@ -417,7 +538,24 @@ export function issueTestImpactProjection(input: Readonly<{
   assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
   const projection = compileTestImpactProjection(input) as IssuedTestImpactProjection;
   issuedProjections.add(projection);
+  projectionSourceSnapshots.set(projection, input.workspaceSnapshot);
   return projection;
+}
+
+export async function retainTestImpactExecutionInputs(input: Readonly<{
+  projection: TestImpactProjectionReceipt;
+  session: GitReadSession;
+  deadlineAtUnixMs: number;
+  signal?: AbortSignal;
+}>): Promise<RetainedWorkingSourceInputGeneration> {
+  assertIssuedTestImpactProjection(input.projection);
+  const snapshot = projectionSourceSnapshots.get(input.projection);
+  if (snapshot === undefined || snapshot.identityDigest !== input.projection.workspaceSnapshotIdentityDigest) {
+    throw new CodedFailure('TEST-IMPACT-SOURCE-INPUTS-UNAVAILABLE', 'Issued projection has no matching original physical source input snapshot.');
+  }
+  return retainWorkingSourceInputGeneration({ snapshot, session: input.session,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    ...(input.signal === undefined ? {} : { signal: input.signal }) });
 }
 
 /** Unbound projection for codec and algorithm tests; never accepted by production providers. */

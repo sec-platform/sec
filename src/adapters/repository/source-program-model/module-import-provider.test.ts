@@ -58,7 +58,8 @@ test('compiler syntax preserves import kinds and every precompilation reference 
     ].join('\n')
   });
 
-  expect(graph.references.map(({ from: _from, candidateTargets: _candidates, resolvedTarget: _target, ...reference }) => reference)).toEqual([
+  expect(graph.references.map(({ from: _from, candidateTargets: _candidates,
+    resolutionLookupPaths: _lookups, resolvedTarget: _target, runtime: _runtime, ...reference }) => reference)).toEqual([
     { kind: 'dynamic', specifier: './dynamic.ts', typeOnly: false },
     { kind: 'require', specifier: './required.ts', typeOnly: false },
     { kind: 'static', specifier: './static.ts', typeOnly: false },

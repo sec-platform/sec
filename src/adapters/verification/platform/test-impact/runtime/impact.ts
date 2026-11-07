@@ -1,3 +1,5 @@
+import { isAuthorKernelVerificationRootInput } from '../../../../../contracts/author-kernel-verification.ts';
+import { selectAuthorNativeMethods, type AuthorNativeMethodUnit } from '../../../../../contracts/author-native-methods.ts';
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { CodedFailure } from '../../../../../contracts/failure.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
@@ -61,6 +63,7 @@ type ProviderIndex = Readonly<{
   candidateOwners: ReadonlyMap<string, string | null>;
   moduleGraphInputs: ReadonlySet<string>;
   removedModuleOwners: ReadonlyMap<string, string>;
+  nativeDeclarationPaths: ReadonlySet<string>;
 }>;
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
@@ -124,7 +127,11 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
     moduleIds,
     candidateOwners,
     moduleGraphInputs,
-    removedModuleOwners
+    removedModuleOwners,
+    nativeDeclarationPaths: new Set([
+      ...provider.projection.nativeDeclarationPaths,
+      ...(providerAffectedBindings.get(provider)?.priorNativeDeclarationPaths ?? [])
+    ])
   });
   providerIndexCache.set(provider, built);
   return built;
@@ -138,7 +145,8 @@ function classifyProviderSource(
   return classifyTestImpactSource(
     file,
     (candidate) => index.activeDocumentationPaths.has(candidate),
-    (candidate) => index.gitHookEntrypointPaths.has(candidate)
+    (candidate) => index.gitHookEntrypointPaths.has(candidate),
+    (candidate) => index.nativeDeclarationPaths.has(candidate)
   );
 }
 
@@ -180,7 +188,9 @@ function semanticModuleIdsForSource(
   const physicalOwner = moduleIdForPath(file, provider);
   return uniqueSorted([
     ...(physicalOwner === null ? [] : [physicalOwner]),
-    ...testImpactModuleIdsForSourceKind(classifyProviderSource(file, provider))
+    ...testImpactModuleIdsForSourceKind(classifyProviderSource(file, provider)),
+    ...(isAuthorKernelVerificationRootInput(file) || providerIndex(provider).nativeDeclarationPaths.has(file)
+      ? testImpactModuleIdsForSourceKind('author-native-method-input') : [])
   ]);
 }
 
@@ -202,7 +212,9 @@ export function isTestImpactSourceFile(
   return isTestImpactModuleGraphInputFile(normalized, provider)
     || buildReverseImportMap(provider).map.has(normalized)
     || moduleIdForPath(normalized, provider) !== null
-    || classifyProviderSource(normalized, provider) !== null;
+    || classifyProviderSource(normalized, provider) !== null
+    || isAuthorKernelVerificationRootInput(normalized)
+    || providerIndex(provider).nativeDeclarationPaths.has(normalized);
 }
 
 /**
@@ -270,10 +282,28 @@ export function createRepositoryTestImpactSourceProvider(
   });
   issuedTestImpactProviders.add(provider);
   if (affectedBinding !== null) {
-    providerTransitions.set(provider, affectedBinding.transition);
+    if (affectedBinding.transition !== null) providerTransitions.set(provider, affectedBinding.transition);
     providerAffectedBindings.set(provider, affectedBinding);
   }
   return provider;
+}
+
+export function testImpactNativeMethods(provider: CodexDevelopmentTestImpactSourceProvider): readonly AuthorNativeMethodUnit[] {
+  assertIssuedProvider(provider);
+  return provider.projection.nativeMethods;
+}
+
+export function selectTestImpactNativeMethods(
+  provider: CodexDevelopmentTestImpactSourceProvider,
+  changedPaths: readonly string[],
+  scope: 'affected' | 'risk' | 'full'
+): readonly AuthorNativeMethodUnit[] {
+  return selectAuthorNativeMethods(testImpactNativeMethods(provider), changedPaths, scope);
+}
+
+export function testImpactNativeDeclarationUnresolvedInputs(provider: CodexDevelopmentTestImpactSourceProvider): readonly string[] {
+  assertIssuedProvider(provider);
+  return providerAffectedBindings.get(provider)?.nativeDeclarationUnresolvedInputs ?? Object.freeze([]);
 }
 
 function addConsumer(map: Map<string, string[]>, target: string, consumer: string): void {
@@ -333,13 +363,21 @@ function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvide
   const directConsumers = new Map<string, string[]>();
   const directDependencies = new Map<string, string[]>();
   const directRuntimeDependencies = new Map<string, string[]>();
+  const graphFiles = new Set(projectionGraph.files);
   for (const reference of projectionGraph.references) {
     for (const candidate of reference.candidateTargets) addConsumer(directConsumers, candidate, reference.from);
     if (reference.resolvedTarget !== null) {
       addConsumer(directDependencies, reference.from, reference.resolvedTarget);
-      if (!reference.typeOnly) {
-        addConsumer(directRuntimeDependencies, reference.from, reference.resolvedTarget);
+    }
+    if ('target' in reference.runtime) {
+      addConsumer(directDependencies, reference.from, reference.runtime.target);
+      if (reference.runtime.kind === 'module') {
+        addConsumer(directRuntimeDependencies, reference.from, reference.runtime.target);
       }
+    }
+    for (const lookup of reference.resolutionLookupPaths) {
+      if (!graphFiles.has(lookup)) continue;
+      addConsumer(directDependencies, reference.from, lookup);
     }
   }
   freezeAdjacency(directConsumers);
@@ -476,7 +514,9 @@ export function hasTestImpactForFile(
   provider: CodexDevelopmentTestImpactSourceProvider
 ): boolean {
   const selection = selectionForSource(file, provider);
-  return selection.fast.length > 0 || selection.slow.length > 0;
+  return selection.fast.length > 0 || selection.slow.length > 0
+    || selectTestImpactNativeMethods(provider, [normalizeRepoPath(file)], 'affected').length > 0
+    || selectTestImpactNativeMethods(provider, [normalizeRepoPath(file)], 'risk').length > 0;
 }
 
 export function resolveTestImpactForFiles(

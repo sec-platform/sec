@@ -3,30 +3,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { POLICY_SOURCE_PATHS } from '../../../workspace/contract/policy-source-paths.ts';
 
-import { CodedFailure } from '../../../contracts/failure.ts';
 import { BUILTIN_OFFICIAL_REGISTRY_RELATIVE_PATH } from '../../../contracts/registry-source.ts';
-import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
+import {
+  type CompilerPackageEntrypointBinding,
+  parseCompilerPackageEntrypointBinding,
+  runtimeLayoutError,
+  selectCompilerPackageModuleLayout
+} from './package-entrypoint.ts';
 
-export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
-  'src',
-  'adapters',
-  'toolchain',
-  'runtime',
-  'layout.ts'
-);
-export const PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH = path.join(
-  'src',
-  'adapters',
-  'toolchain',
-  'runtime',
-  'package-source-launcher.ts'
-);
-export const PACKAGE_SOURCE_LAUNCHER_SCRIPT =
-  `\"$npm_execpath\" ./${PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH.replaceAll('\\', '/')}`;
-export function packageArtifactLauncherScript(artifactRelativePath: string): string {
-  const artifact = entrypointRelativePath(`./${artifactRelativePath}`, 'artifact launcher');
-  return `\"$npm_execpath\" ./${artifact}`;
-}
+export {
+  PACKAGE_SOURCE_IMPORT,
+  PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH,
+  PACKAGE_SOURCE_LAUNCHER_SCRIPT,
+  packageArtifactLauncherScript,
+  parseCompilerPackageEntrypointBinding,
+  SOURCE_RUNTIME_MODULE_RELATIVE_PATH, type CompilerPackageEntrypointBinding
+} from './package-entrypoint.ts';
 export const COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS = Object.freeze({
   composeTemplates: path.join('src', 'adapters', 'compilation', 'compose', 'templates'),
   officialPolicies: path.join(...POLICY_SOURCE_PATHS.official.split('/')),
@@ -45,12 +37,6 @@ export interface CompilerRuntimeLayout {
   readonly repositorySourceRoot: string | null;
   readonly runtimeAssetRoot: string;
   readonly sourceEntrypointRelativePath: string | null;
-}
-
-export interface CompilerPackageEntrypointBinding {
-  readonly artifact: string;
-  readonly command: string;
-  readonly source: string | null;
 }
 
 type CompilerRuntimeResourceName =
@@ -77,60 +63,6 @@ export const COMPILER_RUNTIME_RESOURCE_POSIX_PATHS = mapCompilerRuntimeResourceP
   (relativePath) => relativePath.replaceAll('\\', '/')
 );
 
-function runtimeLayoutError(message: string, details: Record<string, unknown> = {}): never {
-  throw new CodedFailure('RUNTIME-LAYOUT-001', message, details);
-}
-
-function entrypointRelativePath(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value.startsWith('./')) {
-    return runtimeLayoutError(`SEC package ${field} must be one explicit package-relative path`);
-  }
-  const relativePath = value.slice(2).replaceAll('\\', '/');
-  if (!isCanonicalPortableLogicalPath(relativePath)) {
-    return runtimeLayoutError(`SEC package ${field} is not one canonical relative path`, { value });
-  }
-  return relativePath;
-}
-
-export function parseCompilerPackageEntrypointBinding(
-  input: unknown
-): Readonly<CompilerPackageEntrypointBinding> {
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-    return runtimeLayoutError('SEC package manifest must be one JSON object');
-  }
-  const manifest = input as Record<string, unknown>;
-  if (typeof manifest.bin !== 'object' || manifest.bin === null || Array.isArray(manifest.bin)) {
-    return runtimeLayoutError('SEC package bin must be one command mapping');
-  }
-  const binEntries = Object.entries(manifest.bin as Record<string, unknown>);
-  if (binEntries.length !== 1 || typeof binEntries[0]?.[0] !== 'string') {
-    return runtimeLayoutError('SEC package must expose exactly one executable command');
-  }
-  const [command, rawArtifact] = binEntries[0]!;
-  if (!/^[a-z0-9][a-z0-9._-]*$/u.test(command)) {
-    return runtimeLayoutError('SEC package command is not canonical', { command });
-  }
-  const artifact = entrypointRelativePath(rawArtifact, `bin.${command}`);
-  if (path.posix.dirname(artifact) === '.') {
-    return runtimeLayoutError(`SEC package bin.${command} must be published inside one artifact root`);
-  }
-  const source = manifest.source === undefined
-    ? null
-    : entrypointRelativePath(manifest.source, 'source');
-  const expectedScript = source === null
-    ? packageArtifactLauncherScript(artifact)
-    : PACKAGE_SOURCE_LAUNCHER_SCRIPT;
-  if (typeof manifest.scripts !== 'object'
-    || manifest.scripts === null
-    || Array.isArray(manifest.scripts)
-    || (manifest.scripts as Record<string, unknown>)[command] !== expectedScript) {
-    return runtimeLayoutError(
-      `SEC package script ${command} must use the exact launcher for its package form`
-    );
-  }
-  return Object.freeze({ artifact, command, source });
-}
-
 function readCompilerPackageEntrypointBinding(
   packageRoot: string
 ): Readonly<CompilerPackageEntrypointBinding> | null {
@@ -146,14 +78,6 @@ function readCompilerPackageEntrypointBinding(
     });
   }
   return parseCompilerPackageEntrypointBinding(parsed);
-}
-
-function equalPath(left: string, right: string): boolean {
-  const normalizedLeft = path.normalize(left);
-  const normalizedRight = path.normalize(right);
-  return process.platform === 'win32'
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
 }
 
 export function resolveCompilerRuntimeResources(
@@ -186,41 +110,24 @@ export function resolveCompilerRuntimeLayout(
   while (true) {
     const binding = readCompilerPackageEntrypointBinding(candidateRoot);
     if (binding !== null) {
-      const sourceRuntimeModulePath = path.join(candidateRoot, SOURCE_RUNTIME_MODULE_RELATIVE_PATH);
-      const artifactEntrypointPath = path.join(
-        candidateRoot,
-        ...binding.artifact.split('/')
+      const selected = selectCompilerPackageModuleLayout(
+        binding,
+        path.relative(candidateRoot, executableModulePath),
+        process.platform === 'win32' ? 'insensitive' : 'sensitive'
       );
-      if (equalPath(executableModulePath, sourceRuntimeModulePath)) {
-        if (binding.source === null) {
-          return runtimeLayoutError('SEC source runtime requires one explicit source entrypoint');
-        }
+      if (selected !== null) {
+        const artifactRoot = path.join(candidateRoot, selected.artifactRootRelativePath);
         return Object.freeze({
           artifactEntrypointRelativePath: binding.artifact,
-          artifactRoot: path.join(candidateRoot, path.posix.dirname(binding.artifact)),
-          cliEntrypointPath: path.join(candidateRoot, ...binding.source.split('/')),
+          artifactRoot,
+          cliEntrypointPath: path.join(candidateRoot, ...selected.cliEntrypointRelativePath.split('/')),
           command: binding.command,
           dependencyRoot: candidateRoot,
           executableModulePath,
-          mode: 'source',
+          mode: selected.mode,
           packageRoot: candidateRoot,
-          repositorySourceRoot: candidateRoot,
-          runtimeAssetRoot: candidateRoot,
-          sourceEntrypointRelativePath: binding.source
-        });
-      }
-      if (equalPath(executableModulePath, artifactEntrypointPath)) {
-        return Object.freeze({
-          artifactEntrypointRelativePath: binding.artifact,
-          artifactRoot: path.join(candidateRoot, path.posix.dirname(binding.artifact)),
-          cliEntrypointPath: artifactEntrypointPath,
-          command: binding.command,
-          dependencyRoot: candidateRoot,
-          executableModulePath,
-          mode: 'bundle',
-          packageRoot: candidateRoot,
-          repositorySourceRoot: null,
-          runtimeAssetRoot: path.join(candidateRoot, path.posix.dirname(binding.artifact)),
+          repositorySourceRoot: selected.mode === 'source' ? candidateRoot : null,
+          runtimeAssetRoot: selected.mode === 'source' ? candidateRoot : artifactRoot,
           sourceEntrypointRelativePath: binding.source
         });
       }

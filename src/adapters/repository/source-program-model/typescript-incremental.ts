@@ -53,6 +53,7 @@ export interface TypeScriptIncrementalState {
   readonly [typeScriptIncrementalStateBrand]: true;
   readonly providerRevision: string;
   readonly sourceRevision: string;
+  readonly resolutionMetadataDigest: `sha256:${string}`;
   readonly fileDigests: Readonly<Record<string, string>>;
   readonly semanticSourceDigests: Readonly<Record<string, `sha256:${string}`>>;
   readonly moduleDigests: Readonly<Record<string, string>>;
@@ -187,6 +188,7 @@ function buildIncrementalState(
     [typeScriptIncrementalStateBrand]: true as const,
     providerRevision: compilerRevision,
     sourceRevision: input.sourceRevision,
+    resolutionMetadataDigest: input.resolutionMetadataDigest,
     fileDigests,
     semanticSourceDigests,
     moduleDigests,
@@ -287,6 +289,7 @@ function compileTypeScriptModelIncrementalInternal(
   const compilerRevision = TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION;
   const reusableState = previous !== null
     && assertReusableTypeScriptState(previous, compilerRevision)
+    && previous.resolutionMetadataDigest === input.resolutionMetadataDigest
     ? previous
     : null;
   let changed: readonly string[] | null = null;
@@ -338,10 +341,11 @@ function compileTypeScriptModelIncrementalInternal(
       });
     }
   }
-  const currentSources = new Map(currentFiles.map(({ path: repositoryPathValue, source }) =>
+  const currentSources = new Map(input.resolutionInput.files.map(({ path: repositoryPathValue, source }) =>
     [repositoryPathValue, source] as const));
   const graph = input.repositoryCompilation?.moduleGraph ?? compileSourceProgramRepositoryModuleGraph({
-    files: currentPaths,
+    files: input.resolutionInput.files.map(({ path }) => path),
+    membershipPaths: input.resolutionInput.membershipPaths,
     readSource: (repositoryPathValue) => currentSources.get(repositoryPathValue) ?? null
   });
   const reverseConsumers = Object.freeze(Object.fromEntries(
@@ -443,6 +447,7 @@ function compileTypeScriptModelIncrementalInternal(
       sourceRevision: input.sourceRevision,
       files: currentFiles.filter(({ path: repositoryPathValue }) => compilePaths.has(repositoryPathValue)),
       moduleMembership: input.moduleMembership,
+      resolutionInput: input.resolutionInput,
       operation: input.operation
     }, regeneratedSourceFileIdentities)
   );

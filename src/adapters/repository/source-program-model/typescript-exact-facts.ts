@@ -812,7 +812,8 @@ function compileExactFactGenerationForCachedModel(
   const exact = compileExactTypeScriptProgram(
     filesByPath,
     input.sourceFileIdentities,
-    input.operation
+    input.operation,
+    input.resolutionInput
   );
   const apiClosure = compileTypeScriptRequiredApiClosure(
     exact,

@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { createTypeScriptModuleLoadObserver } from './typescript-module-loader.ts';
+import type { ExactTypeScriptProgram } from './typescript-workspace.ts';
 
 import { compareCodeUnits } from '../../../contracts/canonical.ts';
 import type {
@@ -11,6 +12,7 @@ type TypeScriptModuleProgram = Readonly<{
   program: ts.Program;
   sourceFiles: readonly ts.SourceFile[];
   repositoryPath(sourceFile: ts.SourceFile): string;
+  moduleResolutionAt: ExactTypeScriptProgram['moduleResolutionAt'];
 }>;
 
 /** Observations are not a claim that arbitrary JavaScript effects are pure.
@@ -29,8 +31,14 @@ export function typeScriptModuleImportFacts(exact: TypeScriptModuleProgram): Typ
   const observations: RepositoryModuleGraphImportObservation[] = [];
   const unresolvedFiles = new Set<string>();
   const observeModuleLoad = createTypeScriptModuleLoadObserver(exact.program.getTypeChecker());
-  const add = (from: string, kind: RepositoryModuleImportKind, specifier: string, typeOnly = false): void => {
-    observations.push(Object.freeze({ from, kind, specifier, typeOnly }));
+  const add = (from: string, kind: RepositoryModuleImportKind, specifier: string, typeOnly = false,
+    resolution?: ReturnType<ExactTypeScriptProgram['moduleResolutionAt']>): void => {
+    if (resolution?.status === 'unresolved'
+        || (!typeOnly && resolution?.runtime.kind === 'unresolved')) {
+      unresolvedFiles.add(from);
+    }
+    observations.push(Object.freeze({ from, kind, specifier, typeOnly,
+      ...(resolution === undefined ? {} : { resolution }) }));
   };
   for (const sourceFile of exact.sourceFiles) {
     const from = exact.repositoryPath(sourceFile);
@@ -49,28 +57,32 @@ export function typeScriptModuleImportFacts(exact: TypeScriptModuleProgram): Typ
           // Only a statement-level type modifier erases that runtime edge.
           const typeOnly = sourceFile.isDeclarationFile || (ts.isImportDeclaration(node)
             ? node.importClause?.isTypeOnly === true : node.isTypeOnly);
-          add(from, 'static', node.moduleSpecifier.text, typeOnly);
+          add(from, 'static', node.moduleSpecifier.text, typeOnly,
+            exact.moduleResolutionAt(sourceFile, node.moduleSpecifier));
         }
       } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
         const expression = node.moduleReference.expression;
         if (expression !== undefined && ts.isStringLiteralLike(expression)) {
-          add(from, 'require', expression.text, sourceFile.isDeclarationFile || node.isTypeOnly);
+          add(from, 'require', expression.text, sourceFile.isDeclarationFile || node.isTypeOnly,
+            exact.moduleResolutionAt(sourceFile, expression));
         } else unresolvedFiles.add(from);
       } else if (ts.isImportTypeNode(node)) {
         if (ts.isLiteralTypeNode(node.argument) && ts.isStringLiteralLike(node.argument.literal)) {
-          add(from, 'static', node.argument.literal.text, true);
+          add(from, 'static', node.argument.literal.text, true,
+            exact.moduleResolutionAt(sourceFile, node.argument.literal));
         } else unresolvedFiles.add(from);
       } else if (ts.isCallExpression(node)) {
         const observation = observeModuleLoad(node);
         if (observation.status === 'unresolved') unresolvedFiles.add(from);
-        else if (observation.status === 'resolved') add(from, observation.kind, observation.specifier);
+        else if (observation.status === 'resolved') add(from, observation.kind, observation.specifier,
+          sourceFile.isDeclarationFile, exact.moduleResolutionAt(sourceFile, observation.argument));
       }
       ts.forEachChild(node, (child) => { pending.push(child); });
     }
   }
   const unique = new Map<string, RepositoryModuleGraphImportObservation>();
   for (const observation of observations) {
-    const key = `${observation.from}\0${observation.kind}\0${observation.specifier}`;
+    const key = `${observation.from}\0${observation.kind}\0${observation.specifier}\0${JSON.stringify(observation.resolution ?? null)}`;
     const existing = unique.get(key);
     if (existing === undefined || (existing.typeOnly && !observation.typeOnly)) unique.set(key, observation);
   }

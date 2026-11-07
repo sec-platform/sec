@@ -3,6 +3,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
 import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import {
   type RepositoryModuleGraph,
@@ -29,6 +30,7 @@ import {
 } from './contract.ts';
 import { resolveRepositoryModuleImportCandidates } from './module-graph.ts';
 import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
+import { observeTypeScriptImportLoader } from './typescript-module-loader.ts';
 import { typeScriptSemanticDependencyScopeFromSourceFile } from './typescript-syntax.ts';
 import {
   isCompiledTypeScriptSourceProgramModel,
@@ -252,10 +254,11 @@ function graphTargetIndex(
   const targets = new Map<string, string | null>();
   for (const reference of graph.references) {
     checkpoint(operation);
+    if (reference.runtime.kind !== 'module') continue;
     const key = `${reference.from}\0${reference.kind}\0${reference.specifier}`;
     // Preserve the former Array.find semantics if an unresolved graph ever
     // contains more than one candidate for the same import edge.
-    if (!targets.has(key)) targets.set(key, reference.resolvedTarget);
+    if (!targets.has(key)) targets.set(key, reference.runtime.target);
   }
   return targets;
 }
@@ -269,6 +272,8 @@ function importBindings(
     if (!ts.isImportDeclaration(statement)
         || statement.importClause === undefined
         || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    const loader = observeTypeScriptImportLoader(statement.moduleSpecifier);
+    if (loader === 'file' || loader === 'unresolved') continue;
     const moduleSpecifier = statement.moduleSpecifier.text;
     const targetPath = graphTarget(graphTargets, sourceFile.fileName, moduleSpecifier);
     const clause = statement.importClause;
@@ -727,48 +732,36 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return current;
 }
 
-function constantInitializers(
-  sourceFile: ts.SourceFile,
-  operation: SourceProgramCompilationOperation
-): ReadonlyMap<string, ts.Expression> {
-  const values = new Map<string, ts.Expression>();
-  const visit = (node: ts.Node): void => {
-    checkpoint(operation);
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
-      values.set(node.name.text, node.initializer);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return values;
-}
-
 function staticString(
   expression: ts.Expression,
   testPath: string,
   repositoryRoot: string,
-  constants: ReadonlyMap<string, ts.Expression>,
-  resolving: ReadonlySet<string> = new Set()
+  model: SourceProgramModel,
+  resolving: ReadonlySet<ts.Expression> = new Set()
 ): string | null {
   const current = unwrap(expression);
   if (ts.isStringLiteralLike(current)) return current.text;
   if (ts.isIdentifier(current)) {
-    const initializer = constants.get(current.text);
-    if (initializer === undefined || resolving.has(current.text)) return null;
-    return staticString(initializer, testPath, repositoryRoot, constants, new Set([...resolving, current.text]));
+    const initializer = sourceProgramTypeScriptIdentifierInitializer(model, testPath, current);
+    if (initializer === null || resolving.has(initializer)
+        || initializer.getSourceFile() !== current.getSourceFile()) return null;
+    const declaration = initializer.parent;
+    if (!ts.isVariableDeclaration(declaration) || !ts.isVariableDeclarationList(declaration.parent)
+        || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return null;
+    return staticString(initializer, testPath, repositoryRoot, model, new Set([...resolving, initializer]));
   }
   if (ts.isTemplateExpression(current)) {
     let value = current.head.text;
     for (const part of current.templateSpans) {
-      const replacement = staticString(part.expression, testPath, repositoryRoot, constants, resolving);
+      const replacement = staticString(part.expression, testPath, repositoryRoot, model, resolving);
       if (replacement === null) return null;
       value += replacement + part.literal.text;
     }
     return value;
   }
   if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const left = staticString(current.left, testPath, repositoryRoot, constants, resolving);
-    const right = staticString(current.right, testPath, repositoryRoot, constants, resolving);
+    const left = staticString(current.left, testPath, repositoryRoot, model, resolving);
+    const right = staticString(current.right, testPath, repositoryRoot, model, resolving);
     return left === null || right === null ? null : left + right;
   }
   if (ts.isCallExpression(current)) {
@@ -776,7 +769,7 @@ function staticString(
     if (callee === 'process.cwd' && current.arguments.length === 0) return repositoryRoot;
     if ((callee === 'path.join' || callee === 'path.resolve') && current.arguments.length > 0) {
       const values = current.arguments.map((argument) =>
-        staticString(argument, testPath, repositoryRoot, constants, resolving));
+        staticString(argument, testPath, repositoryRoot, model, resolving));
       if (values.some((value) => value === null)) return null;
       return callee === 'path.resolve'
         ? path.resolve(...values as string[])
@@ -795,8 +788,8 @@ function staticString(
   if (ts.isNewExpression(current) && callIdentity(current.expression) === 'URL') {
     const [relativeExpression, baseExpression] = current.arguments ?? [];
     if (relativeExpression === undefined || baseExpression === undefined) return null;
-    const relative = staticString(relativeExpression, testPath, repositoryRoot, constants, resolving);
-    const base = staticString(baseExpression, testPath, repositoryRoot, constants, resolving);
+    const relative = staticString(relativeExpression, testPath, repositoryRoot, model, resolving);
+    const base = staticString(baseExpression, testPath, repositoryRoot, model, resolving);
     if (relative === null || base === null) return null;
     try {
       const resolved = new URL(relative, base);
@@ -811,7 +804,7 @@ function staticString(
 function repositoryPath(repositoryRoot: string, value: string): string | null {
   const absolute = path.isAbsolute(value) ? path.resolve(value) : path.resolve(repositoryRoot, value);
   const relative = path.relative(repositoryRoot, absolute).replaceAll('\\', '/');
-  return relative === '..' || relative.startsWith('../') ? null : relative;
+  return isCanonicalPortableLogicalPath(relative, { allowEmpty: true }) ? relative : null;
 }
 
 function rawTextReadPath(
@@ -1652,16 +1645,16 @@ function compileSourceProgramTestObservationsInternal(
 
   const collectDefinitionRead = (
     node: ts.CallExpression, sourceFile: ts.SourceFile, filePath: string,
-    bindings: ReadonlyMap<string, ImportedBinding>, constants: ReadonlyMap<string, ts.Expression>
+    bindings: ReadonlyMap<string, ImportedBinding>
   ): void => {
     const definitionRead = testDefinitionReadOperand(node, bindings, input.productionModel, filePath);
     if (definitionRead === null) return;
     const value = definitionRead.operand === undefined ? null
-      : staticString(definitionRead.operand, filePath, repositoryRoot, constants);
+      : staticString(definitionRead.operand, filePath, repositoryRoot, input.productionModel);
     const target = value === null ? null : repositoryPath(repositoryRoot, value);
     definitionReads.push(Object.freeze({
       path: filePath, span: spanFor(sourceFile, node), target: target === '' ? '.' : target,
-      coverage: definitionRead.coverage,
+      coverage: target === null ? 'unknown' : definitionRead.coverage,
       operandDigest: sha256({ method: 'native-test-read-operand-v1',
         source: definitionRead.operand?.getText(sourceFile) ?? null })
     }));
@@ -1674,10 +1667,9 @@ function compileSourceProgramTestObservationsInternal(
     const sourceFile = sourceProgramTypeScriptSourceFile(input.productionModel, file.path);
     if (sourceFile === null) continue;
     const bindings = importBindings(sourceFile, graphTargets);
-    const constants = constantInitializers(sourceFile, input.operation);
     const visitRead = (node: ts.Node): void => {
       checkpoint(input.operation);
-      if (ts.isCallExpression(node)) collectDefinitionRead(node, sourceFile, file.path, bindings, constants);
+      if (ts.isCallExpression(node)) collectDefinitionRead(node, sourceFile, file.path, bindings);
       ts.forEachChild(node, visitRead);
     };
     visitRead(sourceFile);
@@ -1716,7 +1708,6 @@ function compileSourceProgramTestObservationsInternal(
       }));
     }
     const bindings = importBindings(sourceFile, graphTargets);
-    const constants = constantInitializers(sourceFile, input.operation);
     const importedNames = importedBindingNames(sourceFile);
     const registrationNodes: ts.CallExpression[] = [];
     const unresolvedBindings = new Set<string>();
@@ -1770,10 +1761,10 @@ function compileSourceProgramTestObservationsInternal(
           registrationNodes.push(node);
         }
         if (ts.isCallExpression(node)) {
-          collectDefinitionRead(node, sourceFile, file.path, bindings, constants);
+          collectDefinitionRead(node, sourceFile, file.path, bindings);
           const sourcePathExpression = rawTextReadPath(node, bindings, input.productionModel, file.path);
           if (sourcePathExpression !== null) {
-            const value = staticString(sourcePathExpression, file.path, repositoryRoot, constants);
+            const value = staticString(sourcePathExpression, file.path, repositoryRoot, input.productionModel);
             const target = value === null ? null : repositoryPath(repositoryRoot, value);
             if (target !== null && productionPaths.has(target)) {
               productionSourceReads.push(Object.freeze({
@@ -1799,7 +1790,7 @@ function compileSourceProgramTestObservationsInternal(
           if (programArgument !== undefined) {
             const value = programArgument === null || programArgument.length !== 1
               ? null
-              : staticString(programArgument[0]!, file.path, repositoryRoot, constants);
+              : staticString(programArgument[0]!, file.path, repositoryRoot, input.productionModel);
             const target = value === null ? null : repositoryPath(repositoryRoot, value);
             if (target !== null && compiledFiles.has(target) && /\.tsx?$/u.test(target)) {
               localProgramInvocations.push(Object.freeze({
@@ -1944,8 +1935,9 @@ function compileSourceProgramTestObservationsInternal(
               detail: 'dynamic import specifier is not a static string',
               span: spanFor(sourceFile, node)
             }));
-          } else {
-            const targetPath = graphTarget(graphTargets, file.path, argument.text, 'dynamic');
+          } else if (observeTypeScriptImportLoader(argument) !== 'file') {
+            const targetPath = observeTypeScriptImportLoader(argument) === 'unresolved' ? null
+              : graphTarget(graphTargets, file.path, argument.text, 'dynamic');
             const dynamicBinding = Object.freeze({
               moduleSpecifier: argument.text,
               targetPath,
@@ -1986,6 +1978,8 @@ function compileSourceProgramTestObservationsInternal(
       if (!ts.isExportDeclaration(statement)
           || statement.moduleSpecifier === undefined
           || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+      const loader = observeTypeScriptImportLoader(statement.moduleSpecifier);
+      if (loader === 'file' || loader === 'unresolved') continue;
       const specifier = statement.moduleSpecifier.text;
       const targetPath = graphTarget(graphTargets, file.path, specifier);
       const exportedNames = statement.exportClause !== undefined
@@ -2022,7 +2016,7 @@ function compileSourceProgramTestObservationsInternal(
       const titleExpression = registration.arguments[0];
       const title = titleExpression === undefined
         ? null
-        : staticString(titleExpression, file.path, repositoryRoot, constants);
+        : staticString(titleExpression, file.path, repositoryRoot, input.productionModel);
       const callback = registrationCallback(registration);
       const assertionNodes: ts.CallExpression[] = [];
       if (callback !== null) {
@@ -2044,7 +2038,7 @@ function compileSourceProgramTestObservationsInternal(
               && (callIdentity(current.expression) === 'path.join'
                 || callIdentity(current.expression) === 'path.resolve'));
           if (!isPathLayoutExpression) continue;
-          const value = staticString(expression, file.path, repositoryRoot, constants);
+          const value = staticString(expression, file.path, repositoryRoot, input.productionModel);
           const target = value === null ? null : repositoryPath(repositoryRoot, value);
           if (target !== null && productionPaths.has(target)) {
             productionPathLayoutTarget = target;

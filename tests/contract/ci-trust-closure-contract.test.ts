@@ -24,6 +24,7 @@ import {
   selectTcbClosureCandidateAction
 } from '../../src/adapters/verification/platform/trust/runtime/closure-lock.ts';
 import { readCompilerFile, readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtures.ts';
+import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
 type WorkflowStep = Readonly<{
   name: string;
@@ -66,7 +67,7 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
   return found;
 }
 
-test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
+test('Quick and Full plan topology remains deterministic behind the Action normalizer', async () => {
   const quickGates = buildCiQuickGatePlan({
     includeImports: true,
     includeDocs: true,
@@ -88,16 +89,25 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(
     slowTestSuiteIds().map((suite) => `slow-suite-${suite}`).sort()
   );
-  expect(CodexDevelopmentBuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
-    .toContain('docs-doctor');
-  expect(CodexDevelopmentBuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
-    .toContain('docs-doctor');
+  const fixture = await createExactGitTreeTestRunnerFixture();
+  try {
+    for (const changedFiles of [[], null]) {
+      const plan = CodexDevelopmentBuildVerificationPlan('full', changedFiles, fixture.provider);
+      expect(plan.selectionResolved).toBe(true);
+      expect(plan.requiredNativeMethods).toEqual([]);
+      expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
+    }
+  } finally {
+    fixture.dispose();
+  }
+  expect(() => CodexDevelopmentBuildVerificationPlan('full', [], null))
+    .toThrow('owner-issued exact test-impact source provider');
   expect(() => CodexDevelopmentBuildVerificationPlan('quick', [], null))
-    .toThrow('owner-issued test-impact source provider');
+    .toThrow('owner-issued exact test-impact source provider');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
-});
+}, 180_000);
 
 test('retired shared dependency projection is outside static verifier trust', () => {
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.staticDirectoryPaths).not.toContain('.shared-deps/');

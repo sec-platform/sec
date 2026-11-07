@@ -62,6 +62,47 @@ function sourceEvidence(
   });
 }
 
+/** Keep input retention separate from module evaluation. A file-loader asset
+ * contributes bytes; a later Worker/process consumer owns any execution edge. */
+function sourceClosurePaths(snapshot: WorkspaceSourceSnapshot, roots: readonly string[]) {
+  const evaluated = new Set<string>();
+  const pendingModules = [...roots];
+  while (pendingModules.length > 0) {
+    const sourcePath = pendingModules.pop()!;
+    if (evaluated.has(sourcePath)) continue;
+    evaluated.add(sourcePath);
+    pendingModules.push(...snapshot.moduleGraph.directRuntimeDependencies(sourcePath));
+  }
+  const inputs = new Set<string>();
+  const expanded = new Set<string>();
+  const pendingInputs = [...evaluated];
+  const references = new Map<string, typeof snapshot.moduleGraph.references[number][]>();
+  for (const reference of snapshot.moduleGraph.references) {
+    const group = references.get(reference.from) ?? [];
+    group.push(reference);
+    references.set(reference.from, group);
+  }
+  while (pendingInputs.length > 0) {
+    const sourcePath = pendingInputs.pop()!;
+    inputs.add(sourcePath);
+    if (expanded.has(sourcePath)) continue;
+    expanded.add(sourcePath);
+    const imports = references.get(sourcePath) ?? [];
+    const assets = new Set(imports.flatMap(({ runtime }) => runtime.kind === 'asset' ? [runtime.target] : []));
+    const semanticTargets = new Set(imports.flatMap(({ resolvedTarget, runtime }) => [
+      ...(resolvedTarget === null ? [] : [resolvedTarget]),
+      ...(runtime.kind === 'module' ? [runtime.target] : [])
+    ]));
+    for (const dependency of snapshot.moduleGraph.directDependencies(sourcePath)) {
+      inputs.add(dependency);
+      if (!assets.has(dependency) || semanticTargets.has(dependency) || evaluated.has(dependency)) {
+        pendingInputs.push(dependency);
+      }
+    }
+  }
+  return { evaluated, inputs };
+}
+
 function compileOperationProducerClosure(
   snapshot: WorkspaceSourceSnapshot,
   typeScriptModel: SourceProgramModel,
@@ -124,12 +165,10 @@ function compileOperationProducerClosure(
     );
   }
 
-  const reachable = new Set<string>([descriptorPath]);
-  const frontier = [...operationEntrypoints];
+  const { evaluated, inputs: reachable } = sourceClosurePaths(snapshot, operationEntrypoints);
+  reachable.add(descriptorPath);
   const unresolvedReachable: string[] = [];
-  while (frontier.length > 0) {
-    const repositoryPath = frontier.pop()!;
-    if (reachable.has(repositoryPath)) continue;
+  for (const repositoryPath of evaluated) {
     const file = fileByPath.get(repositoryPath);
     if (file === undefined) {
       throw new SourceProgramOperationProducerClosureError(
@@ -137,12 +176,8 @@ function compileOperationProducerClosure(
         repositoryPath
       );
     }
-    reachable.add(repositoryPath);
     if (snapshot.moduleGraph.unresolvedFiles.includes(repositoryPath)) {
       unresolvedReachable.push(repositoryPath);
-    }
-    for (const dependency of snapshot.moduleGraph.directRuntimeDependencies(repositoryPath)) {
-      if (!reachable.has(dependency)) frontier.push(dependency);
     }
   }
 
@@ -151,13 +186,13 @@ function compileOperationProducerClosure(
   // unresolvedness is a closed-graph failure.
   const unresolvedLoaders = [
     ...typeScriptModel.unknowns
-      .filter(({ code, path }) => reachable.has(path)
+      .filter(({ code, path }) => evaluated.has(path)
         && (code === 'dynamic-module-unresolved' || code === 'dynamic-runtime-opaque'))
       .map(({ code, detail, path }) => `${path}:${code}:${detail}`),
     ...snapshot.moduleGraph.references
-      .filter(({ from, kind, resolvedTarget }) => reachable.has(from)
+      .filter(({ from, kind, runtime }) => evaluated.has(from)
         && kind !== 'static'
-        && resolvedTarget === null)
+        && (runtime.kind === 'unresolved' || runtime.kind === 'external'))
       .filter(({ specifier }) => !isSourceProgramRuntimeBuiltinModuleSpecifier(specifier))
       .map(({ from, kind, specifier }) => `${from}:${kind}:${specifier}`)
   ].sort(compareCodeUnits);
@@ -260,16 +295,7 @@ export function compileSourceProgramOperationProducerClosureFromWorkspaceSnapsho
     );
   }
   const owner = owners[0]!;
-  const reachable = new Set<string>();
-  const frontier = [...owner.externalEntrypoints];
-  while (frontier.length > 0) {
-    const repositoryPath = frontier.pop()!;
-    if (reachable.has(repositoryPath)) continue;
-    reachable.add(repositoryPath);
-    for (const dependency of snapshot.moduleGraph.directRuntimeDependencies(repositoryPath)) {
-      if (!reachable.has(dependency)) frontier.push(dependency);
-    }
-  }
+  const { inputs: reachable } = sourceClosurePaths(snapshot, owner.externalEntrypoints);
   const files = snapshot.files.filter(({ path }) => reachable.has(path));
   if (files.length !== reachable.size) {
     const available = new Set(files.map(({ path }) => path));

@@ -347,6 +347,11 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       ['src/candidate/candidate-only.ts'],
       warmProvider
     ).gates.map(({ id }) => id)).toContain('imports');
+    const full = CodexDevelopmentBuildVerificationPlan('full', [], warmProvider);
+    expect(full.selectionResolved).toBe(true);
+    expect(full.requiredNativeMethods).toEqual([]);
+    expect(full.gates.map(({ id }) => id)).toContain('full-fast');
+    expect(full.gates.map(({ id }) => id)).not.toContain('full-native');
     expect(selectTestsForSources(['src/candidate/candidate-only.ts'], warmProvider)).toEqual({
       fast: ['tests/unit/candidate-only.test.ts'],
       slow: [],

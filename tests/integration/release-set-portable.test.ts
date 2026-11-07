@@ -13,6 +13,7 @@ import {
 } from '../../src/adapters/release/release-set.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
+  PACKAGE_SOURCE_IMPORT,
   PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH,
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   packageArtifactLauncherScript
@@ -74,7 +75,7 @@ test('release set is self-contained, relocatable and documentation-exact', async
       version: '1.0.0',
       private: true,
       type: 'module',
-      source: './src/bootstrap/cli/cli.ts',
+      imports: { [PACKAGE_SOURCE_IMPORT]: './src/bootstrap/cli/cli.ts' },
       packageManager: `bun@${Bun.version}`,
       bin: { sec: './dist/index.js' },
       scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT },
@@ -147,6 +148,7 @@ test('release set is self-contained, relocatable and documentation-exact', async
       path.join(destination, 'runtime', 'package.json'), 'utf8'
     ));
     expect(Object.hasOwn(portablePackage, 'source')).toBe(false);
+    expect(Object.hasOwn(portablePackage, 'imports')).toBe(false);
     expect(portablePackage.scripts).toEqual({
       sec: packageArtifactLauncherScript('dist/index.js')
     });

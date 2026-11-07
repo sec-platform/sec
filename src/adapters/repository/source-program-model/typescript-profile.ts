@@ -27,6 +27,7 @@ export const TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS: ts.CompilerOptions = Object.
   module: ts.ModuleKind.NodeNext,
   moduleResolution: ts.ModuleResolutionKind.NodeNext,
   noEmit: true,
+  resolveJsonModule: true,
   lib: ['lib.es2022.d.ts'],
   skipLibCheck: true,
   target: ts.ScriptTarget.ES2022,
@@ -99,6 +100,8 @@ export const TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION = sha256({
   compilerApiInputsDigest: TYPESCRIPT_COMPILER_API_INPUT_DIGEST,
   factShardSchemaDigest: SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
   moduleLoadSemantics: TYPESCRIPT_MODULE_LOAD_SEMANTICS,
+  moduleResolutionSemantics: 'compiler-owned-sealed-snapshot-occurrences-v1',
+  runtimeValueIdentitySemantics: 'compiler-alias-route-runtime-eligibility-v1',
   provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
   semanticOwner: SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH
 });

@@ -1,5 +1,6 @@
 import { closeSync, fchmodSync, fstatSync, lstatSync } from 'node:fs';
 import path from 'node:path';
+import { settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 
 import { assertSameNoFollowDirectoryIdentity } from './physical-directory-chain.ts';
 import { inspectNoFollowDirectoryLeaf } from './physical-directory-entry.ts';
@@ -44,6 +45,7 @@ import {
   windowsMarkRetainedLeafForDelete,
   windowsOpenDirectory,
   windowsOpenNoFollowLeaf,
+  windowsOpenPinnedReadDirectory,
   windowsOpenRelativeDirectory,
   windowsOpenRelativeNoFollowEntry,
   windowsRetainedLeafIdentity,
@@ -71,6 +73,175 @@ function assertTreeRetirementGuard(guard: RetainedTreeRetirementGuard, root: Phy
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Tree retirement guard was not issued for this exact root.');
   }
   admitted.assertCurrent();
+}
+
+type WindowsRetirementLeaf = Pick<Parameters<typeof deleteRetainedNoFollowEntry>[0],
+  'kind' | 'device' | 'inode' | 'expectedLinkTarget' | 'expectedFileBytes'>;
+
+/** Caller owns the already-validated parent/root lifetime and relative scope. */
+function deleteWindowsRetainedLeaf(
+  parentHandle: bigint,
+  parent: PhysicalDirectoryIdentity,
+  leaf: string,
+  input: WindowsRetirementLeaf,
+  leafShareAccess = input.expectedFileBytes === undefined ? WINDOWS_SHARE_READ_WRITE_DELETE : WINDOWS_SHARE_READ
+): PhysicalDirectoryIdentity {
+  let leafHandle: bigint | null = null;
+  try {
+    const leafPath = path.join(parent.path, leaf);
+    leafHandle = windowsOpenRelativeNoFollowEntry(
+      parentHandle,
+      parent,
+      leaf,
+      leafPath,
+      input.kind,
+      'Retained deletion leaf',
+      leafShareAccess,
+      false,
+      true,
+      input.expectedFileBytes !== undefined
+    );
+    if (leafHandle === null) {
+      if (input.expectedFileBytes !== undefined) {
+        // A byte-CAS failure must not change a sealed leaf's DACL merely to
+        // discover that the bytes or DELETE permission were unavailable.
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+          'Retained byte-CAS deletion cannot project leaf permissions.'
+        );
+      }
+      let readOnlyLeaf: bigint | null = null;
+      let projectionHandle: bigint | null = null;
+      try {
+        readOnlyLeaf = windowsOpenRelativeNoFollowEntry(
+          parentHandle,
+          parent,
+          leaf,
+          leafPath,
+          input.kind,
+          'Retained deletion sealed leaf admission',
+          leafShareAccess,
+          true
+        );
+        const sealedIdentity = windowsRetainedLeafIdentity(
+          readOnlyLeaf,
+          leafPath,
+          input.kind,
+          'Retained deletion sealed leaf admission'
+        );
+        if (sealedIdentity.device !== input.device || sealedIdentity.inode !== input.inode) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            'Retained deletion sealed leaf FileId changed before authority projection.'
+          );
+        }
+        projectionHandle = windowsOpenNoFollowLeaf(
+          leafPath,
+          'Retained deletion sealed leaf authority projection',
+          WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_READ_CONTROL | WINDOWS_WRITE_DAC | WINDOWS_SYNCHRONIZE
+        );
+        const projectionIdentity = windowsRetainedLeafIdentity(
+          projectionHandle,
+          leafPath,
+          input.kind,
+          'Retained deletion sealed leaf authority projection'
+        );
+        if (projectionIdentity.device !== sealedIdentity.device ||
+            projectionIdentity.inode !== sealedIdentity.inode) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            'Retained deletion sealed leaf changed before authority projection.'
+          );
+        }
+        const predecessor = windowsHandleSecurityDescriptorBytes(
+          projectionHandle,
+          'Retained deletion sealed leaf authority projection'
+        );
+        const temporary = windowsTemporaryRelocationDescriptor(predecessor);
+        windowsWriteHandleSecurityDescriptorBytes(
+          projectionHandle,
+          temporary,
+          'Retained deletion sealed leaf authority projection'
+        );
+        if (!windowsHandleSecurityDescriptorBytes(
+          projectionHandle,
+          'Retained deletion sealed leaf authority projection readback'
+        ).equals(temporary)) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+            'Retained deletion sealed leaf descriptor projection failed readback.'
+          );
+        }
+      } finally {
+        if (projectionHandle !== null) closeWindowsHandle(projectionHandle);
+        if (readOnlyLeaf !== null) closeWindowsHandle(readOnlyLeaf);
+      }
+      leafHandle = windowsOpenRelativeNoFollowEntry(
+        parentHandle,
+        parent,
+        leaf,
+        leafPath,
+        input.kind,
+        'Retained deletion projected leaf',
+        leafShareAccess,
+        false,
+        false,
+        input.expectedFileBytes !== undefined
+      );
+    }
+    const identity = windowsRetainedLeafIdentity(leafHandle, leafPath, input.kind, 'Retained deletion leaf');
+    if (identity.device !== input.device || identity.inode !== input.inode) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion leaf FileId changed.');
+    }
+    if (input.expectedFileBytes !== undefined) {
+      windowsRewindRetainedFile(leafHandle, 'Retained byte-CAS deletion leaf');
+      const actual = readWindowsRetainedFile(
+        leafHandle,
+        'Retained byte-CAS deletion leaf',
+        input.expectedFileBytes.byteLength
+      );
+      if (!Buffer.from(actual).equals(input.expectedFileBytes)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion file bytes changed.');
+      }
+    }
+    if (input.kind === 'link' && input.expectedLinkTarget !== undefined
+        && windowsRetainedReparseObservation(leafHandle, 'Retained deletion leaf').linkTarget
+          !== input.expectedLinkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion link target changed.');
+    }
+    windowsMarkRetainedLeafForDelete(leafHandle, 'Retained deletion leaf');
+    closeWindowsHandle(leafHandle);
+    leafHandle = null;
+    // Deletion is only accepted after the original retained parent and root
+    // are re-proven.  The caller's subsequent durable receipt pointer is
+    // published through a retained source-handle native rename.
+    const parentAfter = windowsIdentity(parentHandle, parent.path, 'Retained deletion parent');
+    if (!sameIdentity(parent, parentAfter)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion parent changed during handle disposition.');
+    }
+    // A leaf may be a file or reparse link as well as a directory.  Probe
+    // relative to the retained parent handle so readback never turns the
+    // lexical leaf path into a new authority (and never asks a directory
+    // opener to classify a file/link).
+    try {
+      const reopened = windowsOpenRelativeNoFollowEntry(
+        parentHandle,
+        parent,
+        leaf,
+        leafPath,
+        input.kind,
+        'Retained deletion leaf readback'
+      );
+      closeWindowsHandle(reopened);
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Retained deletion parent/name remains present.');
+    } catch (error) {
+      if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
+    }
+    windowsFlushRetainedDirectory(parentHandle, parent, 'Retained deletion target parent');
+    return parentAfter;
+  } finally {
+    if (leafHandle !== null) closeWindowsHandle(leafHandle);
+  }
 }
 
 export function deleteRetainedNoFollowEntry(input: {
@@ -120,7 +291,6 @@ export function deleteRetainedNoFollowEntry(input: {
     const descendantHandles: bigint[] = [];
     let parentHandle = rootHandle;
     let parent = root;
-    let leafHandle: bigint | null = null;
     try {
       const checkedRoot = windowsIdentity(rootHandle, root.path, 'Retained deletion root');
       if (!sameIdentity(root, checkedRoot)) {
@@ -148,156 +318,7 @@ export function deleteRetainedNoFollowEntry(input: {
         parentHandle = nextHandle;
         parent = next;
       }
-      const leafPath = path.join(parent.path, leaf);
-      leafHandle = windowsOpenRelativeNoFollowEntry(
-        parentHandle,
-        parent,
-        leaf,
-        leafPath,
-        input.kind,
-        'Retained deletion leaf',
-        input.expectedFileBytes === undefined ? WINDOWS_SHARE_READ_WRITE_DELETE : WINDOWS_SHARE_READ,
-        false,
-        true,
-        input.expectedFileBytes !== undefined
-      );
-      if (leafHandle === null) {
-        if (input.expectedFileBytes !== undefined) {
-          // A byte-CAS failure must not change a sealed leaf's DACL merely to
-          // discover that the bytes or DELETE permission were unavailable.
-          throw physicalError(
-            'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
-            'Retained byte-CAS deletion cannot project leaf permissions.'
-          );
-        }
-        let readOnlyLeaf: bigint | null = null;
-        let projectionHandle: bigint | null = null;
-        try {
-          readOnlyLeaf = windowsOpenRelativeNoFollowEntry(
-            parentHandle,
-            parent,
-            leaf,
-            leafPath,
-            input.kind,
-            'Retained deletion sealed leaf admission',
-            WINDOWS_SHARE_READ_WRITE_DELETE,
-            true
-          );
-          const sealedIdentity = windowsRetainedLeafIdentity(
-            readOnlyLeaf,
-            leafPath,
-            input.kind,
-            'Retained deletion sealed leaf admission'
-          );
-          if (sealedIdentity.device !== input.device || sealedIdentity.inode !== input.inode) {
-            throw physicalError(
-              'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
-              'Retained deletion sealed leaf FileId changed before authority projection.'
-            );
-          }
-          projectionHandle = windowsOpenNoFollowLeaf(
-            leafPath,
-            'Retained deletion sealed leaf authority projection',
-            WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_READ_CONTROL | WINDOWS_WRITE_DAC | WINDOWS_SYNCHRONIZE
-          );
-          const projectionIdentity = windowsRetainedLeafIdentity(
-            projectionHandle,
-            leafPath,
-            input.kind,
-            'Retained deletion sealed leaf authority projection'
-          );
-          if (projectionIdentity.device !== sealedIdentity.device ||
-              projectionIdentity.inode !== sealedIdentity.inode) {
-            throw physicalError(
-              'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
-              'Retained deletion sealed leaf changed before authority projection.'
-            );
-          }
-          const predecessor = windowsHandleSecurityDescriptorBytes(
-            projectionHandle,
-            'Retained deletion sealed leaf authority projection'
-          );
-          const temporary = windowsTemporaryRelocationDescriptor(predecessor);
-          windowsWriteHandleSecurityDescriptorBytes(
-            projectionHandle,
-            temporary,
-            'Retained deletion sealed leaf authority projection'
-          );
-          if (!windowsHandleSecurityDescriptorBytes(
-            projectionHandle,
-            'Retained deletion sealed leaf authority projection readback'
-          ).equals(temporary)) {
-            throw physicalError(
-              'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
-              'Retained deletion sealed leaf descriptor projection failed readback.'
-            );
-          }
-        } finally {
-          if (projectionHandle !== null) closeWindowsHandle(projectionHandle);
-          if (readOnlyLeaf !== null) closeWindowsHandle(readOnlyLeaf);
-        }
-        leafHandle = windowsOpenRelativeNoFollowEntry(
-          parentHandle,
-          parent,
-          leaf,
-          leafPath,
-          input.kind,
-          'Retained deletion projected leaf',
-          input.expectedFileBytes === undefined ? WINDOWS_SHARE_READ_WRITE_DELETE : WINDOWS_SHARE_READ,
-          false,
-          false,
-          input.expectedFileBytes !== undefined
-        );
-      }
-      const identity = windowsRetainedLeafIdentity(leafHandle, leafPath, input.kind, 'Retained deletion leaf');
-      if (identity.device !== input.device || identity.inode !== input.inode) {
-        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion leaf FileId changed.');
-      }
-      if (input.expectedFileBytes !== undefined) {
-        windowsRewindRetainedFile(leafHandle, 'Retained byte-CAS deletion leaf');
-        const actual = readWindowsRetainedFile(
-          leafHandle,
-          'Retained byte-CAS deletion leaf',
-          input.expectedFileBytes.byteLength
-        );
-        if (!Buffer.from(actual).equals(input.expectedFileBytes)) {
-          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion file bytes changed.');
-        }
-      }
-      if (input.kind === 'link' && input.expectedLinkTarget !== undefined
-          && windowsRetainedReparseObservation(leafHandle, 'Retained deletion leaf').linkTarget
-            !== input.expectedLinkTarget) {
-        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion link target changed.');
-      }
-      windowsMarkRetainedLeafForDelete(leafHandle, 'Retained deletion leaf');
-      closeWindowsHandle(leafHandle);
-      leafHandle = null;
-      // Deletion is only accepted after the original retained parent and root
-      // are re-proven.  The caller's subsequent durable receipt pointer is
-      // published through a retained source-handle native rename.
-      const parentAfter = windowsIdentity(parentHandle, parent.path, 'Retained deletion parent');
-      if (!sameIdentity(parent, parentAfter)) {
-        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion parent changed during handle disposition.');
-      }
-      // A leaf may be a file or reparse link as well as a directory.  Probe
-      // relative to the retained parent handle so readback never turns the
-      // lexical leaf path into a new authority (and never asks a directory
-      // opener to classify a file/link).
-      try {
-        const reopened = windowsOpenRelativeNoFollowEntry(
-          parentHandle,
-          parent,
-          leaf,
-          leafPath,
-          input.kind,
-          'Retained deletion leaf readback'
-        );
-        closeWindowsHandle(reopened);
-        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Retained deletion parent/name remains present.');
-      } catch (error) {
-        if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
-      }
-      windowsFlushRetainedDirectory(parentHandle, parent, 'Retained deletion target parent');
+      const parentAfter = deleteWindowsRetainedLeaf(parentHandle, parent, leaf, input);
       const rootAfter = windowsIdentity(rootHandle, root.path, 'Retained deletion root');
       if (!sameIdentity(root, rootAfter)) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion root changed after handle disposition.');
@@ -305,7 +326,6 @@ export function deleteRetainedNoFollowEntry(input: {
       windowsAssertParentWithinRetainedRoot(rootAfter, parentAfter, parts);
       return;
     } finally {
-      if (leafHandle !== null) closeWindowsHandle(leafHandle);
       for (const handle of descendantHandles.reverse()) closeWindowsHandle(handle);
       closeWindowsHandle(rootHandle);
     }
@@ -636,6 +656,122 @@ function prepareLinuxTreeRetirementPermissionRecovery(
   });
 }
 
+type WindowsRetirementFrame = {
+  readonly handle: bigint;
+  readonly physical: PhysicalDirectoryIdentity;
+  readonly expected: WindowsRetirementLeaf;
+  readonly children: readonly NoFollowDirectoryTreeInventoryEntry[];
+  next: number;
+};
+
+function retireWindowsInventoryTree(input: Readonly<{
+  parent: PhysicalDirectoryIdentity;
+  root: PhysicalDirectoryIdentity;
+  inventory: readonly NoFollowDirectoryTreeInventoryEntry[];
+  expectedFileBytes: ReadonlyMap<string, Uint8Array> | undefined;
+  assertRecoveryBudget(): void;
+}>): NoFollowDirectoryTreeRetirementReceipt {
+  const entries = new Map<string, NoFollowDirectoryTreeInventoryEntry>();
+  const children = new Map<string, NoFollowDirectoryTreeInventoryEntry[]>();
+  // Validate the complete fixed deletion scope before the first disposition.
+  // Newly enumerated names never enter this index during retirement.
+  for (const supplied of input.inventory) {
+    input.assertRecoveryBudget();
+    const entry = Object.freeze({ ...supplied });
+    if (typeof entry.relativePath !== 'string' || entry.relativePath.length === 0
+        || entry.relativePath.includes('\\') || entry.relativePath.includes('\0')
+        || !['directory', 'file', 'link'].includes(entry.kind)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Tree retirement inventory path or kind is invalid.');
+    }
+    for (const part of entry.relativePath.split('/')) ensureLeafName(part);
+    if (entries.has(entry.relativePath)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Tree retirement inventory contains a duplicate path.');
+    }
+    entries.set(entry.relativePath, entry);
+  }
+  for (const entry of entries.values()) {
+    input.assertRecoveryBudget();
+    const separator = entry.relativePath.lastIndexOf('/');
+    const parentPath = separator < 0 ? '' : entry.relativePath.slice(0, separator);
+    if (parentPath !== '' && entries.get(parentPath)?.kind !== 'directory') {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Tree retirement ancestor inventory is incomplete.');
+    }
+    const siblings = children.get(parentPath) ?? [];
+    siblings.push(entry);
+    children.set(parentPath, siblings);
+  }
+  const stack: WindowsRetirementFrame[] = [];
+  let parentHandle: bigint | null = null;
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    input.assertRecoveryBudget();
+    // Withholding DELETE sharing pins the live lexical scope, including its
+    // ancestors. Live directory handles are bounded by the traversal depth.
+    parentHandle = windowsOpenPinnedReadDirectory(input.parent.path, 'Tree retirement parent');
+    const parent = windowsIdentity(parentHandle, input.parent.path, 'Tree retirement parent');
+    if (!sameIdentity(parent, input.parent)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Tree retirement parent identity changed.');
+    }
+    const openFrame = (handle: bigint, parentIdentity: PhysicalDirectoryIdentity,
+      relativePath: string, expected: WindowsRetirementLeaf): void => {
+      const absolute = relativePath === '' ? input.root.path : path.join(input.root.path, ...relativePath.split('/'));
+      const directory = windowsOpenRelativeDirectory(handle, parentIdentity, path.basename(absolute), absolute,
+        WINDOWS_FILE_OPEN, 'Tree retirement pinned directory', WINDOWS_SHARE_READ, true);
+      if (directory === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', 'Tree retirement directory disappeared.');
+      try {
+        const physical = windowsIdentity(directory, absolute, 'Tree retirement pinned directory');
+        if (physical.device !== expected.device || physical.inode !== expected.inode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Tree retirement directory identity changed.');
+        }
+        stack.push({ handle: directory, physical, expected, children: children.get(relativePath) ?? [], next: 0 });
+      } catch (error) {
+        settleResources({ primary: { label: 'tree retirement directory admission', error }, cleanup: [
+          { label: 'rejected tree retirement directory', settle: () => closeWindowsHandle(directory) }
+        ] });
+        throw error;
+      }
+    };
+    openFrame(parentHandle, parent, '', { kind: 'directory', device: input.root.device, inode: input.root.inode });
+    while (stack.length > 0) {
+      input.assertRecoveryBudget();
+      const frame = stack.at(-1)!;
+      const entry = frame.children[frame.next];
+      if (entry !== undefined) {
+        frame.next += 1;
+        if (entry.kind === 'directory') {
+          openFrame(frame.handle, frame.physical, entry.relativePath, entry);
+        } else {
+          deleteWindowsRetainedLeaf(frame.handle, frame.physical, path.posix.basename(entry.relativePath), {
+            kind: entry.kind, device: entry.device, inode: entry.inode,
+            ...(entry.linkTarget === null ? {} : { expectedLinkTarget: entry.linkTarget }),
+            ...(entry.kind === 'file' && input.expectedFileBytes !== undefined
+              ? { expectedFileBytes: input.expectedFileBytes.get(entry.relativePath)! } : {})
+          }, WINDOWS_SHARE_READ);
+        }
+      } else {
+        // Close the directory's own pin before DELETE. Its parent remains
+        // pinned and the relative reopen rechecks FileId before disposition.
+        stack.pop();
+        closeWindowsHandle(frame.handle);
+        const ancestor = stack.at(-1);
+        deleteWindowsRetainedLeaf(ancestor?.handle ?? parentHandle, ancestor?.physical ?? parent,
+          path.basename(frame.physical.path), frame.expected, WINDOWS_SHARE_READ);
+      }
+    }
+    input.assertRecoveryBudget();
+    assertSameNoFollowDirectoryIdentity(input.parent, 'Tree retirement final parent');
+    return Object.freeze({ entryCount: entries.size, root: input.root, status: 'physically-absent' as const });
+  } catch (error) {
+    primary = { label: 'Windows fixed-inventory tree retirement', error };
+    throw error;
+  } finally {
+    settleResources({ primary, cleanup: [
+      ...[...stack].reverse().map(frame => ({ label: 'tree retirement directory', settle: () => closeWindowsHandle(frame.handle) })),
+      { label: 'tree retirement parent', settle: () => { if (parentHandle !== null) closeWindowsHandle(parentHandle); } }
+    ] });
+  }
+}
+
 /**
  * Retires one exact operation-owned directory tree from its retained parent.
  * Every descendant is deleted by its inventoried physical identity and exact
@@ -682,6 +818,9 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
       throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow tree retirement recovery deadline exceeded.');
     }
   };
+  if (process.platform === 'win32') {
+    return retireWindowsInventoryTree({ parent, root, inventory: input.inventory, expectedFileBytes, assertRecoveryBudget });
+  }
   const directories = new Map(input.inventory
     .filter(({ kind }) => kind === 'directory')
     .map((entry) => [entry.relativePath, entry] as const));

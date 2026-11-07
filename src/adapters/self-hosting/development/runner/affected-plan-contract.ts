@@ -1,4 +1,5 @@
 import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+import type { AuthorNativeMethodUnit } from '../../../../contracts/author-native-methods.ts';
 import { deepFreeze, rawSha256, sha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   bindSemanticOperation,
@@ -43,6 +44,8 @@ export const AFFECTED_SELECTION_OPERATION_DURATION_MS =
   SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS + AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS;
 
 export interface AffectedTestSelection {
+  readonly selectedNativeMethods: readonly AuthorNativeMethodUnit[];
+  readonly unresolvedNativeInputs: readonly string[];
   readonly tests: readonly string[];
   readonly slowTests: readonly string[];
   readonly affectedTests: readonly string[];
@@ -75,6 +78,7 @@ export interface AffectedTestPlan {
   readonly changedPaths: readonly string[];
   readonly owners: readonly string[];
   readonly selectedFastTests: readonly string[];
+  readonly selectedNativeMethods: readonly AuthorNativeMethodUnit[];
   readonly selectedSlowTests: readonly string[];
   readonly riskSuites: readonly string[];
   readonly riskTests: readonly string[];
@@ -155,7 +159,8 @@ export function buildLocalAffectedCheckPlan(
   ));
   const failClosed = affectedPlan.resolved
     && isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary);
-  const testAffectedRequired = affectedPlan.selectedFastTests.length > 0 || failClosed;
+  const testAffectedRequired = affectedPlan.selectedFastTests.length > 0
+    || affectedPlan.selectedNativeMethods.length > 0 || failClosed;
   const gates = [
       ...(typescriptChanged ? [gate('imports:check')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
@@ -246,6 +251,8 @@ export function gitOnlyAffectedTestPlan(
   gitDiscoveryFailed = false
 ): AffectedTestPlan {
   const selectionResolved: AffectedTestSelection = Object.freeze({
+    selectedNativeMethods: Object.freeze([]),
+    unresolvedNativeInputs: Object.freeze([]),
     tests: Object.freeze([]),
     slowTests: Object.freeze([]),
     affectedTests: Object.freeze([]),
@@ -270,6 +277,7 @@ export function gitOnlyAffectedTestPlan(
     changedPaths: [...files],
     owners: [],
     selectedFastTests: [],
+    selectedNativeMethods: [],
     selectedSlowTests: [],
     riskSuites: [],
     riskTests: [],

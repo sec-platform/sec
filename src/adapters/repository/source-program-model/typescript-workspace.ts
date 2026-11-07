@@ -4,6 +4,8 @@ import {
   compareCodeUnits,
   sha256
 } from '../../../contracts/canonical.ts';
+import { createTypeScriptSnapshotDirectoryReader } from '../../toolchain/typescript/snapshot-directory.ts';
+import type { RepositoryModuleRuntimeRelation } from '../architecture/contract.ts';
 import type {
   SourceProgramCompilationOperation,
   SourceProgramCompilationPhase
@@ -16,31 +18,51 @@ import type {
   SourceProgramSpan
 } from './contract.ts';
 import {
-  resolveRepositoryModuleImportCandidates
-} from './module-graph.ts';
-import type {
-  TypeScriptSourceProgramFileIdentity
+  SOURCE_EXTENSION,
+  type TypeScriptSourceProgramFileIdentity
 } from './typescript-input.ts';
+import {
+  directTypeScriptPackageImportAddress,
+  directTypeScriptSourceAddress,
+  observeTypeScriptImportLoader
+} from './typescript-module-loader.ts';
 import {
   TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
   TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
 } from './typescript-profile.ts';
 
-/** Language-service lifecycle and virtual workspace state; one active service per process. */
-function moduleExtensionFor(fileName: string): ts.Extension {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.d.mts')) return ts.Extension.Dmts;
-  if (lower.endsWith('.d.cts')) return ts.Extension.Dcts;
-  if (lower.endsWith('.d.ts')) return ts.Extension.Dts;
-  if (lower.endsWith('.mts')) return ts.Extension.Mts;
-  if (lower.endsWith('.cts')) return ts.Extension.Cts;
-  if (lower.endsWith('.tsx')) return ts.Extension.Tsx;
-  if (lower.endsWith('.jsx')) return ts.Extension.Jsx;
-  if (lower.endsWith('.mjs')) return ts.Extension.Mjs;
-  if (lower.endsWith('.cjs')) return ts.Extension.Cjs;
-  if (lower.endsWith('.js')) return ts.Extension.Js;
-  return ts.Extension.Ts;
+export type TypeScriptResolutionSnapshot = Readonly<{
+  files: readonly SourceProgramFileInput[];
+  membershipPaths: readonly string[];
+}>;
+
+export type TypeScriptModuleResolutionObservation = Readonly<{
+  status: 'resolved' | 'unresolved' | 'external';
+  resolvedTarget: string | null;
+  runtime: Exclude<RepositoryModuleRuntimeRelation, Readonly<{ kind: 'none' }>>;
+  lookupPaths: readonly string[];
+  missingInputs: readonly string[];
+}>;
+
+const unresolvedModule = Object.freeze({
+  status: 'unresolved' as const,
+  resolvedTarget: null,
+  runtime: Object.freeze({ kind: 'unresolved' as const }),
+  lookupPaths: Object.freeze([] as string[]),
+  missingInputs: Object.freeze([] as string[])
+});
+
+function resolutionKey(sourcePath: string, literal: ts.StringLiteralLike): string {
+  return JSON.stringify([sourcePath, literal.pos, literal.end, literal.text]);
 }
+
+type ResolutionGeneration = Readonly<{
+  snapshot: ReadonlyMap<string, SourceProgramFileInput>;
+  members: ReadonlyMap<string, string>;
+  directory: ReturnType<typeof createTypeScriptSnapshotDirectoryReader>;
+  operation: SourceProgramCompilationOperation;
+  facts: Map<string, TypeScriptModuleResolutionObservation>;
+}>;
 
 interface SourceProgramTypeScriptRenameLocation {
   readonly path: string;
@@ -71,6 +93,7 @@ export type ExactTypeScriptProgram = Readonly<{
   renameAt(repositoryPath: string, position: number): TypeScriptRenameObservation;
   repositoryPath(sourceFile: ts.SourceFile): string;
   sourceFiles: readonly ts.SourceFile[];
+  moduleResolutionAt(sourceFile: ts.SourceFile, literal: ts.StringLiteralLike): TypeScriptModuleResolutionObservation;
 }>;
 
 /**
@@ -87,27 +110,39 @@ class TypeScriptSourceProgramWorkspace {
     version: number;
   }>>();
   #canonicalByAbsolute = new Map<string, string>();
+  #rootPaths = new Set<string>();
   #operation: SourceProgramCompilationOperation | null = null;
   #projectVersion = 0;
+  #snapshot = new Map<string, SourceProgramFileInput>();
+  #members = new Map<string, string>();
+  #directory: ReturnType<typeof createTypeScriptSnapshotDirectoryReader>;
+  #resolutionDigest = '';
+  #resolutionFacts = new Map<string, TypeScriptModuleResolutionObservation>();
+  #resolutionGeneration: ResolutionGeneration | null = null;
+  readonly #libraryRoot = path.dirname(ts.sys.getExecutingFilePath());
 
   constructor(repositoryRoot: string) {
     this.#repositoryRoot = repositoryRoot;
+    this.#directory = createTypeScriptSnapshotDirectoryReader([], repositoryRoot);
     const host: ts.LanguageServiceHost = {
-      directoryExists: ts.sys.directoryExists,
-      fileExists: (fileName) => this.#repositoryPath(fileName) !== null || ts.sys.fileExists(fileName),
+      directoryExists: (directoryName) => this.#isLibraryPath(directoryName)
+        ? ts.sys.directoryExists(directoryName) : this.#directory.directoryExists(directoryName),
+      fileExists: (fileName) => this.#isLibraryPath(fileName)
+        ? ts.sys.fileExists(fileName) : this.#memberPath(fileName) !== null,
       getCompilationSettings: () => TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
       getCurrentDirectory: () => this.#repositoryRoot,
       getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-      getDirectories: ts.sys.getDirectories,
+      getDirectories: (directoryName) => this.#isLibraryPath(directoryName)
+        ? ts.sys.getDirectories(directoryName) : this.#directory.getDirectories(directoryName),
       getProjectVersion: () => String(this.#projectVersion),
-      getScriptFileNames: () => [...this.#files.keys()]
+      getScriptFileNames: () => [...this.#rootPaths]
         .sort(compareCodeUnits)
         .map((repositoryPathValue) => path.resolve(this.#repositoryRoot, repositoryPathValue)),
       getScriptSnapshot: (fileName) => {
         this.#checkpoint('program-materialization');
         const repositoryPathValue = this.#repositoryPath(fileName);
         if (repositoryPathValue !== null) return this.#files.get(repositoryPathValue)?.snapshot;
-        const source = ts.sys.readFile(fileName);
+        const source = this.#readSource(fileName);
         return source === undefined ? undefined : ts.ScriptSnapshot.fromString(source);
       },
       getScriptVersion: (fileName) => {
@@ -116,43 +151,15 @@ class TypeScriptSourceProgramWorkspace {
           ? TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
           : String(this.#files.get(repositoryPathValue)?.version ?? 0);
       },
-      readDirectory: ts.sys.readDirectory,
-      readFile: (fileName) => {
-        const repositoryPathValue = this.#repositoryPath(fileName);
-        if (repositoryPathValue === null) return ts.sys.readFile(fileName);
-        const snapshot = this.#files.get(repositoryPathValue)?.snapshot;
-        return snapshot?.getText(0, snapshot.getLength());
-      },
-      realpath: ts.sys.realpath,
-      resolveModuleNames: (moduleNames, containingFile) => moduleNames.map((moduleName) => {
-        this.#checkpoint('program-materialization');
-        const containingRepositoryPath = this.#repositoryPath(containingFile);
-        if (containingRepositoryPath !== null && moduleName.startsWith('.')) {
-          const targetPath = resolveRepositoryModuleImportCandidates(
-            containingRepositoryPath,
-            moduleName
-          ).find((candidate) => this.#files.has(candidate));
-          if (targetPath !== undefined) {
-            return {
-              extension: moduleExtensionFor(targetPath),
-              isExternalLibraryImport: false,
-              resolvedFileName: path.resolve(this.#repositoryRoot, targetPath)
-            };
-          }
-        }
-        // Source Program owns repository-local symbol and capability facts,
-        // not package typechecking. Loading external declaration graphs here
-        // duplicates the canonical TypeScript checker and turns one repository
-        // audit into an unbounded node_modules census. External packages remain
-        // explicit opaque dependencies in the model compiled below.
-        if (containingRepositoryPath !== null && moduleName !== 'typescript') return undefined;
-        return ts.resolveModuleName(
-          moduleName,
-          containingFile,
-          TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
-          ts.sys
-        ).resolvedModule;
-      }),
+      readDirectory: (directoryName, extensions, excludes, includes, depth) => this.#isLibraryPath(directoryName)
+        ? ts.sys.readDirectory(directoryName, extensions, excludes, includes, depth)
+        : this.#directory(directoryName, extensions, excludes, includes, depth),
+      readFile: (fileName) => this.#readSource(fileName),
+      realpath: (fileName) => this.#isLibraryPath(fileName)
+        ? ts.sys.realpath?.(fileName) ?? fileName : path.resolve(fileName),
+      resolveModuleNameLiterals: (literals, containingFile, redirectedReference, options, sourceFile) => (
+        literals.map((literal) => this.#resolveModule(sourceFile, literal, containingFile, options, redirectedReference))
+      ),
       useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames
     };
     this.#service = ts.createLanguageService(host, ts.createDocumentRegistry());
@@ -161,24 +168,74 @@ class TypeScriptSourceProgramWorkspace {
   compile(
     filesByPath: ReadonlyMap<string, SourceProgramFileInput>,
     sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>,
-    operation: SourceProgramCompilationOperation
+    operation: SourceProgramCompilationOperation,
+    resolutionSnapshot: TypeScriptResolutionSnapshot
   ): ExactTypeScriptProgram {
     this.#operation = operation;
     sourceProgramCompilationCheckpoint(operation, 'program-materialization', 'start');
-    const nextPaths = new Set(filesByPath.keys());
-    let changed = false;
+    const membership = [...new Set(resolutionSnapshot.membershipPaths)].sort(compareCodeUnits);
+    const directory = createTypeScriptSnapshotDirectoryReader(membership, this.#repositoryRoot);
+    const snapshot = new Map<string, SourceProgramFileInput>();
+    const members = new Map(membership.map((repositoryPathValue) => [
+      this.#absoluteKey(path.resolve(this.#repositoryRoot, repositoryPathValue)), repositoryPathValue
+    ]));
+    const membershipSet = new Set(membership);
+    for (const file of resolutionSnapshot.files) {
+      if (!membershipSet.has(file.path) || snapshot.has(file.path)) {
+        throw new Error(`TypeScript resolution snapshot has invalid file membership: ${file.path}`);
+      }
+      snapshot.set(file.path, Object.freeze({ ...file }));
+    }
+    for (const [repositoryPathValue, file] of filesByPath) {
+      const retained = snapshot.get(repositoryPathValue);
+      if (retained === undefined || retained.source !== file.source || retained.contentDigest !== file.contentDigest) {
+        throw new Error(`TypeScript Program root differs from its resolution snapshot: ${repositoryPathValue}`);
+      }
+    }
+    const resolutionDigest = sha256({
+      membership,
+      capturedPaths: [...snapshot.keys()].sort(compareCodeUnits),
+      metadata: [...snapshot.values()].filter((file) => !SOURCE_EXTENSION.test(file.path))
+        .sort((left, right) => compareCodeUnits(left.path, right.path))
+    });
+    const resolutionChanged = resolutionDigest !== this.#resolutionDigest;
+    const unchangedSources = new Set([...snapshot].filter(([sourcePath, file]) => (
+      this.#snapshot.get(sourcePath)?.source === file.source
+    )).map(([sourcePath]) => sourcePath));
+    // Facts belong to the captured generation. Only unchanged occurrences in
+    // an unchanged resolution environment may seed the next generation.
+    this.#resolutionFacts = resolutionChanged ? new Map() : new Map(
+      [...this.#resolutionFacts].filter(([key]) => unchangedSources.has(JSON.parse(key)[0]))
+    );
+    this.#snapshot = snapshot;
+    this.#members = members;
+    this.#directory = directory;
+    if (resolutionChanged) {
+      this.#resolutionDigest = resolutionDigest;
+    }
+    const resolutionGeneration: ResolutionGeneration = Object.freeze({
+      snapshot, members, directory, operation, facts: this.#resolutionFacts
+    });
+    this.#resolutionGeneration = resolutionGeneration;
+    const nextRoots = new Set(filesByPath.keys());
+    const rootsChanged = nextRoots.size !== this.#rootPaths.size
+      || [...nextRoots].some((sourcePath) => !this.#rootPaths.has(sourcePath));
+    this.#rootPaths = nextRoots;
+    const nextPaths = new Set(snapshot.keys());
+    let changed = resolutionChanged || rootsChanged;
     for (const repositoryPathValue of this.#files.keys()) {
       if (nextPaths.has(repositoryPathValue)) continue;
       this.#files.delete(repositoryPathValue);
       changed = true;
     }
-    for (const [repositoryPathValue, file] of filesByPath) {
+    for (const [repositoryPathValue, file] of snapshot) {
       const current = this.#files.get(repositoryPathValue);
-      const identityDigest = sourceFileIdentities.get(repositoryPathValue)?.rawFileDigest;
-      if (identityDigest === undefined) {
+      const rootIdentity = sourceFileIdentities.get(repositoryPathValue)?.rawFileDigest;
+      if (nextRoots.has(repositoryPathValue) && rootIdentity === undefined) {
         throw new Error(`TypeScript Program file identity is absent: ${repositoryPathValue}`);
       }
-      if (current?.identityDigest === identityDigest) continue;
+      const identityDigest = rootIdentity ?? sha256({ source: file.source, contentDigest: file.contentDigest });
+      if (current?.identityDigest === identityDigest && !resolutionChanged) continue;
       this.#files.set(repositoryPathValue, Object.freeze({
         identityDigest,
         snapshot: ts.ScriptSnapshot.fromString(file.source),
@@ -195,9 +252,13 @@ class TypeScriptSourceProgramWorkspace {
       );
       this.#projectVersion += 1;
     }
+    // Public LanguageService invalidation drops the old Program and its
+    // resolutions. The changed project/script versions rebuild from the sealed
+    // metadata; ordinary leaf edits keep the incremental Program path.
+    if (resolutionChanged) this.#service.cleanupSemanticCache();
     const program = this.#service.getProgram();
     if (program === undefined) throw new Error('Source Program TypeScript workspace has no Program');
-    const rootNames = [...this.#files.keys()]
+    const rootNames = [...this.#rootPaths]
       .sort(compareCodeUnits)
       .map((repositoryPathValue) => path.resolve(this.#repositoryRoot, repositoryPathValue));
     const sourceFiles = rootNames.map((rootName) => program.getSourceFile(rootName)).filter(
@@ -209,6 +270,9 @@ class TypeScriptSourceProgramWorkspace {
       );
     }
     const generationProjectVersion = this.#projectVersion;
+    const canonicalByAbsolute = this.#canonicalByAbsolute;
+    const checker = program.getTypeChecker();
+    const resolutionFacts = resolutionGeneration.facts;
     const sourceFileByRepositoryPath = new Map(sourceFiles.map((sourceFile) => [
       this.#repositoryPath(sourceFile.fileName)!,
       sourceFile
@@ -293,11 +357,23 @@ class TypeScriptSourceProgramWorkspace {
     };
     sourceProgramCompilationCheckpoint(operation, 'program-materialization', 'complete');
     return Object.freeze({
-      checker: program.getTypeChecker(),
+      checker,
       program,
+      moduleResolutionAt: (sourceFile: ts.SourceFile, literal: ts.StringLiteralLike) => {
+        if (program.getSourceFile(sourceFile.fileName) !== sourceFile || literal.getSourceFile() !== sourceFile) {
+          return unresolvedModule;
+        }
+        const sourcePath = path.relative(this.#repositoryRoot, sourceFile.fileName).replaceAll('\\', '/');
+        const key = resolutionKey(sourcePath, literal);
+        if (!resolutionFacts.has(key)) {
+          this.#resolveModule(sourceFile, literal, sourceFile.fileName,
+            program.getCompilerOptions(), undefined, resolutionGeneration);
+        }
+        return resolutionFacts.get(key) ?? unresolvedModule;
+      },
       renameAt,
       repositoryPath: (sourceFile) => {
-        const repositoryPathValue = this.#repositoryPath(sourceFile.fileName);
+        const repositoryPathValue = canonicalByAbsolute.get(this.#absoluteKey(path.resolve(sourceFile.fileName))) ?? null;
         if (repositoryPathValue === null) {
           throw new Error(`TypeScript Program source escaped exact repository census: ${sourceFile.fileName}`);
         }
@@ -318,6 +394,162 @@ class TypeScriptSourceProgramWorkspace {
   #absoluteKey(value: string): string {
     const normalized = value.replaceAll('\\', '/');
     return ts.sys.useCaseSensitiveFileNames ? normalized : normalized.toLowerCase();
+  }
+
+  #isLibraryPath(fileName: string): boolean {
+    const relative = path.relative(this.#libraryRoot, path.resolve(fileName));
+    return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+  }
+
+  #memberPath(fileName: string): string | null {
+    return this.#members.get(this.#absoluteKey(path.resolve(fileName))) ?? null;
+  }
+
+  #readSource(fileName: string): string | undefined {
+    this.#checkpoint('program-materialization');
+    if (this.#isLibraryPath(fileName)) return ts.sys.readFile(fileName);
+    const repositoryPathValue = this.#memberPath(fileName);
+    return repositoryPathValue === null ? undefined : this.#snapshot.get(repositoryPathValue)?.source;
+  }
+
+  #resolveModule(
+    sourceFile: ts.SourceFile,
+    literal: ts.StringLiteralLike,
+    containingFile: string,
+    options: ts.CompilerOptions,
+    redirectedReference: ts.ResolvedProjectReference | undefined,
+    generation: ResolutionGeneration | null = this.#resolutionGeneration
+  ): ts.ResolvedModuleWithFailedLookupLocations {
+    if (generation === null) throw new Error('TypeScript resolution generation is unavailable');
+    const checkpoint = () => sourceProgramCompilationCheckpoint(generation.operation, 'program-materialization');
+    checkpoint();
+    const memberPath = (fileName: string) => generation.members.get(this.#absoluteKey(path.resolve(fileName))) ?? null;
+    const sourcePath = memberPath(containingFile);
+    if (sourcePath === null) return { resolvedModule: undefined };
+    const lookupPaths = new Set<string>();
+    const missingInputs = new Set<string>();
+    let nearestManifest: SourceProgramFileInput | null = null;
+    const missingInput = Symbol('typescript-resolution-input-required');
+    const repositoryPath = (fileName: string): string | null => {
+      const relative = path.relative(this.#repositoryRoot, path.resolve(fileName));
+      return relative !== '' && !path.isAbsolute(relative) && relative !== '..'
+        && !relative.startsWith(`..${path.sep}`) ? relative.replaceAll('\\', '/') : null;
+    };
+    const observe = (fileName: string): string | null => {
+      checkpoint();
+      const relative = repositoryPath(fileName);
+      if (relative !== null) lookupPaths.add(relative);
+      return relative;
+    };
+    const host: ts.ModuleResolutionHost = {
+      fileExists: (fileName) => {
+        observe(fileName);
+        return memberPath(fileName) !== null;
+      },
+      readFile: (fileName) => {
+        const relative = observe(fileName);
+        if (relative === null || memberPath(fileName) === null) return undefined;
+        const file = generation.snapshot.get(relative);
+        if (file === undefined) {
+          missingInputs.add(relative);
+          throw missingInput;
+        }
+        if (nearestManifest === null && path.posix.basename(relative) === 'package.json') {
+          const directory = path.posix.dirname(relative);
+          const fromDirectory = path.posix.relative(directory, path.posix.dirname(sourcePath));
+          if (fromDirectory === '' || (fromDirectory !== '..' && !fromDirectory.startsWith('../'))) {
+            nearestManifest = file;
+          }
+        }
+        return file.source;
+      },
+      // Leave directoryExists absent so the public resolver issues file probes
+      // even below absent directories. Each negative file lookup then belongs
+      // to this snapshot without depending on private TS result fields.
+      getDirectories: (directoryName) => generation.directory.getDirectories(directoryName),
+      getCurrentDirectory: () => this.#repositoryRoot,
+      realpath: (fileName) => path.resolve(fileName),
+      useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames
+    };
+    let result: ts.ResolvedModuleWithFailedLookupLocations = { resolvedModule: undefined };
+    let status: TypeScriptModuleResolutionObservation['status'] = 'unresolved';
+    let target: string | null = null;
+    const local = literal.text.startsWith('.') || literal.text.startsWith('#');
+    let operand: ts.Node = literal;
+    while (ts.isParenthesizedExpression(operand.parent) || ts.isAsExpression(operand.parent)
+        || ts.isTypeAssertionExpression(operand.parent) || ts.isNonNullExpression(operand.parent)
+        || ts.isSatisfiesExpression(operand.parent)) operand = operand.parent;
+    let mode = ts.getModeForUsageLocation(sourceFile, literal, options);
+    if (ts.isCallExpression(operand.parent) && operand.parent.arguments.includes(operand as ts.Expression)) {
+      // The load observer owns recognition of indirect require calls. For its
+      // requested literal, call syntax supplies the compiler's resolution mode.
+      mode = operand.parent.expression.kind === ts.SyntaxKind.ImportKeyword
+        ? ts.ModuleKind.ESNext : ts.ModuleKind.CommonJS;
+    }
+    try {
+      if (local) {
+        // The same compiler determines package mode before resolving this usage.
+        // A present but unread package cannot be treated as an absent boundary.
+        ts.getImpliedNodeFormatForFile(containingFile, undefined, host, options);
+        result = ts.resolveModuleName(literal.text, containingFile, options, host, undefined,
+          redirectedReference, mode);
+        const resolved = result.resolvedModule;
+        if (resolved !== undefined) {
+          target = repositoryPath(resolved.resolvedFileName);
+          if (target !== null) {
+            lookupPaths.add(target);
+            if (!generation.snapshot.has(target)) missingInputs.add(target);
+            else if (memberPath(resolved.resolvedFileName) !== null) status = 'resolved';
+          }
+        }
+      } else {
+        status = 'external';
+        // Preserve the existing qualified compiler API dependency, without
+        // enrolling arbitrary external package declaration graphs.
+        if (literal.text === 'typescript') {
+          result = ts.resolveModuleName(literal.text, containingFile, options, ts.sys, undefined,
+            redirectedReference, mode);
+          if (result.resolvedModule !== undefined && !this.#isLibraryPath(result.resolvedModule.resolvedFileName)) {
+            result = { resolvedModule: undefined };
+          }
+        }
+      }
+    } catch (error) {
+      if (error !== missingInput) throw error;
+    }
+    if (status !== 'resolved' && local) {
+      target = null;
+      result = { resolvedModule: undefined };
+    }
+    const loader = observeTypeScriptImportLoader(literal, sourceFile);
+    let runtime: TypeScriptModuleResolutionObservation['runtime'] = Object.freeze({ kind: 'unresolved' });
+    if (loader !== 'unresolved') {
+      if (status === 'external') {
+        runtime = Object.freeze({ kind: 'external' });
+      } else {
+        const direct = literal.text.startsWith('#')
+          ? nearestManifest === null ? null : directTypeScriptPackageImportAddress(nearestManifest, literal.text, loader)
+          : directTypeScriptSourceAddress(path.posix.dirname(sourcePath), literal.text, loader);
+        if (loader === 'file' && direct !== null) {
+          lookupPaths.add(direct);
+          if (generation.snapshot.has(direct) && generation.members.has(this.#absoluteKey(path.resolve(this.#repositoryRoot, direct)))) {
+            runtime = Object.freeze({ kind: 'asset', target: direct });
+          } else if (generation.members.has(this.#absoluteKey(path.resolve(this.#repositoryRoot, direct)))) {
+            missingInputs.add(direct);
+          }
+        } else if (status === 'resolved' && target !== null && missingInputs.size === 0 && direct === target) {
+          runtime = Object.freeze({ kind: 'module', target });
+        }
+      }
+    }
+    generation.facts.set(resolutionKey(sourcePath, literal), Object.freeze({
+      status,
+      resolvedTarget: target,
+      runtime,
+      lookupPaths: Object.freeze([...lookupPaths].sort(compareCodeUnits)),
+      missingInputs: Object.freeze([...missingInputs].sort(compareCodeUnits))
+    }));
+    return result;
   }
 
   #repositoryPath(fileName: string): string | null {
@@ -343,7 +575,8 @@ export function releaseTypeScriptWorkspace(): void {
 export function compileExactTypeScriptProgram(
   filesByPath: ReadonlyMap<string, SourceProgramFileInput>,
   sourceFileIdentities: ReadonlyMap<string, TypeScriptSourceProgramFileIdentity>,
-  operation: SourceProgramCompilationOperation
+  operation: SourceProgramCompilationOperation,
+  resolutionSnapshot: TypeScriptResolutionSnapshot
 ): ExactTypeScriptProgram {
   const repositoryRoot = process.cwd();
   if (activeTypeScriptWorkspace === null || activeTypeScriptWorkspaceRoot !== repositoryRoot) {
@@ -351,5 +584,5 @@ export function compileExactTypeScriptProgram(
     activeTypeScriptWorkspace = new TypeScriptSourceProgramWorkspace(repositoryRoot);
     activeTypeScriptWorkspaceRoot = repositoryRoot;
   }
-  return activeTypeScriptWorkspace.compile(filesByPath, sourceFileIdentities, operation);
+  return activeTypeScriptWorkspace.compile(filesByPath, sourceFileIdentities, operation, resolutionSnapshot);
 }

@@ -4,6 +4,10 @@ import type { BoundSemanticOperation } from '../../../../execution/operation/sem
 import { observeOptionalDiagnostic } from '../../../../execution/optional-diagnostic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import {
+  assertRetainedWorkingSourceInputGeneration,
+  type RetainedWorkingSourceInputGeneration
+} from '../../../repository/source-program-model/workspace-source-authority.ts';
+import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession,
   type ProcessResourceSession
@@ -13,12 +17,14 @@ import {
   armRepositoryChangeObserver,
   disposePreparedRepositoryChangeObserver,
   prepareRepositoryChangeObserver,
+  repositoryInputZeroWriteProtectionPrerequisites,
   repositoryInputZeroWritesProven,
   settlePreparedRepositoryChangeObserver,
   settleRepositoryChangeObserver,
   type PreparedRepositoryChangeObserver,
   type RepositoryChangeObserverSettlement
 } from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
+import type { RepositoryDerivedOutput } from '../../../runtime-state/physical/runtime/repository-derived-output.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
@@ -47,9 +53,15 @@ export interface RepositoryMutationFenceOptions {
   readonly fastTestBatchAdmission?: FastTestBatchExecutionAdmission;
 }
 
+export interface RepositorySourceInputFenceOptions extends Omit<RepositoryMutationFenceOptions,
+  'testSuiteAdmission' | 'fastTestBatchAdmission'> {
+  readonly sourceInputs: RetainedWorkingSourceInputGeneration;
+  readonly derivedOutput?: RepositoryDerivedOutput;
+}
+
 export type RepositoryObserverFailureDiagnostic = Readonly<{
   schema: 'sec-repository-observer-failure-diagnostic-v1';
-  status: Exclude<RepositoryChangeObserverSettlement['status'], 'zero-events' | 'immutable-input'>;
+  status: Exclude<RepositoryChangeObserverSettlement['status'], 'immutable-input'>;
   rootIdentityDigest: `sha256:${string}`;
   eventCount?: number;
   observationDigest?: `sha256:${string}`;
@@ -63,7 +75,7 @@ export type RepositoryObserverFailureDiagnostic = Readonly<{
 
 /** Bounded diagnostic projection only; it cannot authorize or excuse a write. */
 export function projectRepositoryObserverFailureDiagnostic(
-  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'zero-events' | 'immutable-input' }>,
+  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'immutable-input' }>,
   roots: readonly string[]
 ): RepositoryObserverFailureDiagnostic {
   if (settlement.status !== 'events') {
@@ -135,10 +147,8 @@ function closeRepositoryProcessResourceSession(
 }
 
 /**
- * Strict zero-write admission remains closed until the Runtime State physical
- * owner supplies one opaque native recursive change-observer capability.
- * Final-state Git equality cannot detect write-and-restore ABA and must not be
- * promoted into this authority boundary.
+ * The existing whole-input claim requires an enforcing provider. Namespace
+ * event silence and final-state Git equality cannot establish this claim.
  */
 export async function runRepositoryZeroWriteOperation(
   commandId: string,
@@ -147,6 +157,30 @@ export async function runRepositoryZeroWriteOperation(
     executionContext?: RepositoryMutationFenceExecutionContext
   ) => Promise<number>,
   options: RepositoryMutationFenceOptions
+): Promise<number> {
+  return runRepositoryObservedOperation(commandId, operation, options);
+}
+
+/** Protects only the original issued source read set. It neither certifies all
+ * physical workspace bytes nor Git object content. The caller owns source-pin
+ * retirement after this observer and its actual process trees have settled. */
+export async function runRepositorySourceInputOperation(
+  commandId: string,
+  operation: (processSession?: ProcessResourceSession) => Promise<number>,
+  options: RepositorySourceInputFenceOptions
+): Promise<number> {
+  assertRetainedWorkingSourceInputGeneration(options.sourceInputs);
+  return runRepositoryObservedOperation(commandId, operation, options, options.sourceInputs);
+}
+
+async function runRepositoryObservedOperation(
+  commandId: string,
+  operation: (
+    processSession?: ProcessResourceSession,
+    executionContext?: RepositoryMutationFenceExecutionContext
+  ) => Promise<number>,
+  options: RepositoryMutationFenceOptions & Readonly<{ derivedOutput?: RepositoryDerivedOutput }>,
+  sourceInputs?: RetainedWorkingSourceInputGeneration
 ): Promise<number> {
   const cwd = process.cwd();
   const startedAt = Date.now();
@@ -158,6 +192,9 @@ export async function runRepositoryZeroWriteOperation(
   if (testSuiteAdmission !== undefined && fastTestBatchAdmission !== undefined) {
     throw new Error('Repository observation accepts one test execution admission.');
   }
+  if (options.derivedOutput !== undefined && (testSuiteAdmission !== undefined || fastTestBatchAdmission !== undefined)) {
+    throw new Error('Derived native output requires its standalone source observer, not a Bun suite admission.');
+  }
   const testExecutionPolicy = testSuiteAdmission === undefined && fastTestBatchAdmission === undefined
     ? null : await import('./test-execution-policy.ts');
   if (testSuiteAdmission !== undefined) testExecutionPolicy!.assertIssuedTestSuiteExecutionAdmission(testSuiteAdmission);
@@ -168,6 +205,13 @@ export async function runRepositoryZeroWriteOperation(
     throw new TypeError('Repository observation operation and reporter must be callable');
   }
   const repositoryRoot = path.resolve(cwd, requestedRoot === undefined ? compilerRoot : requestedRoot);
+  if (sourceInputs !== undefined) {
+    if (repositoryRoot !== sourceInputs.repositoryRoot
+        || testSuiteAdmission !== undefined || fastTestBatchAdmission !== undefined) {
+      throw new Error('Source input observation requires its exact repository and standalone operation.');
+    }
+    sourceInputs.assertCurrent();
+  }
   const parentDeadline = semanticOperation.plan.attempt.deadlineAtUnixMs;
   if (!Number.isSafeInteger(parentDeadline)) throw new TypeError('Repository observation requires a finite parent deadline');
   // Root discovery consumes this window; arming cannot open a fresh deadline.
@@ -194,6 +238,13 @@ export async function runRepositoryZeroWriteOperation(
       )
     : executionDeadlineAtUnixMs;
   const report = suppliedReport === undefined ? console.error : (message: string) => Reflect.apply(suppliedReport, options, [message]);
+  const wholeInputPrerequisites = sourceInputs === undefined ? repositoryInputZeroWriteProtectionPrerequisites() : undefined;
+  if (wholeInputPrerequisites?.status === 'unavailable') {
+    observeOptionalDiagnostic(() => report(
+      `${commandId} strict-zero-write-unproven: ${wholeInputPrerequisites.reason}; namespace observation cannot prove whole-input zero writes.`
+    ));
+    return 1;
+  }
   if (deadlineAtUnixMs <= startedAt) {
     observeOptionalDiagnostic(() => report(`${commandId} strict-zero-write-unproven: observation deadline exhausted.`));
     return 1;
@@ -230,7 +281,8 @@ export async function runRepositoryZeroWriteOperation(
   let preparedResolution: ReturnType<typeof prepareRepositoryChangeObserver> | undefined;
   try {
     if (testSuiteAdmission === undefined && fastTestBatchAdmission === undefined) {
-      observerResolution = await armRepositoryChangeObserver({ roots, deadlineAtUnixMs });
+      observerResolution = await armRepositoryChangeObserver({ roots, deadlineAtUnixMs,
+        ...(options.derivedOutput === undefined ? {} : { derivedOutput: options.derivedOutput }) });
     } else {
       preparedResolution = prepareRepositoryChangeObserver({ roots });
       if (preparedResolution.status === 'ready') preparedObserver = preparedResolution.prepared;
@@ -336,6 +388,11 @@ export async function runRepositoryZeroWriteOperation(
     primary = { label: 'repository-observed-command', error };
   }
   let settlement: RepositoryChangeObserverSettlement | undefined;
+  const protectedInputsUnchanged = (value: RepositoryChangeObserverSettlement): boolean => {
+    if (sourceInputs === undefined) return repositoryInputZeroWritesProven(value);
+    sourceInputs.assertCurrent();
+    return value.status === 'zero-events';
+  };
   await settlePhysicalResourcesAsync({
     primary,
     cleanup: [
@@ -351,7 +408,12 @@ export async function runRepositoryZeroWriteOperation(
         }
         // A failed command does not erase a second loss-of-observation result.
         // Keep the native settlement as cause; display text is not the evidence.
-        if (primary !== undefined && !repositoryInputZeroWritesProven(settlement)) {
+        if (primary !== undefined && !protectedInputsUnchanged(settlement)) {
+          const diagnostic = settlement.status === 'immutable-input' ? null
+            : projectRepositoryObserverFailureDiagnostic(settlement as Exclude<RepositoryChangeObserverSettlement, { status: 'immutable-input' }>, roots);
+          observeOptionalDiagnostic(() => report(
+            `${commandId} failed with incomplete repository observation; diagnostic=${JSON.stringify(diagnostic)}.`
+          ));
           throw new RepositoryObservationError('physical-unresolved',
             'Repository change observation did not establish zero writes', settlement);
         }
@@ -361,8 +423,9 @@ export async function runRepositoryZeroWriteOperation(
       } }])
     ]
   });
-  if (!repositoryInputZeroWritesProven(settlement!)) {
-    const diagnostic = projectRepositoryObserverFailureDiagnostic(settlement!, roots);
+  if (!protectedInputsUnchanged(settlement!)) {
+    const diagnostic = settlement!.status === 'immutable-input' ? null
+      : projectRepositoryObserverFailureDiagnostic(settlement! as Exclude<RepositoryChangeObserverSettlement, { status: 'immutable-input' }>, roots);
     observeOptionalDiagnostic(() => report(
       `${commandId} mutated or lost continuous observation of repository state; `
       + `observer=${settlement!.status}; diagnostic=${JSON.stringify(diagnostic)}.`

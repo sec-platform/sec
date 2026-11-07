@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  PACKAGE_SOURCE_IMPORT,
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH,
   parseCompilerPackageEntrypointBinding,
@@ -13,7 +14,11 @@ import {
 import { CodedFailure } from '../../src/contracts/failure.ts';
 
 function manifest(source: unknown = './src/cli.ts', artifact: unknown = './dist/index.js') {
-  return { source, bin: { sec: artifact }, scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT } };
+  return {
+    imports: { [PACKAGE_SOURCE_IMPORT]: source },
+    bin: { sec: artifact },
+    scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT }
+  };
 }
 const invalid = (error: unknown): boolean => error instanceof CodedFailure && error.code === 'RUNTIME-LAYOUT-001';
 
@@ -30,11 +35,11 @@ test('runtime source and artifact entrypoints share portable component admission
   }
 });
 
-test('runtime entrypoint parsing keeps explicit relative prefixes and valid backslash normalization', () => {
-  const binding = parseCompilerPackageEntrypointBinding(manifest('./src\\cli.ts', './dist\\index.js'));
+test('runtime source import retains URL separators while artifact paths normalize backslashes', () => {
+  const binding = parseCompilerPackageEntrypointBinding(manifest('./src/cli.ts', './dist\\index.js'));
   assert.deepEqual(binding, { source: 'src/cli.ts', artifact: 'dist/index.js', command: 'sec' });
   assert.equal(Object.isFrozen(binding), true);
-  for (const value of ['src/cli.ts', '/src/cli.ts', null, 1]) {
+  for (const value of ['src/cli.ts', '/src/cli.ts', './src\\cli.ts', null, 1]) {
     assert.throws(() => parseCompilerPackageEntrypointBinding(manifest(value)), invalid);
   }
 });

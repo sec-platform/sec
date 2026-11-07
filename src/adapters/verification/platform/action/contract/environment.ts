@@ -1,4 +1,6 @@
+import type { AuthorNativeMethodUnit } from '../../../../../contracts/author-native-methods.ts';
 import { sha256 } from '../../../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../../../contracts/failure.ts';
 import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../../../contracts/repository-test-path.ts';
 import { LINUX_DOCKER_CLI_PROFILE_DIGEST } from '../../../../providers/docker/contract/linux-cli-profile.ts';
 import { CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
@@ -21,6 +23,29 @@ export const CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION =
   'sec-ci-verification-action-environment-v2' as const;
 
 export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS = SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS;
+
+/** Run before Action identity construction or journal lookup. Native source
+ * obligations require qualification from the actual environment producer. */
+export function assertCiVerificationNativeEnvironment(input: Readonly<{
+  requiredNativeMethods: readonly AuthorNativeMethodUnit[];
+  executionEnvironment: Readonly<{
+    toolchainRevision: string;
+    executionEnvironmentRevision: string;
+  }>;
+}>): void {
+  if (input.requiredNativeMethods.length === 0) return;
+  throw new CodedFailure(
+    'CI-VERIFICATION-NATIVE-ENVIRONMENT-001',
+    'Native verification requires qualified Rust execution environment inputs before Action creation or reuse.',
+    {
+      kind: 'missing-native-environment',
+      reason: 'native-runtime-qualification-unavailable',
+      requiredMethods: input.requiredNativeMethods.map(({ id }) => id),
+      toolchainRevision: input.executionEnvironment.toolchainRevision,
+      executionEnvironmentRevision: input.executionEnvironment.executionEnvironmentRevision
+    }
+  );
+}
 
 export function createCiVerificationHostedToolchainRevision(
   authority: SecLinuxVerificationEnvironmentAuthority

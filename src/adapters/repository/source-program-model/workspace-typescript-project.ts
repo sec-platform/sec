@@ -69,6 +69,14 @@ export interface TypeScriptProjectFactIdentity {
   readonly rootSourceFacts: readonly WorkspaceTypeScriptSourceFact[];
 }
 
+// One current fact per immutable issued snapshot. Switching configuration or
+// compiler inputs replaces only this reuse slot; earlier returned facts live
+// independently. This carries no physical/current-generation authority.
+const currentProjectFacts = new WeakMap<WorkspaceSourceSnapshot, Readonly<{
+  key: string;
+  fact: TypeScriptProjectFactIdentity;
+}>>();
+
 function typeScriptProjectFactDigest(input: Readonly<{
   projectConfigPath: string;
   projectConfigDigest: `sha256:${string}`;
@@ -117,6 +125,16 @@ export function compileTypeScriptProjectFactIdentity(
   assertWorkspaceSourceSnapshot(snapshot);
   const projectConfig = snapshot.file(projectConfigPath);
   if (projectConfig === null) throw new Error(`TypeScript project fact config is absent: ${projectConfigPath}`);
+  const key = sha256({
+    projectConfigPath,
+    projectConfigDigest: projectConfig.contentDigest,
+    dependencyGenerationDigest: input.dependencyGenerationDigest,
+    compilerRevision: ts.version,
+    directorySemantics: TYPESCRIPT_SNAPSHOT_DIRECTORY_SEMANTICS,
+    workingDirectory: path.resolve(process.cwd())
+  });
+  const current = currentProjectFacts.get(snapshot);
+  if (current?.key === key) return current.fact;
   const closure = createTypeScriptDeclaredInputClosure({
     projectConfigPath,
     rootPaths: snapshot.files.map(({ path }) => path),
@@ -136,7 +154,7 @@ export function compileTypeScriptProjectFactIdentity(
       });
     }).sort((left, right) => compareCodeUnits(left.path, right.path)));
   const projectConfigDigest = projectConfig.contentDigest as `sha256:${string}`;
-  return Object.freeze({
+  const fact = Object.freeze({
     projectConfigDigest,
     projectFactDigest: typeScriptProjectFactDigest({
       projectConfigPath, projectConfigDigest,
@@ -144,6 +162,8 @@ export function compileTypeScriptProjectFactIdentity(
     }),
     rootSourceFacts
   });
+  currentProjectFacts.set(snapshot, Object.freeze({ key, fact }));
+  return fact;
 }
 
 /**
@@ -475,6 +495,18 @@ export function compileTypeScriptProjectInput(
     }));
   }
   for (const [sourcePath, source] of repositoryReads) repositorySources.set(sourcePath, source);
+  // Compiler source files and reads supplement the original closed declared
+  // read set. Opaque assets remain exact inputs without becoming code roots.
+  const declaredFacts = compileTypeScriptProjectFactIdentity(snapshot, projectConfigPath, { dependencyGenerationDigest });
+  for (const fact of declaredFacts.rootSourceFacts) {
+    const source = snapshot.file(fact.path);
+    const module = snapshot.moduleMembership.moduleForPath(fact.path);
+    if (source === null || source.contentDigest !== fact.contentDigest
+        || (module?.moduleId ?? null) !== fact.moduleId || sha256(module) !== fact.moduleDigest) {
+      throw new Error(`TypeScript declared input differs from its admitted fact: ${fact.path}`);
+    }
+    repositorySources.set(fact.path, source);
+  }
   repositorySources.set(projectConfig.path, projectConfig);
   const sourceFacts = Object.freeze([...repositorySources.values()]
     .sort((left, right) => compareCodeUnits(left.path, right.path)).map(({

@@ -22,9 +22,6 @@ import {
   sourceProgramSurfaceForPath
 } from './contract.ts';
 import {
-  resolveRepositoryModuleImportCandidates
-} from './module-graph.ts';
-import {
   compileTypeScriptRequiredApiClosure
 } from './typescript-api-closure.ts';
 import {
@@ -81,7 +78,8 @@ export function compileTypeScriptModelInternal(
   const semanticProgram = compileExactTypeScriptProgram(
     filesByPath,
     input.sourceFileIdentities,
-    input.operation
+    input.operation,
+    input.resolutionInput
   );
   const typeScriptApiClosure = compileTypeScriptRequiredApiClosure(
     semanticProgram,
@@ -254,30 +252,111 @@ export function compileTypeScriptModelInternal(
   }
   sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'complete');
 
-  const declarationByPathAndName = new Map<
-    string,
-    Map<string, SourceProgramDeclaration | null>
-  >();
-  for (const declaration of declarations) {
-    let declarationsByName = declarationByPathAndName.get(declaration.path);
-    if (declarationsByName === undefined) {
-      declarationsByName = new Map();
-      declarationByPathAndName.set(declaration.path, declarationsByName);
+  function starRoutesAreModules(sourcePath: string): boolean {
+    const pending = [sourcePath];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+      const currentPath = pending.pop()!;
+      if (visited.has(currentPath)) continue;
+      visited.add(currentPath);
+      const current = sourceFileByPath.get(currentPath);
+      if (current === undefined) return false;
+      for (const statement of current.statements) {
+        if (!ts.isExportDeclaration(statement) || statement.exportClause !== undefined
+            || statement.isTypeOnly) continue;
+        if (statement.moduleSpecifier === undefined || !ts.isStringLiteralLike(statement.moduleSpecifier)) return false;
+        const runtime = semanticProgram.moduleResolutionAt(current, statement.moduleSpecifier).runtime;
+        if (runtime.kind !== 'module') return false;
+        pending.push(runtime.target);
+      }
     }
-    if (!declarationsByName.has(declaration.name)) {
-      declarationsByName.set(declaration.name, declaration);
-    } else if (declarationsByName.get(declaration.name)?.observationId !== declaration.observationId) {
-      // Match the TypeChecker path: merged/overloaded symbols whose indexed
-      // declarations are not unique are not assigned one arbitrary target.
-      declarationsByName.set(declaration.name, null);
+    return true;
+  }
+
+  function moduleValueAllowed(literal: ts.StringLiteralLike, selectedMember?: ts.Symbol): boolean {
+    const runtime = semanticProgram.moduleResolutionAt(literal.getSourceFile(), literal).runtime;
+    if (runtime.kind === 'external') return true;
+    if (runtime.kind !== 'module') return false;
+    const carrier = sourceFileByPath.get(runtime.target);
+    const selectedDeclarations = selectedMember?.declarations;
+    // An immediate compiler alias/member declared in this carrier has no
+    // erased star hop. A namespace SourceFile alone does not identify a member.
+    if (carrier !== undefined && selectedDeclarations !== undefined && selectedDeclarations.length > 0
+        && selectedDeclarations.every(declaration => !ts.isSourceFile(declaration)
+          && declaration.getSourceFile() === carrier)) return true;
+    return starRoutesAreModules(runtime.target);
+  }
+
+  function aliasBoundary(declaration: ts.Declaration): ts.StringLiteralLike | null {
+    for (let owner: ts.Node | undefined = declaration; owner !== undefined && !ts.isSourceFile(owner); owner = owner.parent) {
+      if (ts.isImportDeclaration(owner) || ts.isExportDeclaration(owner)) {
+        const literal = owner.moduleSpecifier;
+        return literal !== undefined && ts.isStringLiteralLike(literal) ? literal : null;
+      }
+      if (ts.isImportEqualsDeclaration(owner) && ts.isExternalModuleReference(owner.moduleReference)) {
+        const literal = owner.moduleReference.expression;
+        return literal !== undefined && ts.isStringLiteralLike(literal) ? literal : null;
+      }
+    }
+    return null;
+  }
+
+  function boundInitializer(declaration: ts.Declaration): ts.Expression | null {
+    if (ts.isVariableDeclaration(declaration)) return declaration.initializer ?? null;
+    if (!ts.isBindingElement(declaration)) return null;
+    for (let owner: ts.Node | undefined = declaration.parent; owner !== undefined && !ts.isSourceFile(owner); owner = owner.parent) {
+      if (ts.isVariableDeclaration(owner)) return owner.initializer ?? null;
+    }
+    return null;
+  }
+
+  function valueRouteAllowed(raw: ts.Expression, active: ReadonlySet<ts.Symbol>, selectedMember?: ts.Symbol): boolean {
+    sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+    let expression = raw;
+    while (ts.isAwaitExpression(expression) || ts.isParenthesizedExpression(expression)
+        || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression)
+        || ts.isNonNullExpression(expression) || ts.isSatisfiesExpression(expression)) expression = expression.expression;
+    if (ts.isConditionalExpression(expression)) {
+      return valueRouteAllowed(expression.whenTrue, active, selectedMember)
+        && valueRouteAllowed(expression.whenFalse, active, selectedMember);
+    }
+    if (ts.isCallExpression(expression)) {
+      const load = observeModuleLoad(expression);
+      if (load.status === 'unresolved') return false;
+      return load.status !== 'resolved' || moduleValueAllowed(load.argument, selectedMember);
+    }
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+      if (!valueRouteAllowed(expression.expression, active, selectedMember)) return false;
+    }
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (symbol === undefined) return true;
+    return runtimeAliasTarget(symbol, active, selectedMember) !== null;
+  }
+
+  function runtimeAliasTarget(original: ts.Symbol, active: ReadonlySet<ts.Symbol>, selectedMember?: ts.Symbol): ts.Symbol | null {
+    let symbol = original;
+    const visited = new Set(active);
+    while (true) {
+      sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
+      if (visited.has(symbol)) return null;
+      visited.add(symbol);
+      const next = (symbol.flags & ts.SymbolFlags.Alias) === 0 ? undefined : checker.getImmediateAliasedSymbol(symbol);
+      for (const declaration of symbol.declarations ?? []) {
+        for (let owner: ts.Node | undefined = declaration; owner !== undefined && !ts.isSourceFile(owner); owner = owner.parent) {
+          if ((ts.isImportSpecifier(owner) || ts.isExportSpecifier(owner) || ts.isImportClause(owner)
+              || ts.isImportEqualsDeclaration(owner) || ts.isExportDeclaration(owner)) && owner.isTypeOnly) return null;
+        }
+        const boundary = aliasBoundary(declaration);
+        if (boundary !== null && !moduleValueAllowed(boundary, selectedMember ?? next)) return null;
+        const initializer = boundInitializer(declaration);
+        if (initializer !== null && !valueRouteAllowed(initializer, visited, selectedMember)) return null;
+      }
+      if ((symbol.flags & ts.SymbolFlags.Alias) === 0) return symbol;
+      if (next === undefined) return null;
+      symbol = next;
     }
   }
-  const directDeclarationAt = (
-    sourcePath: string | null,
-    name: string
-  ): SourceProgramDeclaration | null => sourcePath === null
-    ? null
-    : declarationByPathAndName.get(sourcePath)?.get(name) ?? null;
 
   const declarationBySymbol = new Map<ts.Symbol, SourceProgramDeclaration | null>();
   const declarationBySemanticNode = new WeakMap<ts.Node, SourceProgramDeclaration | null>();
@@ -286,7 +365,8 @@ export function compileTypeScriptModelInternal(
     forceLookup = false
   ): SourceProgramDeclaration | null => {
     const nodeCached = declarationBySemanticNode.get(node);
-    if (nodeCached !== undefined || declarationBySemanticNode.has(node)) return nodeCached ?? null;
+    if ((nodeCached !== undefined || declarationBySemanticNode.has(node))
+        && (nodeCached !== null || !forceLookup)) return nodeCached ?? null;
     const nodeSourceFile = node.getSourceFile();
     const localCandidate = ts.isIdentifier(node)
       && (semanticDeclarationCandidateNamesBySourcePath
@@ -311,18 +391,24 @@ export function compileTypeScriptModelInternal(
       declarationBySemanticNode.set(node, null);
       return null;
     }
-    const cached = declarationBySymbol.get(symbol);
-    if (cached !== undefined || declarationBySymbol.has(symbol)) {
-      declarationBySemanticNode.set(node, cached ?? null);
-      return cached ?? null;
+    const receiver = ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)
+      ? node.expression
+      : ts.isIdentifier(node) && ts.isPropertyAccessExpression(node.parent) && node.parent.name === node
+        ? node.parent.expression : null;
+    if (receiver !== null && !valueRouteAllowed(receiver, new Set(), symbol)) {
+      declarationBySemanticNode.set(node, null);
+      return null;
     }
-    const unresolvedSymbol = symbol;
-    if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
-      symbol = checker.getAliasedSymbol(symbol);
+    const runtimeSymbol = runtimeAliasTarget(symbol, new Set());
+    if (runtimeSymbol === null) {
+      // This failure belongs to the occurrence/alias route. The terminal
+      // symbol may still be legitimately imported through another module edge.
+      declarationBySemanticNode.set(node, null);
+      return null;
     }
+    symbol = runtimeSymbol;
     const resolvedCached = declarationBySymbol.get(symbol);
     if (resolvedCached !== undefined || declarationBySymbol.has(symbol)) {
-      declarationBySymbol.set(unresolvedSymbol, resolvedCached ?? null);
       declarationBySemanticNode.set(node, resolvedCached ?? null);
       return resolvedCached ?? null;
     }
@@ -333,7 +419,6 @@ export function compileTypeScriptModelInternal(
     }
     const declaration = candidates.size === 1 ? candidates.values().next().value ?? null : null;
     declarationBySymbol.set(symbol, declaration);
-    declarationBySymbol.set(unresolvedSymbol, declaration);
     declarationBySemanticNode.set(node, declaration);
     return declaration;
   };
@@ -378,11 +463,8 @@ export function compileTypeScriptModelInternal(
     }
   };
 
-  const resolveModulePath = (sourcePath: string, specifier: string): string | null =>
-    specifier.startsWith('.')
-      ? resolveRepositoryModuleImportCandidates(sourcePath, specifier)
-          .find((candidate) => filesByPath.has(candidate)) ?? null
-      : null;
+  const resolveModulePath = (sourceFile: ts.SourceFile, literal: ts.StringLiteralLike): string | null =>
+    semanticProgram.moduleResolutionAt(sourceFile, literal).resolvedTarget;
   sourceProgramCompilationCheckpoint(input.operation, 'return-provenance', 'start');
   for (const declaration of declarations) {
     sourceProgramCompilationCheckpoint(input.operation, 'return-provenance');
@@ -413,7 +495,9 @@ export function compileTypeScriptModelInternal(
       if (!ts.isImportDeclaration(statement)
         || !ts.isStringLiteral(statement.moduleSpecifier)
         || statement.importClause === undefined) continue;
-      const targetPath = resolveModulePath(sourcePath, statement.moduleSpecifier.text);
+      const runtime = semanticProgram.moduleResolutionAt(sourceFile, statement.moduleSpecifier).runtime;
+      if (runtime.kind === 'asset' || runtime.kind === 'unresolved') continue;
+      const targetPath = resolveModulePath(sourceFile, statement.moduleSpecifier);
       if (statement.moduleSpecifier.text === 'commander') usesCommander = true;
       if (statement.importClause.name) {
         importedBindings.set(statement.importClause.name.text, {
@@ -455,7 +539,12 @@ export function compileTypeScriptModelInternal(
           && initializer.arguments[0] !== undefined
           && ts.isStringLiteralLike(initializer.arguments[0])) {
           const moduleSpecifier = initializer.arguments[0].text;
-          const targetPath = resolveModulePath(sourcePath, moduleSpecifier);
+          const runtime = semanticProgram.moduleResolutionAt(sourceFile, initializer.arguments[0]).runtime;
+          if (runtime.kind === 'asset' || runtime.kind === 'unresolved') {
+            ts.forEachChild(node, collectDynamicImports);
+            return;
+          }
+          const targetPath = resolveModulePath(sourceFile, initializer.arguments[0]);
           if (ts.isIdentifier(node.name)) {
             importedBindings.set(node.name.text, {
               moduleSpecifier,
@@ -499,7 +588,19 @@ export function compileTypeScriptModelInternal(
         const specifier = node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)
           ? node.moduleSpecifier.text
           : null;
-        if (specifier !== null && !specifier.startsWith('.')) {
+        const literal = node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)
+          ? node.moduleSpecifier : null;
+        const resolution = literal === null ? null : semanticProgram.moduleResolutionAt(sourceFile, literal);
+        const typeOnly = sourceFile.isDeclarationFile || (ts.isImportDeclaration(node)
+          ? node.importClause?.isTypeOnly === true : node.isTypeOnly);
+        if (resolution?.status === 'unresolved'
+            || (!typeOnly && resolution?.runtime.kind === 'unresolved')) {
+          unknowns.push(Object.freeze({
+            code: 'module-resolution-unresolved', path: sourcePath, detail: specifier!,
+            span: spanFor(sourceFile, literal!)
+          }));
+        }
+        if (specifier !== null && resolution?.status === 'external') {
           unknowns.push(Object.freeze({
             code: 'external-module-opaque',
             path: sourcePath,
@@ -516,9 +617,22 @@ export function compileTypeScriptModelInternal(
             '*',
             ts.isImportDeclaration(node) ? 'import' : 'reexport',
             null,
-            resolveModulePath(sourcePath, specifier),
+            resolveModulePath(sourceFile, literal!),
             specifier
           );
+        }
+      }
+      if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+        const literal = node.moduleReference.expression;
+        if (literal !== undefined && ts.isStringLiteralLike(literal)) {
+          const resolution = semanticProgram.moduleResolutionAt(sourceFile, literal);
+          if (resolution.status === 'unresolved' || (!sourceFile.isDeclarationFile && !node.isTypeOnly
+              && resolution.runtime.kind === 'unresolved')) {
+            unknowns.push(Object.freeze({
+              code: 'module-resolution-unresolved', path: sourcePath, detail: literal.text,
+              span: spanFor(sourceFile, literal)
+            }));
+          }
         }
       }
       if (ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) {
@@ -533,7 +647,7 @@ export function compileTypeScriptModelInternal(
           : null;
         const exportTargetPath = exportDeclaration?.moduleSpecifier
           && ts.isStringLiteral(exportDeclaration.moduleSpecifier)
-          ? resolveModulePath(sourcePath, exportDeclaration.moduleSpecifier.text)
+          ? resolveModulePath(sourceFile, exportDeclaration.moduleSpecifier)
           : sourcePath;
         pushReference(
           sourceFile,
@@ -577,13 +691,12 @@ export function compileTypeScriptModelInternal(
         && ts.isIdentifier(node.name)) {
         const binding = importedBindings.get(node.expression.text);
         if (binding?.targetName === '*') {
-          const directTarget = directDeclarationAt(binding.targetPath, node.name.text);
           pushReference(
             sourceFile,
             node.name,
             node.name.text,
             referenceKind(node.name),
-            directTarget ?? semanticDeclarationAt(node.name, true),
+            semanticDeclarationAt(node.name, true),
             binding.targetPath
           );
         }
@@ -780,9 +893,12 @@ export function compileTypeScriptModelInternal(
           && (node.expression.text === 'eval' || node.expression.text === 'Function');
         if (moduleLoad.status === 'resolved') {
           const moduleSpecifier = moduleLoad.specifier;
-          const targetPath = resolveModulePath(sourcePath, moduleSpecifier);
+          const resolution = semanticProgram.moduleResolutionAt(sourceFile, moduleLoad.argument);
+          const targetPath = sourceFile.isDeclarationFile ? resolution.resolvedTarget
+            : resolution.runtime.kind === 'module' ? resolution.runtime.target : null;
           pushReference(sourceFile, moduleLoad.argument, '*', 'import', null, targetPath, moduleSpecifier);
-          if (moduleSpecifier.startsWith('.') && targetPath === null) {
+          if (resolution.status === 'unresolved'
+              || resolution.runtime.kind === 'unresolved') {
             unknowns.push(Object.freeze({
               code: 'dynamic-module-unresolved',
               path: sourcePath,

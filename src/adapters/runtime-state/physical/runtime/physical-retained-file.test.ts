@@ -1,20 +1,158 @@
 import { expect, test } from 'bun:test';
-import { closeSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, linkSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { currentRuntimeExecutableIdentity } from '../../../toolchain/dependencies/runtime/compiler-materialization-input.ts';
 import {
   inspectNoFollowDirectoryChain,
+  PhysicalNoFollowError,
   retainCurrentLinuxSealedExecutable,
   retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
+  retainNoFollowOrdinaryFile,
+  type RetainedNoFollowOrdinaryFile,
 } from './physical-no-follow.ts';
 import { issueRetainedCommandBoundary, runRetainedCommand } from './process.ts';
 
 const runtimeRoot = import.meta.dir;
 const compilerIdentityModule = path.resolve(runtimeRoot,
   '../../../toolchain/dependencies/runtime/compiler-materialization-input.ts');
+
+async function withWindowsRetentionFixture(run: (root: string, file: string) => void | Promise<void>): Promise<void> {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-write-proof-'));
+  const file = path.join(root, 'source.bin');
+  writeFileSync(file, 'original');
+  try { await run(root, file); }
+  finally {
+    expect(path.dirname(path.resolve(root))).toBe(path.resolve(tmpdir()));
+    expect(path.basename(root).startsWith('sec-retained-write-proof-')).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function windowsMappingApi() {
+  const { dlopen, FFIType, toArrayBuffer } = await import('bun:ffi');
+  const library = dlopen('kernel32.dll', {
+    CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr,
+      FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
+    CreateFileMappingW: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.u32,
+      FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
+    MapViewOfFile: { args: [FFIType.u64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u64], returns: FFIType.ptr },
+    FlushViewOfFile: { args: [FFIType.ptr, FFIType.u64], returns: FFIType.i32 },
+    UnmapViewOfFile: { args: [FFIType.ptr], returns: FFIType.i32 },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 }
+  } as const);
+  return { library, toArrayBuffer };
+}
+
+test.skipIf(process.platform !== 'win32')('Windows retained write proof blocks a preexisting hardlink writer until release', async () => {
+  await withWindowsRetentionFixture((root, file) => {
+    const alias = path.join(root, 'hardlink.bin');
+    linkSync(file, alias);
+    const retained = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(root), 'source.bin');
+    try {
+      expect(retained.linkCount).toBe(2);
+      const initial = retained.digest();
+      expect(() => writeFileSync(alias, 'changed!')).toThrow();
+      retained.assertCurrent();
+      expect(retained.digest()).toEqual(initial);
+    } finally { retained.dispose(); }
+    writeFileSync(alias, 'changed!');
+    expect(readFileSync(file, 'utf8')).toBe('changed!');
+  });
+});
+
+test.skipIf(process.platform !== 'win32')('Windows retained write proof refuses an already-open writable file handle', async () => {
+  await withWindowsRetentionFixture(async (root, file) => {
+    const { library } = await windowsMappingApi();
+    let handle: bigint | null = null;
+    let retained: RetainedNoFollowOrdinaryFile | undefined;
+    try {
+      handle = library.symbols.CreateFileW(Buffer.from(`${file}\0`, 'utf16le'), 0xc0000000, 7, null, 3, 0x80, null);
+      expect(handle).not.toBe(0xffffffffffffffffn);
+      expect(handle).not.toBe(0n);
+      let admissionError: unknown;
+      try { retained = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(root), 'source.bin'); }
+      catch (error) { admissionError = error; }
+      expect(retained).toBeUndefined();
+      expect(admissionError).toBeInstanceOf(PhysicalNoFollowError);
+      expect((admissionError as Error).message).toContain('NTSTATUS -1073741757');
+    } finally {
+      retained?.dispose();
+      if (handle !== null && handle !== 0n && handle !== 0xffffffffffffffffn) library.symbols.CloseHandle(handle);
+      library.close();
+    }
+    const after = retainNoFollowOrdinaryFile(inspectNoFollowDirectoryChain(root), 'source.bin');
+    after.dispose();
+  });
+});
+
+test.skipIf(process.platform !== 'win32')('Windows retained write proof must reject or prevent a writable mapping after its creating file handle closes', async () => {
+  await withWindowsRetentionFixture(async (root, file) => {
+    const parent = inspectNoFollowDirectoryChain(root);
+    const control = retainNoFollowOrdinaryFile(parent, 'source.bin');
+    control.dispose();
+    const { library, toArrayBuffer } = await windowsMappingApi();
+    let creatingFile: bigint | null = null;
+    let mapping: bigint | null = null;
+    let view: ReturnType<typeof library.symbols.MapViewOfFile> = null;
+    let retained: RetainedNoFollowOrdinaryFile | undefined;
+    const observe = (read: () => unknown) => {
+      try { return { status: 'returned', value: read() }; }
+      catch (error) { return { status: 'threw', message: error instanceof Error ? error.message : String(error) }; }
+    };
+    try {
+      creatingFile = library.symbols.CreateFileW(Buffer.from(`${file}\0`, 'utf16le'), 0xc0000000, 7, null, 3, 0x80, null);
+      expect(creatingFile).not.toBe(0xffffffffffffffffn);
+      expect(creatingFile).not.toBe(0n);
+      mapping = library.symbols.CreateFileMappingW(creatingFile, null, 4, 0, 0, null);
+      expect(mapping).not.toBe(0n);
+      view = library.symbols.MapViewOfFile(mapping, 6, 0, 0, 8);
+      expect(view).not.toBeNull();
+      if (view === null) throw new Error('The writable mapping fixture did not produce a view');
+      expect(library.symbols.CloseHandle(creatingFile)).toBe(1);
+      creatingFile = null;
+      let admissionError: unknown;
+      try { retained = retainNoFollowOrdinaryFile(parent, 'source.bin'); }
+      catch (error) { admissionError = error; }
+      if (retained === undefined) {
+        expect(admissionError).toBeInstanceOf(PhysicalNoFollowError);
+        console.info(JSON.stringify({ qualification: 'closed-file-handle-writable-mapping',
+          creatingFileHandleClosed: creatingFile === null, mappingHandleLive: mapping !== null && mapping !== 0n,
+          viewLive: view !== null, admission: 'refused',
+          code: admissionError instanceof PhysicalNoFollowError ? admissionError.code : null,
+          message: admissionError instanceof Error ? admissionError.message : String(admissionError) }));
+        return;
+      }
+      const initial = retained.digest();
+      const bytes = new Uint8Array(toArrayBuffer(view, 0, 8));
+      expect(Buffer.from(bytes).toString('utf8')).toBe('original');
+      bytes.set(Buffer.from('changed!'));
+      expect(library.symbols.FlushViewOfFile(view, 8)).toBe(1);
+      const mappedWriteSucceeded = Buffer.from(bytes).toString('utf8') === 'changed!';
+      const duringIdentity = observe(() => retained!.assertCurrent());
+      const duringDigest = observe(() => retained!.digest());
+      bytes.set(Buffer.from('original'));
+      expect(library.symbols.FlushViewOfFile(view, 8)).toBe(1);
+      const afterIdentity = observe(() => retained!.assertCurrent());
+      const afterDigest = observe(() => retained!.digest());
+      expect(readFileSync(file, 'utf8')).toBe('original');
+      const diagnostic = JSON.stringify({ creatingFileHandleClosed: creatingFile === null,
+        retainedAdmission: 'accepted', mappedWriteSucceeded, initial, duringIdentity, duringDigest, afterIdentity, afterDigest });
+      expect(mappedWriteSucceeded, diagnostic).toBe(false);
+    } finally {
+      const failures: string[] = [];
+      try { retained?.dispose(); } catch (error) { failures.push(String(error)); }
+      if (view !== null && library.symbols.UnmapViewOfFile(view) === 0) failures.push('UnmapViewOfFile failed');
+      if (mapping !== null && mapping !== 0n && library.symbols.CloseHandle(mapping) === 0) failures.push('Mapping CloseHandle failed');
+      if (creatingFile !== null && creatingFile !== 0n && creatingFile !== 0xffffffffffffffffn
+          && library.symbols.CloseHandle(creatingFile) === 0) failures.push('File CloseHandle failed');
+      library.close();
+      if (failures.length !== 0) throw new AggregateError(failures, 'Writable mapping fixture cleanup failed');
+    }
+  });
+});
 
 const nestedScript = `
   import { retainCurrentLinuxSealedExecutable, retainedExecutableSourcePath,

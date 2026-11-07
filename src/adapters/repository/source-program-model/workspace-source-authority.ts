@@ -1,7 +1,14 @@
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
-import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import {
+  AUTHOR_KERNEL_GRAMMAR_MANIFEST,
+  AuthorKernelInputDeclarationError,
+  authorKernelDeclaredInputPaths
+} from '../../../contracts/author-kernel-verification.ts';
+import { compareCodeUnits, rawSha256, sha256, uniqueSorted } from '../../../contracts/canonical.ts';
+import { CodedFailure } from '../../../contracts/failure.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
+import { settleResources } from '../../../execution/resource-settlement.ts';
 import { mapTaskGroup } from '../../../execution/task-group.ts';
 import {
   listExactGitTreeEntries,
@@ -18,7 +25,11 @@ import {
 import { assertProductionGitReadSession, type GitReadSession } from '../../providers/git-read/runtime/session.ts';
 import {
   inspectNoFollowDirectoryChain,
-  inspectNoFollowOrdinaryFileEntry
+  inspectNoFollowOrdinaryFileEntry,
+  retainNoFollowOrdinaryFile,
+  retainedNoFollowOrdinaryFileMtimeForInternal,
+  type PhysicalDirectoryChain,
+  type RetainedNoFollowOrdinaryFile
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { RepositoryModuleGraph } from '../architecture/contract.ts';
 import { compileRepositoryModuleMembershipSnapshot, normalizeRepositoryPath, type RepositoryModuleMembership } from '../architecture/contract.ts';
@@ -26,7 +37,7 @@ import { isSourceProgramInputPath, type SourceProgramCompilation, type SourcePro
 import { sourceProgramModuleImports } from './embedded-programs.ts';
 import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { canonicalFiles, sourceGeneration, type WorkspaceSourceFile, type WorkspaceSourceFileMode } from './workspace-source-content.ts';
-import { createTypeScriptDeclaredInputClosure, TypeScriptDeclaredInputConfigurationError } from './workspace-typescript-closure.ts';
+import { TypeScriptDeclaredInputConfigurationError, createTypeScriptDeclaredInputClosure } from './workspace-typescript-closure.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
@@ -37,6 +48,149 @@ const SOURCE_SNAPSHOT_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const workspaceSourceSnapshotBrand: unique symbol = Symbol('workspace-source-snapshot');
 
 const issuedWorkspaceSourceSnapshots = new WeakSet<object>();
+type WorkingSourcePhysicalInput = Readonly<{
+  path: string;
+  parent: PhysicalDirectoryChain;
+  device: string;
+  inode: string;
+  size: number;
+  modifiedAtNanoseconds: string;
+  byteDigest: `sha256:${string}`;
+}>;
+const workingSourcePhysicalInputs = new WeakMap<object, Readonly<{
+  repositoryRoot: string;
+  providerIdentityDigest: `sha256:${string}`;
+  repositoryRootIdentityDigest: `sha256:${string}`;
+  inputs: readonly WorkingSourcePhysicalInput[];
+}>>();
+const retainedWorkingInputBrand: unique symbol = Symbol('retained-working-source-input-generation');
+export interface RetainedWorkingSourceInputGeneration {
+  readonly [retainedWorkingInputBrand]: never;
+  readonly snapshotIdentityDigest: `sha256:${string}`;
+  readonly snapshotDigest: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly inputIdentityDigest: `sha256:${string}`;
+  readonly fileCount: number;
+  readonly totalBytes: number;
+  readonly protectionKind: 'windows-retained-read-sharing';
+  assertCurrent(): void;
+  retire(): void;
+}
+const retainedWorkingInputGenerations = new WeakMap<object, {
+  retired: boolean;
+  retirementFailure: unknown;
+}>();
+
+export function assertRetainedWorkingSourceInputGeneration(value: unknown): asserts value is RetainedWorkingSourceInputGeneration {
+  const state = typeof value === 'object' && value !== null ? retainedWorkingInputGenerations.get(value) : undefined;
+  if (state === undefined || state.retired || state.retirementFailure !== undefined) {
+    throw new CodedFailure('SOURCE-INPUT-GENERATION-INVALID', 'A live original-issued retained working source input generation is required.');
+  }
+}
+
+export async function retainWorkingSourceInputGeneration(input: Readonly<{
+  snapshot: PhysicalWorkspaceSourceSnapshot;
+  session: GitReadSession;
+  deadlineAtUnixMs: number;
+  signal?: AbortSignal;
+}>): Promise<RetainedWorkingSourceInputGeneration> {
+  assertPhysicalWorkspaceSourceSnapshot(input.snapshot);
+  assertProductionGitReadSession(input.session);
+  if (process.platform !== 'win32') {
+    throw new CodedFailure('SOURCE-INPUT-PROTECTION-UNAVAILABLE', 'Working input read-sharing protection is implemented only for the qualified Windows owner.');
+  }
+  const observation = workingSourcePhysicalInputs.get(input.snapshot);
+  const { session } = input;
+  if (observation === undefined || input.snapshot.subject.kind !== 'physical-repository'
+      || input.snapshot.subject.provenance.kind !== 'working-tree-observation'
+      || session.failure !== null || session.providerIdentity === null || session.workingDirectoryIdentity == null
+      || path.resolve(session.cwd) !== observation.repositoryRoot
+      || sha256(session.providerIdentity) !== observation.providerIdentityDigest
+      || sha256(session.workingDirectoryIdentity) !== observation.repositoryRootIdentityDigest
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new CodedFailure('SOURCE-INPUT-GENERATION-INVALID', 'Retained inputs require the original working observation and a current matching production Git provider/root.');
+  }
+  if (!Number.isSafeInteger(input.deadlineAtUnixMs)) {
+    throw new CodedFailure('SOURCE-INPUT-GENERATION-LIMIT', 'Retained input deadline is invalid.');
+  }
+  const deadline = performance.now() + Math.max(0, Math.min(input.deadlineAtUnixMs, session.deadlineAt) - Date.now());
+  const checkAdmission = () => {
+    throwIfNativeAborted(input.signal);
+    if (performance.now() >= deadline) throw new CodedFailure('SOURCE-INPUT-GENERATION-LIMIT', 'Retained input acquisition deadline exhausted.');
+  };
+  checkAdmission();
+  const files = observation.inputs;
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  // Reuse the original session's finite record ceiling for retained entries
+  // and conservative native handle admission (one file plus its parent chain).
+  const maximum = session.budget.maxRecords;
+  const handles = files.reduce((sum, file) => sum + file.parent.ancestors.length + 1, 0);
+  if (files.length !== input.snapshot.files.length || files.length > maximum || handles > maximum
+      || !Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES
+      || files.some(file => file.size > SOURCE_SNAPSHOT_MAX_FILE_BYTES)
+      || session.consumeRecords(files.length) !== null) {
+    throw new CodedFailure('SOURCE-INPUT-GENERATION-LIMIT', 'Retained source input entries, handles or bytes exceed the original bounded domain.');
+  }
+  const retained: RetainedNoFollowOrdinaryFile[] = [];
+  try {
+    for (const [index, file] of files.entries()) {
+      checkAdmission();
+      const capability = retainNoFollowOrdinaryFile(file.parent, path.basename(file.path),
+        { device: file.device, inode: file.inode }, `Working source input ${file.path}`);
+      retained.push(capability);
+      if (capability.size !== file.size
+          || retainedNoFollowOrdinaryFileMtimeForInternal(capability) !== BigInt(file.modifiedAtNanoseconds)) {
+        throw new CodedFailure('SOURCE-INPUT-GENERATION-DRIFT', `Working source input metadata changed: ${file.path}`);
+      }
+      const digest = capability.digest();
+      if (digest.size !== file.size || digest.byteDigest !== file.byteDigest) {
+        throw new CodedFailure('SOURCE-INPUT-GENERATION-DRIFT', `Working source input bytes changed: ${file.path}`);
+      }
+      checkAdmission();
+      if ((index + 1) % 32 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    checkAdmission();
+    const state = { retired: false, retirementFailure: undefined as unknown };
+    const snapshotIdentityDigest = input.snapshot.identityDigest;
+    const snapshotDigest = input.snapshot.snapshotDigest;
+    checkAdmission();
+    const generation: RetainedWorkingSourceInputGeneration = Object.freeze({
+      [retainedWorkingInputBrand]: undefined as never,
+      snapshotIdentityDigest, snapshotDigest, repositoryRoot: observation.repositoryRoot,
+      inputIdentityDigest: sha256({ domain: 'retained-working-source-input-generation-v1',
+        snapshotIdentityDigest, snapshotDigest, repositoryRoot: observation.repositoryRoot,
+        providerIdentityDigest: observation.providerIdentityDigest,
+        repositoryRootIdentityDigest: observation.repositoryRootIdentityDigest,
+        protectionKind: 'windows-retained-read-sharing', inputs: files }) as `sha256:${string}`,
+      fileCount: files.length, totalBytes,
+      protectionKind: 'windows-retained-read-sharing' as const,
+      assertCurrent: () => {
+        assertRetainedWorkingSourceInputGeneration(generation);
+        for (const capability of retained) capability.assertCurrent();
+      },
+      retire: () => {
+        if (state.retired) return;
+        if (state.retirementFailure !== undefined) throw state.retirementFailure;
+        try {
+          settleResources({ cleanup: [...retained].reverse().map((capability, index) => ({
+            label: `working source input[${index}]`, settle: () => capability.dispose()
+          })) });
+          state.retired = true;
+        } catch (error) { state.retirementFailure = error; throw error; }
+      }
+    });
+    retainedWorkingInputGenerations.set(generation, state);
+    generation.assertCurrent();
+    checkAdmission();
+    return generation;
+  } catch (error) {
+    settleResources({ primary: { label: 'working source input acquisition', error },
+      cleanup: [...retained].reverse().map((capability, index) => ({
+        label: `working source input[${index}]`, settle: () => capability.dispose()
+      })) });
+    throw error;
+  }
+}
 // Canonical membership snapshots own deeply immutable descriptors and lookup closures.
 const canonicalSnapshotMemberships = new WeakSet<object>();
 function canonicalSnapshotMembership(input: Parameters<typeof compileRepositoryModuleMembershipSnapshot>[0]): RepositoryModuleMembership {
@@ -100,6 +254,7 @@ type PhysicalObservationReceipt = Extract<
 type IssueWorkspaceSourceSnapshotInput = Readonly<{
   subject: WorkspaceSourceSnapshotSubject;
   files: readonly WorkspaceSourceFile[];
+  sourceMembershipPaths: readonly string[];
   moduleMembership: RepositoryModuleMembership;
   sourceByteLength: number | null;
 }>;
@@ -282,6 +437,14 @@ function issueWorkspaceSourceSnapshot(
   }
   const subject = canonicalSubject(input.subject);
   const files = canonicalFiles(input.files);
+  const sourceMembershipPaths = Object.freeze([...new Set(input.sourceMembershipPaths)]
+    .sort(compareCodeUnits));
+  const sourceMembership = new Set(sourceMembershipPaths);
+  if (sourceMembershipPaths.some((repositoryPath) => repositoryPath.length === 0
+      || normalizeRepositoryPath(repositoryPath) !== repositoryPath)
+      || files.some(({ path: repositoryPath }) => !sourceMembership.has(repositoryPath))) {
+    throw new Error('Workspace source snapshot membership does not contain its canonical inputs');
+  }
   const sourceRevision = sourceGeneration(files);
   const exactMembershipDigest = membershipDigest(files, input.moduleMembership);
   const sourceByPath = new Map(files.map((file) => [file.path, file] as const));
@@ -296,6 +459,7 @@ function issueWorkspaceSourceSnapshot(
     if (semanticProjection !== null) return semanticProjection;
     const moduleGraph = compileSourceProgramRepositoryModuleGraph({
       files: files.map(({ path }) => path),
+      membershipPaths: sourceMembershipPaths,
       readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
       readEmbeddedLanguageImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
     });
@@ -346,6 +510,7 @@ function issueWorkspaceSourceSnapshot(
       ? subject.provenance
       : null,
     files,
+    sourceMembershipPaths,
     sourceByteLength: input.sourceByteLength,
     moduleMembership: input.moduleMembership,
     moduleMembershipDigest: exactMembershipDigest,
@@ -371,6 +536,7 @@ export function compileVirtualSnapshot(
   return issueWorkspaceSourceSnapshot({
     subject: input.subject,
     files: canonicalFiles(input.files),
+    sourceMembershipPaths: input.files.map(({ path }) => path),
     moduleMembership: input.moduleMembership,
     sourceByteLength: null
   }) as VirtualWorkspaceSourceSnapshot;
@@ -406,6 +572,7 @@ function issuePhysicalWorkspaceSourceSnapshot(
       })
     }),
     files: input.files,
+    sourceMembershipPaths: input.sourceMembershipPaths,
     moduleMembership: input.moduleMembership,
     sourceByteLength: input.sourceByteLength
   });
@@ -720,11 +887,13 @@ function declaredInputAcquisitionClosure(
   files: readonly WorkspaceSourceFile[],
   membershipPaths: readonly string[]
 ): ReturnType<typeof createTypeScriptDeclaredInputClosure> | null {
-  if (!files.some(({ path }) => path === 'tsconfig.json')) return null;
+  const hasTypeScript = files.some(({ path }) => path === 'tsconfig.json');
+  const nativeManifest = files.find(({ path }) => path === AUTHOR_KERNEL_GRAMMAR_MANIFEST);
+  if (!hasTypeScript && nativeManifest === undefined) return null;
   const rootPaths = files.map(({ path }) => path);
   const byPath = new Map<string, WorkspaceSourceFile>();
   let indexedLength = 0;
-  const closure = createTypeScriptDeclaredInputClosure({
+  const closure = !hasTypeScript ? null : createTypeScriptDeclaredInputClosure({
     projectConfigPath: 'tsconfig.json',
     rootPaths,
     membershipPaths,
@@ -736,19 +905,35 @@ function declaredInputAcquisitionClosure(
       return byPath.get(repositoryPath) ?? null;
     }
   });
+  const membership = new Set(membershipPaths);
+  let nativePaths: readonly string[] = [];
+  if (nativeManifest !== undefined) {
+    try {
+      nativePaths = authorKernelDeclaredInputPaths(nativeManifest.source);
+    } catch (error) {
+      if (!(error instanceof AuthorKernelInputDeclarationError)) throw error;
+      // Preserve the invalid raw manifest. Its semantic/native consumer must
+      // report the declaration failure; acquisition never qualifies it.
+    }
+  }
   let invalidConfig = false;
   return Object.freeze({
     advance: () => {
-      if (invalidConfig) return Object.freeze([]);
-      try {
-        return closure.advance();
-      } catch (error) {
-        if (!(error instanceof TypeScriptDeclaredInputConfigurationError)) throw error;
-        invalidConfig = true;
-        return Object.freeze([]);
+      let typescriptPaths: readonly string[] = [];
+      if (!invalidConfig && closure !== null) {
+        try {
+          typescriptPaths = closure.advance();
+        } catch (error) {
+          if (!(error instanceof TypeScriptDeclaredInputConfigurationError)) throw error;
+          invalidConfig = true;
+        }
       }
+      const capturedPaths = new Set(files.map(({ path }) => path));
+      return Object.freeze(uniqueSorted([...typescriptPaths, ...nativePaths.filter((repositoryPath) => (
+        membership.has(repositoryPath) && !capturedPaths.has(repositoryPath)
+      ))]));
     },
-    selectedPaths: closure.selectedPaths
+    selectedPaths: () => Object.freeze(uniqueSorted([...(closure?.selectedPaths() ?? []), ...nativePaths]))
   });
 }
 
@@ -799,7 +984,8 @@ export async function acquireWorkingTreeSnapshot(
     }
     return mapTaskGroup(admittedEntries, async (entry, _index, signal) => {
       const { absolutePath, before, membershipEntry, repositoryPath } = entry;
-      const parent = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Workspace source retained parent').target;
+      const parentChain = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Workspace source retained parent');
+      const parent = parentChain.target;
       const retained = inspectNoFollowOrdinaryFileEntry(parent, path.basename(absolutePath), {
         maximumBytes: SOURCE_SNAPSHOT_MAX_FILE_BYTES
       });
@@ -817,6 +1003,7 @@ export async function acquireWorkingTreeSnapshot(
       }
       return Object.freeze({
         parent,
+        parentChain,
         retained,
         statIdentity: Object.freeze({ device: String(before.dev), inode: String(before.ino) }),
         file: Object.freeze({
@@ -889,13 +1076,25 @@ export async function acquireWorkingTreeSnapshot(
       throw new Error(`Workspace source file changed before acquisition readback: ${file.path}`);
     }
   });
-  return issuePhysicalWorkspaceSourceSnapshot({
+  const snapshot = issuePhysicalWorkspaceSourceSnapshot({
     session,
     provenance: Object.freeze({ kind: 'working-tree-observation', identityDigest }),
     files,
+    sourceMembershipPaths: membershipEntries.map(({ path }) => path),
     moduleMembership,
     sourceByteLength: totalBytes
   });
+  workingSourcePhysicalInputs.set(snapshot, Object.freeze({
+    repositoryRoot: path.resolve(session.cwd),
+    providerIdentityDigest: sha256(session.providerIdentity) as `sha256:${string}`,
+    repositoryRootIdentityDigest: sha256(session.workingDirectoryIdentity) as `sha256:${string}`,
+    inputs: Object.freeze(observedEntries.map(({ parentChain, file, physical }) => Object.freeze({
+      path: file.path, parent: parentChain, device: physical.device, inode: physical.inode,
+      size: physical.size, modifiedAtNanoseconds: physical.modifiedAtNanoseconds,
+      byteDigest: file.contentDigest as `sha256:${string}`
+    })).sort((left, right) => compareCodeUnits(left.path, right.path)))
+  }));
+  return snapshot;
 }
 
 /**
@@ -986,6 +1185,7 @@ export async function acquireStagedIndexSnapshot(
       indexPhysicalIdentityDigest: before.indexPhysicalIdentityDigest
     }),
     files,
+    sourceMembershipPaths: before.entries.map(({ path }) => path),
     moduleMembership,
     sourceByteLength: totalBytes
   });
@@ -1167,13 +1367,12 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   const ordinaryEntries = treeEntries.filter(({ mode, type }) => (
     (mode === '100644' || mode === '100755') && type === 'blob'
   ));
-  const unsafeDescriptor = treeEntries.find(({ repositoryPath, mode, type }) => (
+  const unsafeSource = treeEntries.find(({ repositoryPath, mode, type }) => (
     isSourceProgramInputPath(repositoryPath)
-      && repositoryPath.endsWith('/module.json')
       && ((mode !== '100644' && mode !== '100755') || type !== 'blob')
   ));
-  if (unsafeDescriptor !== undefined) {
-    throw new Error(`Exact workspace module descriptor is not an ordinary blob: ${unsafeDescriptor.repositoryPath}`);
+  if (unsafeSource !== undefined) {
+    throw new Error(`Exact workspace source is not one ordinary blob: ${unsafeSource.repositoryPath}`);
   }
   const selectedPaths = new Set(sourceBlobs.map(({ repositoryPath }) => repositoryPath));
   const sourceEntries = ordinaryEntries.filter(({ repositoryPath }) => selectedPaths.has(repositoryPath));
@@ -1232,6 +1431,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   return issueWorkspaceSourceSnapshot({
     subject,
     files,
+    sourceMembershipPaths: treeEntries.map(({ repositoryPath }) => repositoryPath),
     moduleMembership,
     sourceByteLength: totalBytes
   }) as PhysicalWorkspaceSourceSnapshot;

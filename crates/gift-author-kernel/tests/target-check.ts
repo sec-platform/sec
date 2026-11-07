@@ -1,10 +1,11 @@
 // Focused native target verification. Run after building the locked Rust binary.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { compileAuthorModule } from '../../../src/adapters/compilation/author-kernel.ts';
 import { runCommand } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { withNativeTestWorkspace } from '../../../src/adapters/self-hosting/development/runner/native-test-workspace.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const kernel = process.argv[2];
@@ -13,7 +14,7 @@ assert.equal(ts.version, '6.0.3', 'Use the repository-pinned target compiler');
 const sourceFile = 'crates/gift-author-kernel/fixtures/shared-views.module.json';
 const sourceBytes = readFileSync(path.join(root, sourceFile));
 const source = JSON.parse(sourceBytes.toString('utf8'));
-const work = mkdtempSync(path.join(root, '.tmp', 'gift-author-target-'));
+await withNativeTestWorkspace(root, async work => {
 const results: unknown[] = [];
 const runtime = await runCommand('node', ['--version'], { cwd: root, timeoutMs: 10_000, maxStdoutBytes: 1024, maxStderrBytes: 1024 });
 assert.equal(runtime.code, 0, runtime.stderr);
@@ -101,9 +102,9 @@ try {
   const direct = await compileAuthorModule(root, sourceFile, kernel);
   assert.deepEqual(JSON.parse(cli.stdout), direct, 'Actual CLI and compiler adapter must expose the same exact bundle');
   assert.deepEqual(readFileSync(path.join(root, sourceFile)), sourceBytes, 'Compilation must not mutate author bytes');
-  writeFileSync(path.join(work, 'evidence.json'), JSON.stringify({ status: 'PASS', results, cli: 'PASS', retainedArtifacts: work }, null, 2), { flag: 'wx' });
-  console.log(JSON.stringify({ status: 'PASS', variants: results.length, cli: 'PASS', evidence: path.join(work, 'evidence.json') }));
+  console.log(JSON.stringify({ status: 'PASS', variants: results.length, cli: 'PASS', results }));
 } catch (error) {
-  console.error(`Target verification failed; exact artifacts retained at ${work}`);
+  console.error('Target verification failed');
   throw error;
 }
+}, process.argv[3], { parentOwnsCleanup: process.argv[3] !== undefined });

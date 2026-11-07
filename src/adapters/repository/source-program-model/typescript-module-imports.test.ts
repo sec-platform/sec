@@ -1,10 +1,15 @@
-import { test } from 'bun:test';
+import { afterAll, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
+import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { resolveSourceProgramCompilationOperation } from './compilation-operation.ts';
 import { assembleRepositoryModuleGraph } from './module-graph.ts';
 import { typeScriptModuleImportFacts } from './typescript-module-imports.ts';
+import { compileExactTypeScriptProgram, releaseTypeScriptWorkspace } from './typescript-workspace.ts';
+
+afterAll(releaseTypeScriptWorkspace);
 const cases: readonly {
   name: string; source: string; imports: readonly { kind: string; specifier: string; typeOnly: boolean }[];
   unresolved: boolean;
@@ -14,21 +19,17 @@ const targetSource = 'export type Value = string; export type A = string; export
 
 function fixtureProgram(source: string, fileName = 'src/a.ts', verbatimModuleSyntax: boolean | undefined = true) {
   const sources = new Map([[fileName, source], ['src/b.ts', targetSource]]);
-  const files = new Map([...sources].map(([file, text]) => [file,
-    ts.createSourceFile(file, text, ts.ScriptTarget.ESNext, true)]));
-  const host: ts.CompilerHost = {
-    getSourceFile: (file) => files.get(file), getDefaultLibFileName: () => 'lib.d.ts',
-    writeFile: () => { throw new Error('Import observation must not emit source.'); },
-    getCurrentDirectory: () => '', getDirectories: () => [],
-    fileExists: (file) => files.has(file), readFile: (file) => sources.get(file),
-    getCanonicalFileName: (file) => file, useCaseSensitiveFileNames: () => true,
-    getNewLine: () => '\n'
-  };
-  const program = ts.createProgram([...files.keys()], {
-    noLib: true, noResolve: true, noEmit: true, target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext, verbatimModuleSyntax
-  }, host);
-  return { program, sourceFiles: [...files.values()], repositoryPath: (file: ts.SourceFile) => file.fileName };
+  const files = new Map([...sources].map(([path, source]) => [path,
+    Object.freeze({ path, source, contentDigest: rawSha256(source) })]));
+  const identities = new Map([...files].map(([path, file]) => [path,
+    { file, rawFileDigest: file.contentDigest, moduleDigest: sha256(null) }]));
+  const exact = compileExactTypeScriptProgram(files, identities, resolveSourceProgramCompilationOperation(), {
+    files: [...files.values()], membershipPaths: [...files.keys()]
+  });
+  if (verbatimModuleSyntax === true) return exact;
+  // This deliberately unsupported compiler profile is rejected before any
+  // module observation. It has no repository or host source inputs.
+  return { ...exact, program: ts.createProgram([], { noLib: true, noEmit: true, verbatimModuleSyntax }) };
 }
 
 for (const { name, source, imports, unresolved } of cases) {

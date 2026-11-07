@@ -1,16 +1,17 @@
 // Native transport and the real repository author CLI, without target generation.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseAuthorAnalysis, type AuthorAnalysisResult } from '../../../src/adapters/compilation/author-analysis-transport.ts';
 import { compileAuthorModule, parseAuthorNameAnalysis, type AuthorNameAnalysis } from '../../../src/adapters/compilation/author-kernel.ts';
 import { runCommand } from '../../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { withNativeTestWorkspace } from '../../../src/adapters/self-hosting/development/runner/native-test-workspace.ts';
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const kernel = process.argv[2];
 assert.ok(kernel, 'Pass the workspace-relative built Rust executable');
-const work = mkdtempSync(path.join(root, '.tmp', 'gift-author-reader-'));
+await withNativeTestWorkspace(root, async work => {
 const moduleBytes = Buffer.from('{"schema":"gift.author-module/design-converged","moduleId":"module:reader-check","definitions":{"":{"req:enum-value":{},"name":"名称"}},"exports":[""],"annotations":{"number":1.2300E+02}}\r\n');
 const input = path.join(work, 'module.json');
 writeFileSync(input, moduleBytes, { flag: 'wx' });
@@ -254,11 +255,12 @@ const wrongType = await compileAuthorModule(root, path.relative(root, wrongTypeP
 assert.ok(wrongType.analysis);
 assert.ok(wrongType.analysis.signatures.some(signature => signature.state === 'rejected')
   || wrongType.analysis.body_problems.length > 0, 'An Int result cannot satisfy a Bool return contract');
-writeFileSync(path.join(work, 'evidence.json'), JSON.stringify({ sourceRevision: result.source_revision, grammarRevision: result.grammar_revision,
+const evidence = { sourceRevision: result.source_revision, grammarRevision: result.grammar_revision,
   nameInputRevision: names.input_revision, protocolCases, analysisProtocolCases,
   analysisInputBasis: analyzedProject.analysis.input_basis,
   cases: ['exact-source-and-number-lexeme', 'actual-cli', 'project', 'duplicate-key', 'historical-compile', 'no-reader-fallback',
     'native-name-analysis', 'native-lexical-arena', 'host-protocol-boundaries', 'actual-name-cli', 'exclusive-modes', 'no-name-format-fallback', 'project-needs-capture',
     'actual-module-analysis', 'project-workspace-import', 'public-forwarding', 'source-bound-types-and-effects',
-    'analysis-protocol-boundaries', 'actual-analysis-cli', 'analysis-exclusive-modes', 'semantic-type-rejection'], result: 'PASS' }, null, 2));
-console.log(JSON.stringify({ result: 'PASS', evidence: path.join(work, 'evidence.json') }));
+    'analysis-protocol-boundaries', 'actual-analysis-cli', 'analysis-exclusive-modes', 'semantic-type-rejection'], result: 'PASS' };
+console.log(JSON.stringify(evidence));
+}, process.argv[3], { parentOwnsCleanup: process.argv[3] !== undefined });

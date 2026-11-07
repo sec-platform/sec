@@ -8,6 +8,7 @@ import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerCliEntrypoint,
   compilerRuntimeLayout,
+  PACKAGE_SOURCE_IMPORT,
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   packageArtifactLauncherScript,
   parseCompilerPackageEntrypointBinding,
@@ -25,7 +26,9 @@ const FIXTURE_ENTRYPOINT = Object.freeze({
 async function createPackageFixture(form: 'bundle' | 'source' = 'source'): Promise<string> {
   const packageRoot = await mkdtemp(path.join(tmpdir(), 'sec-runtime-layout-'));
   await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
-    ...(form === 'source' ? { source: `./${FIXTURE_ENTRYPOINT.source}` } : {}),
+    ...(form === 'source'
+      ? { imports: { [PACKAGE_SOURCE_IMPORT]: `./${FIXTURE_ENTRYPOINT.source}` } }
+      : {}),
     bin: { [FIXTURE_ENTRYPOINT.command]: `./${FIXTURE_ENTRYPOINT.artifact}` },
     scripts: {
       [FIXTURE_ENTRYPOINT.command]: form === 'source'
@@ -105,12 +108,12 @@ describe('compiler runtime layout', () => {
 
   test('manifest mismatches, unknown layouts and non-file URLs fail closed', async () => {
     expect(() => parseCompilerPackageEntrypointBinding({
-      source: './source/cli.ts',
+      imports: { [PACKAGE_SOURCE_IMPORT]: './source/cli.ts' },
       bin: { fixture: './output/cli.js' },
       scripts: { fixture: 'bun ./other.ts' }
     })).toThrow('must use the exact launcher for its package form');
     expect(() => parseCompilerPackageEntrypointBinding({
-      source: './source/cli.ts',
+      imports: { [PACKAGE_SOURCE_IMPORT]: './source/cli.ts' },
       bin: { fixture: './output/cli.js' },
       scripts: { fixture: '"$npm_execpath" ./source/cli.ts' }
     })).toThrow('must use the exact launcher for its package form');
@@ -119,10 +122,10 @@ describe('compiler runtime layout', () => {
       scripts: { fixture: packageArtifactLauncherScript('output/cli.js') }
     })).toEqual({ artifact: 'output/cli.js', command: 'fixture', source: null });
     expect(() => parseCompilerPackageEntrypointBinding({
-      source: '../other/cli.ts',
+      imports: { [PACKAGE_SOURCE_IMPORT]: '../other/cli.ts' },
       bin: { fixture: './output/cli.js' },
       scripts: { fixture: PACKAGE_SOURCE_LAUNCHER_SCRIPT }
-    })).toThrow('source must be one explicit package-relative path');
+    })).toThrow('must be one explicit package-relative path');
 
     const packageRoot = await createPackageFixture();
     try {
@@ -145,5 +148,57 @@ describe('compiler runtime layout', () => {
     expect(compilerRuntimeLayout.runtimeAssetRoot).toBe(packageRoot);
     expect(compilerRuntimeLayout.repositorySourceRoot).toBe(packageRoot);
     expect(compilerCliEntrypoint).toBe(compilerRuntimeLayout.cliEntrypointPath);
+  });
+
+  test('a nearer manifest cannot be skipped in favor of a valid ancestor package', async () => {
+    const packageRoot = await createPackageFixture();
+    const modulePath = path.join(packageRoot, SOURCE_RUNTIME_MODULE_RELATIVE_PATH);
+    const moduleUrl = pathToFileURL(modulePath).href;
+    const nearerRoot = path.join(packageRoot, 'src');
+    const nearerManifest = path.join(nearerRoot, 'package.json');
+    try {
+      await mkdir(nearerRoot);
+      expect(resolveCompilerRuntimeLayout(moduleUrl).packageRoot).toBe(packageRoot);
+      await writeFile(nearerManifest, JSON.stringify({
+        imports: { [PACKAGE_SOURCE_IMPORT]: './other/cli.ts' },
+        bin: { nested: './build/cli.js' },
+        scripts: { nested: PACKAGE_SOURCE_LAUNCHER_SCRIPT }
+      }));
+      let rejected: unknown;
+      try {
+        resolveCompilerRuntimeLayout(moduleUrl);
+      } catch (error) {
+        rejected = error;
+      }
+      expect(rejected).toMatchObject({
+        code: 'RUNTIME-LAYOUT-001',
+        details: { executableModulePath: modulePath, packageRoot: nearerRoot }
+      });
+      await writeFile(nearerManifest, '{');
+      expect(() => resolveCompilerRuntimeLayout(moduleUrl))
+        .toThrow('manifest is not readable canonical JSON');
+      await rm(nearerManifest);
+      expect(resolveCompilerRuntimeLayout(moduleUrl).cliEntrypointPath)
+        .toBe(path.join(packageRoot, 'source', 'cli.ts'));
+    } finally {
+      await rm(packageRoot, { force: true, recursive: true });
+    }
+  });
+
+  test('a bundle module keeps its target even when the package also carries source metadata', async () => {
+    const packageRoot = await createPackageFixture();
+    try {
+      const modulePath = path.join(packageRoot, 'output', 'cli.js');
+      const layout = resolveCompilerRuntimeLayout(pathToFileURL(modulePath).href);
+      expect(layout).toMatchObject({
+        mode: 'bundle',
+        cliEntrypointPath: modulePath,
+        repositorySourceRoot: null,
+        runtimeAssetRoot: path.join(packageRoot, 'output'),
+        sourceEntrypointRelativePath: 'source/cli.ts'
+      });
+    } finally {
+      await rm(packageRoot, { force: true, recursive: true });
+    }
   });
 });

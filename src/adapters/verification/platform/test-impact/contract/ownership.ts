@@ -1,4 +1,8 @@
+import { isAuthorKernelVerificationRootInput } from '../../../../../contracts/author-kernel-verification.ts';
+import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../../../contracts/repository-test-path.ts';
+
 export const TEST_IMPACT_SOURCE_KINDS = [
+  'author-native-method-input',
   'typescript',
   'manifest',
   'semantic-contract',
@@ -38,6 +42,7 @@ export type ResolvedTestOwnership = {
 const TEST_IMPACT_SOURCE_KIND_MODULES: Readonly<
   Partial<Record<TestImpactSourceKind, readonly string[]>>
 > = Object.freeze({
+  'author-native-method-input': Object.freeze(['adapters.compilation']),
   'active-documentation': Object.freeze(['adapters.self-hosting.control.documentation']),
   'agent-skill': Object.freeze(['adapters.self-hosting.control.agent']),
   'agent-role': Object.freeze(['adapters.self-hosting.control.agent']),
@@ -58,7 +63,8 @@ export function testImpactModuleIdsForSourceKind(
 export function classifyTestImpactSource(
   file: string,
   activeDocumentationPath: (candidate: string) => boolean,
-  gitHookEntrypointPath: (candidate: string) => boolean = () => false
+  gitHookEntrypointPath: (candidate: string) => boolean = () => false,
+  nativeDeclarationPath: (candidate: string) => boolean = () => false
 ): TestImpactSourceKind | null {
   if (activeDocumentationPath(file)) return 'active-documentation';
   if (gitHookEntrypointPath(file)) return 'git-hook';
@@ -70,6 +76,7 @@ export function classifyTestImpactSource(
   if (/^source\//u.test(file)) return 'source-model';
   if (/\.[cm]?tsx?$/u.test(file)) return 'typescript';
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/u.test(file)) return 'workflow';
-  if (/^(?:package\.json|bun\.lock)$/u.test(file)) return 'repository-config';
+  if (SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS.some(path => path === file)) return 'repository-config';
+  if (isAuthorKernelVerificationRootInput(file) || nativeDeclarationPath(file)) return 'author-native-method-input';
   return null;
 }
