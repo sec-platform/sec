@@ -6,7 +6,6 @@ import { readJson } from "../../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
-  composeWorkspace,
   explainWorkspace,
   initWorkspace,
   lockWorkspace,
@@ -14,11 +13,12 @@ import {
   verifyWorkspace
 } from '../../../src/bootstrap/engineering/cli.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../../helpers/graph-assertions.ts';
+import { expectCliSuccess } from '../../testkit/cli.ts';
 import { createWorkspace } from '../../testkit/workspace.ts';
 
 test('v0.1 reference pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
-  const { workspaceRoot: resolvedWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: resolvedWorkspaceRoot, modelRoot, prismaRoot } = getWorkspacePaths(workspaceRoot);
   const acceptanceCoveragePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
@@ -26,6 +26,14 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   const runtimeReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport);
 
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
+  const prismaTemplateDirectory = path.join(modelRoot, 'schema');
+  await fs.mkdir(prismaTemplateDirectory, { recursive: true });
+  await fs.writeFile(path.join(prismaTemplateDirectory, 'db.prisma.template'), `
+model CustomExtension {
+  id    String @id
+  value String
+}
+`, 'utf8');
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
   expect(resolvedLock.resolvedBlocks.map((block) => block.id).sort()).toEqual([
     'auth/basic-session',
@@ -33,7 +41,13 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
     'tenant/basic-workspace'
   ]);
 
-  await composeWorkspace(workspaceRoot);
+  await expectCliSuccess(workspaceRoot, ['compose']);
+  const generatedPrisma = await fs.readFile(path.join(prismaRoot, 'schema.prisma'), 'utf8');
+  const customModel = /\bmodel\s+CustomExtension\s*\{([^}]*)\}/u.exec(generatedPrisma);
+  expect(customModel).not.toBeNull();
+  expect(customModel![1]).toMatch(/\bid\s+String\s+@id(?=$|\s)/u);
+  expect(customModel![1]).toMatch(/\bvalue\s+String(?=$|\s)/u);
+  await expect(fs.stat(path.join(prismaRoot, 'dev.db'))).rejects.toMatchObject({ code: 'ENOENT' });
   const installedCustomerService = await fs.readFile(
     path.join(resolvedWorkspaceRoot, 'src', 'installed', 'entity', 'customer-service.ts'),
     'utf8'
@@ -170,4 +184,4 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
       CI_ARTIFACT_FILES.reviewSummary
     ])
   );
-}, 180000);
+}, 360000);

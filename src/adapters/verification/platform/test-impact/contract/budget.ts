@@ -274,7 +274,7 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
   }),
-  slowFileSuite('e2e-pipeline-end-to-end', 'workspace/reference-pipeline', 'compiler-pipeline-end-to-end-e2e'),
+  slowFileSuite('e2e-pipeline-end-to-end', 'workspace/reference-pipeline', 'compiler-pipeline-end-to-end-e2e', 360_000),
   slowFileSuite('e2e-expanded-blocks', 'workspace/expanded-blocks', 'compiler-expanded-blocks-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-explain', 'cli/explain', 'compiler-explain-e2e', 240_000, {
     parallelSafe: true,
@@ -324,7 +324,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowFileSuite('e2e-manifest', 'workspace/override-manifest', 'compiler-manifest-e2e'),
   slowFileSuite('e2e-pipeline', 'workspace/pipeline', 'compiler-pipeline-e2e'),
   slowFileSuite('e2e-policy', 'verification/policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-prisma-merge', 'workspace/prisma-merge', 'compiler-prisma-merge-e2e'),
   slowFileSuite('e2e-private-registry', 'workspace/private-registry', 'compiler-private-registry-e2e'),
   slowFileSuite('e2e-registry', 'toolchain/registry', 'compiler-registry-e2e'),
   slowFileSuite('e2e-repair', 'workspace/repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
