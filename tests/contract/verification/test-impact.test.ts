@@ -101,7 +101,7 @@ function expectUnique(values: readonly string[]): void {
   expect(new Set(values).size).toBe(values.length);
 }
 
-test('repository sources route by semantic kind and module identity', () => {
+test('non-code source ownership and executable import impact remain independently path-scoped', () => {
   // Keep exact descriptor bindings and all non-code source kinds in the
   // existing routing contract; no second test file or per-kind registration.
   for (const kind of TEST_IMPACT_SOURCE_KINDS.filter(kind => kind !== 'typescript')) {
@@ -145,6 +145,19 @@ test('repository sources route by semantic kind and module identity', () => {
   expect(classifyTestImpactSource('.codex/unowned.toml', activeDocumentationPath)).toBeNull();
   expect(classifyTestImpactSource('.codex/agents/notes.md', activeDocumentationPath)).toBeNull();
 
+  const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
+  const facade = 'src/bootstrap/engineering/virtual-entrypoint.ts';
+  const helper = 'src/bootstrap/engineering/virtual-test-helper.ts';
+  const direct = 'tests/integration/workspace/pipeline-workspace-write-lease.test.ts';
+  const selected = 'tests/unit/virtual-facade.test.ts';
+  const slow = 'tests/e2e/workspace/upgrade.test.ts';
+  const ignored = 'tests/unit/virtual-import-text.test.ts';
+  const alpha = 'src/compiler/virtual-alpha.ts';
+  const beta = 'src/compiler/virtual-beta.ts';
+  const alphaFacade = 'src/compiler/virtual-public.ts';
+  const alphaTest = 'src/compiler/virtual-alpha.spec.ts';
+  const betaTest = 'tests/unit/virtual-beta.test.ts';
+  // The three disjoint positive source worlds share one immutable Git/Source Program input.
   const provider = sourceProvider({
     '.codex/agents/worker.toml': 'name = "worker"\n',
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
@@ -161,7 +174,22 @@ test('repository sources route by semantic kind and module identity', () => {
       capabilityProviders: [],
       preDependencyBootstrap: false
     }),
-    'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/adapters/self-hosting/development/hooks/install.ts'; void installHooks;"
+    'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/adapters/self-hosting/development/hooks/install.ts'; void installHooks;",
+      'src/bootstrap/engineering/module.json':
+        '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
+      'src/bootstrap/engineering/cli.ts': "import { kernel } from './pipeline-kernel.ts'; void kernel;",
+      [source]: 'export const kernel = true;',
+      [facade]: "export { kernel } from './pipeline-kernel.ts';",
+      [helper]: "export { kernel } from './virtual-entrypoint.ts';",
+      [direct]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
+      [selected]: "import { kernel } from '../../src/bootstrap/engineering/virtual-test-helper.ts'; void kernel;",
+      [slow]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
+      [ignored]: "const text = \"import '../../src/bootstrap/engineering/pipeline-kernel.ts'\"; void text;",
+    [alpha]: 'export const alpha = 1;',
+    [beta]: 'export const beta = 2;',
+    [alphaFacade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
+    [alphaTest]: "import { alpha } from './virtual-public.ts'; void alpha;",
+    [betaTest]: "import { beta } from '../../src/compiler/virtual-public.ts'; void beta;"
   });
   expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
     .toEqual(['tests/unit/agent-fixture.test.ts']);
@@ -179,48 +207,11 @@ test('repository sources route by semantic kind and module identity', () => {
   ], provider);
   expect(manifest.owners).toEqual(expect.arrayContaining(['compiler', 'compiler.registry']));
   expect(manifest.fast).toContain('tests/unit/virtual-manifest-consumer.test.ts');
-});
-
-test('impact follows executable imports instead of import-like text', () => {
-  const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
-  const facade = 'src/bootstrap/engineering/virtual-entrypoint.ts';
-  const helper = 'src/bootstrap/engineering/virtual-test-helper.ts';
-  const direct = 'tests/integration/workspace/pipeline-workspace-write-lease.test.ts';
-  const selected = 'tests/unit/virtual-facade.test.ts';
-  const slow = 'tests/e2e/workspace/upgrade.test.ts';
-  const ignored = 'tests/unit/virtual-import-text.test.ts';
-  const provider = sourceProvider({
-      'src/bootstrap/engineering/module.json':
-        '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
-      'src/bootstrap/engineering/cli.ts': "import { kernel } from './pipeline-kernel.ts'; void kernel;",
-      [source]: 'export const kernel = true;',
-      [facade]: "export { kernel } from './pipeline-kernel.ts';",
-      [helper]: "export { kernel } from './virtual-entrypoint.ts';",
-      [direct]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
-      [selected]: "import { kernel } from '../../src/bootstrap/engineering/virtual-test-helper.ts'; void kernel;",
-      [slow]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
-      [ignored]: "const text = \"import '../../src/bootstrap/engineering/pipeline-kernel.ts'\"; void text;"
-  });
 
   const selection = selectTestsForSources([source], provider);
   expect(selection.fast).toEqual([direct, selected]);
   expect(selection.slow).toEqual([slow]);
   expect(selection.owners).toEqual(['bootstrap.engineering']);
-});
-
-test('compiler-resolved named barrel references do not select unrelated consumers', () => {
-  const alpha = 'src/compiler/virtual-alpha.ts';
-  const beta = 'src/compiler/virtual-beta.ts';
-  const facade = 'src/compiler/virtual-public.ts';
-  const alphaTest = 'src/compiler/virtual-alpha.spec.ts';
-  const betaTest = 'tests/unit/virtual-beta.test.ts';
-  const provider = sourceProvider({
-    [alpha]: 'export const alpha = 1;',
-    [beta]: 'export const beta = 2;',
-    [facade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
-    [alphaTest]: "import { alpha } from './virtual-public.ts'; void alpha;",
-    [betaTest]: "import { beta } from '../../src/compiler/virtual-public.ts'; void beta;"
-  });
 
   const graph = readRepositoryModuleGraphV1(provider);
   expect(resolveTestImpactSelectionTrustBoundary(provider))
@@ -238,7 +229,7 @@ test('compiler-resolved named barrel references do not select unrelated consumer
   expect(isTestImpactSourceFile(alphaTest, provider)).toBe(false);
   expect(selectTestsForSources([alpha], provider).fast).toEqual([alphaTest]);
   expect(selectTestsForSources([beta], provider).fast).toEqual([betaTest]);
-  expect(selectTestsForSources([facade], provider).fast).toEqual([alphaTest, betaTest]);
+  expect(selectTestsForSources([alphaFacade], provider).fast).toEqual([alphaTest, betaTest]);
 });
 
 test('repository receipts isolate exact source bytes across equal-length mutations', () => {
