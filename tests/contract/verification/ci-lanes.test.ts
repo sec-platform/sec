@@ -64,14 +64,14 @@ test('CI translates owner-issued selection into executable plan gates', async ()
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);
 
   const directSlow = await buildVerificationPlanForTest('quick', [
-    'tests/e2e/workspace/dry-run-plan.test.ts'
+    'tests/e2e/workspace/upgrade.test.ts'
   ]);
   expect(directSlow).toMatchObject({
     selectionResolved: true,
     selectionReasons: ['direct-slow-test'],
-    affectedSlowTests: ['tests/e2e/workspace/dry-run-plan.test.ts']
+    affectedSlowTests: ['tests/e2e/workspace/upgrade.test.ts']
   });
-  expect(directSlow.gates.map(({ id }) => id)).toContain('slow-suite-e2e-dry-run-plan');
+  expect(directSlow.gates.map(({ id }) => id)).toContain('slow-suite-e2e-upgrade');
 }, 180_000);
 
 test('Quick plan resolves the canonical active documentation corpus', async () => {

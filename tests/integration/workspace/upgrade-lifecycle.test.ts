@@ -49,6 +49,23 @@ test('upgrade success provenance binds the committed applied terminal bytes', as
       toVersion: '0.2.0',
       migrationKindCounts: { 'file-replace': 1 }
     });
+    expect(result.upgradePlan.preflightChecks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'version-range', evidence: ['0.1.x'] }),
+      expect.objectContaining({ id: 'migration-entries', evidence: ['mig-customer-normalizer-file:migrations/customer-normalizer-file.json'] }),
+      expect.objectContaining({ id: 'migration-file-operations', status: 'passed' }),
+      expect.objectContaining({
+        id: 'impact-scan',
+        evidence: ['src/installed/private/block-upgrade.ts', 'src/installed/private/customer-normalizer.ts']
+      }),
+      expect.objectContaining({ id: 'override-conflicts', evidence: [] })
+    ]));
+    expect(result.upgradePlan.migrationOperations).toHaveLength(1);
+    expect(result.upgradePlan.migrationSummaries).toHaveLength(1);
+    expect(result.upgradePlan.migrationSummaries[0]).toMatchObject({
+      id: 'mig-customer-normalizer-file', kind: 'file-replace',
+      target: 'src/installed/private/customer-normalizer.ts'
+    });
+    expect(result.upgradePlan.impacts).toContain('src/installed/private/customer-normalizer.ts');
     expect(result.upgradePlan.migrationOperations).toContainEqual(expect.objectContaining({
       id: 'mig-customer-normalizer-file',
       kind: 'file-replace',

@@ -1,13 +1,15 @@
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJson } from "../../../src/adapters/filesystem/files.ts";
-import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
-import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { readYaml, writeYaml } from '../../../src/adapters/workspace/yaml.ts';
+import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   expectCliSuccess,
   expectCliText,
+  runCliInProcess,
 } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
@@ -101,6 +103,12 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
       'Added block private/text-upgrade@0.1.0 from private (private)\n'
     );
 
+    const planPath = getWorkspacePaths(workspaceRoot).workspaceConfigPath;
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const beforePlan = await fs.readFile(planPath);
+    const beforeLock = await fs.readFile(lockPath);
+    const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
+
     await expectCliText(workspaceRoot, ['upgrade', 'private/text-upgrade', '0.2.0', '--dry-run'], [
       'Operation roles: directory=1, text=1',
       'Migration mig-upgrade-notes-literal: text-replace;',
@@ -108,5 +116,27 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
       'Migration mig-report-directory-archive: rename-directory;',
       'target=generated/reports/archive/current; source=generated/reports/current; role=directory; requiresVerification=false'
     ]);
+
+    // A successful preview and a rejected incompatible range must be read-only.
+    expect(await fs.readFile(planPath)).toEqual(beforePlan);
+    expect(await fs.readFile(lockPath)).toEqual(beforeLock);
+    await expect(fs.lstat(upgradePlanPath)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const manifestPath = path.join(versionRoot, 'block.manifest.yaml');
+    const manifest = await readYaml<Record<string, unknown>>(manifestPath);
+    await writeYaml(manifestPath, {
+      ...manifest,
+      upgrade: { ...(manifest.upgrade as Record<string, unknown>), from: ['0.1'] }
+    });
+    const incompatible = await runCliInProcess(workspaceRoot, [
+      'upgrade', 'private/text-upgrade', '0.2.0', '--dry-run'
+    ]);
+    expect(incompatible.code).toBe(1);
+    expect(incompatible.stderr).toContain('UPGRADE-BLOCKED-002');
+    expect(await fs.readFile(planPath)).toEqual(beforePlan);
+    expect(await fs.readFile(lockPath)).toEqual(beforeLock);
+    await expect(fs.lstat(upgradePlanPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
 }, 120000);

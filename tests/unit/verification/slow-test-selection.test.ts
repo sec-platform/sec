@@ -91,8 +91,10 @@ test('owner-issued projection resolves configuration, source and managed-hook su
     'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(sourceSelection).toMatchObject({ resolved: true });
-  expect(sourceSelection.affectedSlowTests).toContain('tests/e2e/workspace/dry-run-plan.test.ts');
-  expect(sourceSelection.suites).toContain('e2e-dry-run-plan');
+  const directUpgrade = selectSlowTestRiskClosure(['tests/e2e/workspace/upgrade.test.ts']);
+  expect(directUpgrade).toMatchObject({ resolved: true });
+  expect(directUpgrade.affectedSlowTests).toContain('tests/e2e/workspace/upgrade.test.ts');
+  expect(directUpgrade.suites).toContain('e2e-upgrade');
 
   const hookSelection = selectSlowTestRiskClosure(['.githooks/post-merge']);
   expect(hookSelection).toMatchObject({ resolved: true });
@@ -102,13 +104,14 @@ test('owner-issued projection resolves configuration, source and managed-hook su
 
   const mixed = selectSlowTestRiskClosure([
     'package.json',
-    'src/adapters/verification/run-runtime-verification.ts'
+    'src/adapters/verification/run-runtime-verification.ts',
+    'tests/e2e/workspace/upgrade.test.ts'
   ]);
   expect(mixed.resolved).toBe(true);
   expect(mixed.owners).toEqual(expect.arrayContaining([
     'adapters.self-hosting.development.runner', 'adapters.toolchain', 'compiler', 'adapters.verification'
   ]));
-  expect(mixed.suites).toContain('e2e-dry-run-plan');
+  expect(mixed.suites).toContain('e2e-upgrade');
 });
 
 test('module descriptors and owned sources resolve even when no runnable test consumes them', () => {
