@@ -7,7 +7,7 @@ import {
   expectCliText,
   expectCliVariants
 } from '../../testkit/cli.ts';
-import { withTempWorkspace, withWorkspaceScenario } from '../../testkit/workspace.ts';
+import { withTempWorkspace } from '../../testkit/workspace.ts';
 
 const expectedDemoChecklistItemCount = [
   'verification-report',
@@ -21,7 +21,7 @@ const expectedDemoChecklistItemCount = [
 ].length;
 const [, explainGraphMermaidArtifact, explainGraphDotArtifact] = CI_EXPLAIN_GRAPH_ARTIFACTS;
 
-test('CLI exposes demo checklist as text and JSON readiness contracts', async () => {
+test('CLI exposes doctor as text and JSON readiness contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['demo', 'checklist'], [
       `Demo checklist attention; items=${expectedDemoChecklistItemCount}; missing=${expectedDemoChecklistItemCount}`,
@@ -30,41 +30,7 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
       `${explainGraphDotArtifact.id}: missing; ${explainGraphDotArtifact.path}`,
       'Next command: bun run demo:quickstart'
     ]);
-  });
 
-  await withWorkspaceScenario('explained-all-default', async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['demo', 'checklist'], [
-      `Demo checklist passed; items=${expectedDemoChecklistItemCount}; missing=0`,
-      `review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`,
-      `${explainGraphMermaidArtifact.id}: passed; ${explainGraphMermaidArtifact.path}`,
-      `${explainGraphDotArtifact.id}: passed; ${explainGraphDotArtifact.path}`,
-      'Next command: bun run demo:closed-loop'
-    ]);
-
-    await expectCliJson(
-      workspaceRoot,
-      ['demo', 'checklist', '--json', '--compact'],
-      {
-        status: 'passed',
-        itemCount: expectedDemoChecklistItemCount,
-        missingCount: 0,
-        nextCommand: 'bun run demo:closed-loop',
-        items: expect.arrayContaining(
-          CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => ({
-            id: artifact.id,
-            status: 'passed',
-            artifactPath: artifact.path,
-            command: 'bun run sec -- explain'
-          }))
-        )
-      },
-      { compact: true }
-    );
-  });
-}, 120000);
-
-test('CLI exposes doctor as text and JSON readiness contracts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
     await expectCliVariants(workspaceRoot, ['doctor'], {
       text: [
         'Developer environment doctor',

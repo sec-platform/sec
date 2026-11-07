@@ -1,8 +1,21 @@
 import { expect, test } from 'bun:test';
 
 import type { ExplainSummarySource } from '../../../src/application/explain-summary.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
+
+const expectedDemoChecklistItemCount = [
+  'verification-report',
+  'runtime-report',
+  'policy-report',
+  'acceptance-coverage',
+  'graph-lock',
+  'provenance-registry',
+  ...CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => artifact.id),
+  'review-summary'
+].length;
+const [, explainGraphMermaidArtifact, explainGraphDotArtifact] = CI_EXPLAIN_GRAPH_ARTIFACTS;
 
 test('CLI emits explain JSON for CI consumers', async () => {
   await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
@@ -182,5 +195,34 @@ test('CLI emits explain JSON for CI consumers', async () => {
       ])
     );
     expect(payload.reviewSummary.failurePoints).toHaveLength(0);
+
+    // Observe Demo readiness on the completed Explain workspace without rebuilding the full Pipeline.
+    await expectCliText(workspaceRoot, ['demo', 'checklist'], [
+      `Demo checklist passed; items=${expectedDemoChecklistItemCount}; missing=0`,
+      `review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`,
+      `${explainGraphMermaidArtifact.id}: passed; ${explainGraphMermaidArtifact.path}`,
+      `${explainGraphDotArtifact.id}: passed; ${explainGraphDotArtifact.path}`,
+      'Next command: bun run demo:closed-loop'
+    ]);
+
+    await expectCliJson(
+      workspaceRoot,
+      ['demo', 'checklist', '--json', '--compact'],
+      {
+        status: 'passed',
+        itemCount: expectedDemoChecklistItemCount,
+        missingCount: 0,
+        nextCommand: 'bun run demo:closed-loop',
+        items: expect.arrayContaining(
+          CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => ({
+            id: artifact.id,
+            status: 'passed',
+            artifactPath: artifact.path,
+            command: 'bun run sec -- explain'
+          }))
+        )
+      },
+      { compact: true }
+    );
   });
-}, 120000);
+}, 240000);
