@@ -207,6 +207,47 @@ test('empty owner selection settles before project parsing', () => {
   });
 });
 
+test('staged and Action normalization share code-unit input ordering', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-order-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    const baseCommit = await commitFixture(root,
+      'export function normalize(): void {}\n', 'ordering-base');
+    await writeFile(path.join(root, 'src', 'Alpha.ts'), 'export const upper = true;\n');
+    await writeFile(path.join(root, 'src', 'alpha-marker.ts'), 'export const lower = true;\n');
+    git(root, ['add', '--', 'src/Alpha.ts', 'src/alpha-marker.ts']);
+    git(root, ['commit', '--quiet', '-m', 'ordering-candidate']);
+    const candidateCommit = git(root, ['rev-parse', 'HEAD']);
+    const snapshot = await exactSnapshot(root, candidateCommit);
+    const candidate = await subject(root, candidateCommit, baseCommit);
+    const action = compileCandidateNormalizationActionKey(candidate);
+    const expectedPaths = ['src/Alpha.ts', 'src/alpha-marker.ts'];
+    expect(action.inputClosure.filter(item => expectedPaths.includes(item.path))
+      .map(item => item.path)).toEqual(expectedPaths);
+    expect(candidate.observationBlobs).toEqual(action.inputClosure);
+    expect(checkImmutableImportSnapshot({
+      projectRoot: root,
+      files: [...snapshot.files].reverse().map(file => ({
+        relativePath: file.path, source: file.source, contentDigest: rawSha256(file.source)
+      })),
+      targetPaths: expectedPaths,
+      expectedInputClosure: action.inputClosure
+    }).status).toBe('canonical');
+    const { checkStagedCandidateImportNormalizationWithSelection } = await import('./runtime.ts');
+    const indexPath = path.resolve(root, git(root, ['rev-parse', '--git-path', 'index']));
+    const indexBefore = await readFile(indexPath);
+    const observed = await withAuthorityGitReadSession({ cwd: root, budget: GIT_READ_OPERATION_BUDGET },
+      session => checkStagedCandidateImportNormalizationWithSelection({ session, candidateBase: baseCommit }));
+    expect(observed.candidateBase).toBe(baseCommit);
+    expect(observed.outcome).toEqual({ schema: 'sec-import-check-outcome-v1', status: 'canonical', files: [] });
+    expect(await readFile(indexPath)).toEqual(indexBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('noncanonical candidate fails with a clean index', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-normalization-clean-index-'));
   try {

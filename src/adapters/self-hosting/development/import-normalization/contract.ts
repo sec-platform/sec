@@ -1,4 +1,4 @@
-import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
+import { compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import type { VerificationActionKey, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import {
   isSourceProgramInputPath,
@@ -16,6 +16,7 @@ import {
   type WorkspaceSourceSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import { createVerificationActionKey } from '../../../verification/platform/action/contract/action.ts';
+import { compileImmutableImportInputClosure } from './kernel.ts';
 
 const CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA =
   'sec-candidate-normalization-snapshot-subject' as const;
@@ -141,7 +142,7 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
     .filter(({ path }) => path === 'bun.lock'
       || path.endsWith('.json') || path.endsWith('.jsonc'))
     .map(({ path, contentDigest }) => Object.freeze({ path, contentDigest }))
-    .sort((left, right) => left.path.localeCompare(right.path)));
+    .sort((left, right) => compareCodeUnits(left.path, right.path)));
   const baseFiles = new Map(input.baseSnapshot?.files.map((file) => [file.path, file.contentDigest]) ?? []);
   const stagedPaths = new Set(stagedSelection?.selectedPaths ?? []);
   const selectedBlobs = Object.freeze(input.snapshot.files
@@ -153,13 +154,9 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
       path,
       digest: contentDigest as CandidateNormalizationDigest
     }))
-    .sort((left, right) => left.path.localeCompare(right.path)));
-  const observationBlobs = Object.freeze(input.snapshot.files
-    .map(({ path, contentDigest }) => Object.freeze({
-      path,
-      digest: contentDigest as CandidateNormalizationDigest
-    }))
-    .sort((left, right) => left.path.localeCompare(right.path)));
+    .sort((left, right) => compareCodeUnits(left.path, right.path)));
+  const observationBlobs = compileImmutableImportInputClosure(input.snapshot.files
+    .map(({ path, contentDigest }) => ({ relativePath: path, contentDigest: contentDigest as CandidateNormalizationDigest })));
   const unsigned = deepFreeze({
     schema: CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA,
     candidateIdentity: provenance.kind === 'git-tree'
@@ -237,13 +234,12 @@ export function requireCandidateNormalizationSnapshot(
   const selectedBlobs = snapshot.files
     .filter(({ path }) => targetPaths.has(path))
     .map(({ path, contentDigest }) => ({ path, digest: contentDigest }))
-    .sort((left, right) => left.path.localeCompare(right.path));
+    .sort((left, right) => compareCodeUnits(left.path, right.path));
   if (JSON.stringify(selectedBlobs) !== JSON.stringify(subject.selectedBlobs)) {
     throw new Error('Candidate normalization immutable snapshot differs from its subject');
   }
-  const observationBlobs = snapshot.files
-    .map(({ path, contentDigest }) => ({ path, digest: contentDigest }))
-    .sort((left, right) => left.path.localeCompare(right.path));
+  const observationBlobs = compileImmutableImportInputClosure(snapshot.files
+    .map(({ path, contentDigest }) => ({ relativePath: path, contentDigest: contentDigest as CandidateNormalizationDigest })));
   if (JSON.stringify(observationBlobs) !== JSON.stringify(subject.observationBlobs)) {
     throw new Error('Candidate normalization observation closure differs from its subject');
   }

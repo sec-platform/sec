@@ -3,6 +3,7 @@ import ts from 'typescript';
 
 import {
   canonicalEquals,
+  compareCodeUnits,
   rawSha256
 } from '../../../../contracts/canonical.ts';
 
@@ -29,6 +30,17 @@ export type ImmutableImportSnapshotInputRef = Readonly<{
   path: string;
   digest: `sha256:${string}`;
 }>;
+
+/** The Source Program and Verification Action owners use code-unit path order.
+ * Preserve every member; validation and authority stay with their original owners. */
+export function compileImmutableImportInputClosure(
+  files: readonly Pick<ImmutableImportSnapshotFile, 'relativePath' | 'contentDigest'>[]
+): readonly ImmutableImportSnapshotInputRef[] {
+  return Object.freeze(files.map(({ relativePath, contentDigest }) => Object.freeze({
+    path: relativePath,
+    digest: contentDigest
+  })).sort((left, right) => compareCodeUnits(left.path, right.path)));
+}
 
 export type ImportSourceSnapshot = Readonly<{
   relativePath: string;
@@ -242,7 +254,7 @@ export function checkImmutableImportSnapshot(input: Readonly<{
 }>): ImportCheckOutcome {
   const projectRoot = path.resolve(input.projectRoot);
   const ordered = [...input.files].sort((left, right) =>
-    left.relativePath.localeCompare(right.relativePath));
+    compareCodeUnits(left.relativePath, right.relativePath));
   const immutableFiles = new Map<string, string>();
   for (const file of ordered) {
     const absolutePath = canonicalRepositoryPath(projectRoot, file.relativePath);
@@ -254,14 +266,11 @@ export function checkImmutableImportSnapshot(input: Readonly<{
     }
     immutableFiles.set(absolutePath, file.source);
   }
-  const observedInputClosure = ordered.map(({ relativePath, contentDigest }) => ({
-    path: relativePath,
-    digest: contentDigest
-  }));
+  const observedInputClosure = compileImmutableImportInputClosure(ordered);
   if (!canonicalEquals(observedInputClosure, input.expectedInputClosure)) {
     throw new Error('Immutable import observation closure differs from its Action input closure');
   }
-  const targetPaths = [...input.targetPaths].sort((left, right) => left.localeCompare(right));
+  const targetPaths = [...input.targetPaths].sort(compareCodeUnits);
   if (new Set(targetPaths).size !== targetPaths.length) {
     throw new Error('Immutable import snapshot contains duplicate targets');
   }
