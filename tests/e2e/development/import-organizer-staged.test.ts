@@ -376,18 +376,6 @@ test.concurrent('working apply and staged freeze normalize identical Git-selecte
   });
 });
 
-test.concurrent('candidate apply rejects an inexact candidate base before changing source', async () => {
-  await withRepository(async (repoRoot) => {
-    const fixturePath = path.join(repoRoot, 'fixture.ts');
-    await writeFile(fixturePath, source('unsorted'), 'utf8');
-    const before = await readFile(fixturePath);
-
-    await expect(runImportApply({}, repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
-      .rejects.toThrow('one full Git object ID');
-    expect(await readFile(fixturePath)).toEqual(before);
-  });
-});
-
 test.concurrent('imports check is a pure compare and publishes zero bytes', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
@@ -512,15 +500,24 @@ test.concurrent('candidate organizer reads configuration and project context fro
   });
 });
 
-test.concurrent('candidate organizer requires one exact full commit identity', async () => {
+test.concurrent('candidate import entrypoints reject inexact and unknown commit identities without source mutation', async () => {
   await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    await writeFile(fixturePath, source('unsorted'), 'utf8');
+    const before = await readFile(fixturePath);
     const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+
+    await expect(runImportApply({}, repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
+      .rejects.toThrow('one full Git object ID');
+    expect(await readFile(fixturePath)).toEqual(before);
+
     await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {}, { candidateBase: head.slice(0, 12) }))
       .rejects.toThrow('one full Git object ID');
     await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {}, { candidateBase: 'f'.repeat(40) }))
       .rejects.toThrow('git rev-parse failed');
+    expect(await readFile(fixturePath)).toEqual(before);
   });
-});
+}, 10000);
 
 test.concurrent('staged organizer preserves bytes visible through an external hardlink alias', async () => {
   await withRepository(async (repoRoot) => {
