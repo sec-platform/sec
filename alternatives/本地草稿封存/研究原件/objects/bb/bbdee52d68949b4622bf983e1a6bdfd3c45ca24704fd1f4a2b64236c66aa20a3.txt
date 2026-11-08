@@ -1,0 +1,151 @@
+# Gift 设计差异审查与融合实施方案
+
+核查日期：2026-11-08（北京时间）。范围：Gift 的基础抽象研究、作者语义、Schema/Reader、Relation/Method、Target 和正式仓库设计分支。排除 SEC 测试清理。**本报告是只读审查与融合设计，不代表已修改代码、合并 PR 或完成正式集成。**
+
+## 0. 自动任务与证据状态
+
+- 自动任务 `6aeb213b8f688191bdcc4615574d40a7`（Gift 模型收敛与工程语义源码生成）已执行停用，`success=true`、`is_enabled=false`、`next_run_time=null`；未修改其他任务。**补充状态核验：2026-11-08 12:12:39（北京）已有一轮在调度关闭前启动，当前记录为`in_progress`；停用调度不会自动取消已开始运行的实例，现有任务工具不提供取消该实例的操作。**
+- GitHub `sec-platform/sec` 的主要基线：`main@7e70f411755d37f2612aa37996a205e892147ca3`；设计汇总 `codex/design-closure-20261023@81b0f70f610134241ea020a50663744a3818100f`；PR [#892](https://github.com/sec-platform/sec/pull/892) `a1628ade7c0ab9fc2302694ee5fdd15433a14219`；PR [#895](https://github.com/sec-platform/sec/pull/895) `d0b2fdb20f720455a584453505f0ae4386db807f`；PR [#896](https://github.com/sec-platform/sec/pull/896) `1eff90f4fdc1787f1bd223e9dfb70dac002e0acb`。截至审查时均未合并主干，#892 与 #896 从 main 分别形成独立提交线，#895→#896 为祖先链。
+- 2026-11-08 11:27（北京）最近一次已完成的 Gift 自动任务结果报告：629文件、完整ZIP SHA-256 `b7cc612415a7cbeb9a622cb02974994d9a77d9909248d476fd2f332c7876b7c0`；修改原 Relation、Reader、测试及 SHA 索引四份；74项选定回归，13项解压复验（有交叉）；大型组合超时；未推送仓库。其**完整源码目前未在本审查环境取得**，上述新版本细节按任务运行记录而非本次独立源码实测定位。
+- 已在 ChatGPT Library 找到并读取先前确切源包《Gift_IR_仓库分支设计融合_20261105.zip》，完整ZIP SHA-256 `d29d86fdaa4313460e677043156f46cf15cd8ae3689ff3f4684e22e2bde7c676`；内部82个文件，含 `src/gift_ir.py`、`src/branch_v2_bridge.py`、`src/emit_targets.py`、`reference/gift_relations/*.py`、真实示例、生成物、测试和原研究模型。也读取《Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip》（SHA `f5221c1123f1106379de5145e606d8ce49aaee0815b660a5fc5539106c2385a2`）、《Gift_统一模型_精简工作基线_20261105.zip》和《Gift_通用关系_持续维护整合版.zip》。它们是11月5日及更早的依据，不应冒充11月8日源码。
+- 11月5日包中 `data/research_model.original.json` 经重新计算 SHA-256 为 `c64d0bc4452a24e36f83fbfd27d22fe64dec4259666be7cbdac7b44a806b157e`；实际解析：`units` 1786，`question_contracts` 568，`question_joins` 1294，`content_bindings` 2148，`research_records` 93，`theories` 62，`legacy_facet_assertions` 21676，`old20_views` 20。568追溯文件SHA为 `735fed9f13fdd7f865103567bb9555d81676ba8e69792fde234471074cc0fdfd`，`question_mapping` 568。
+
+## 1. 三条成果线的真正关系
+
+1. **#892：**从 `main` 独立产生的规范修订，涉及 46 个文件，重点为生成源的单一写权、公开转导、空导出根、开放/持续义务、数值精度、局部控制、IDE六工具及专业Schema。
+2. **#895→#896：**由统一设计分支延展的唯一正式候选链；#895维护原文档owner和抽象形成/作者源码/IR关系，#896在其上实现 Rust 结构Reader、名称/词法、类型/约束、函数体/效果分析、源捕获/绑定和部分仓库验证，并保留一个**分离**的 `/2` 有限有序记录→TS编译方法。Rust作为内核实现语言不等于已经存在Rust目标生成后端。
+3. **本地 Gift：**研究资料、Python有限理论/关系求值、六种注解代数、Query Plan、参考增量、派生IR与独立TS/Rust生成器；11月8日任务报告了后继Relation/Reader正确性修复，但尚未进入#896当前的正式作者源和P0—P7/Method/Target消费路径。
+
+## 2. #892 与 #896：文件差异不是丢失证据
+
+已读取 #892 全部46份PR修改补丁，并逐路径检查在 #896 HEAD 下的对应文件：46个路径均存在。**4份文件的Blob SHA完全相同**：
+
+- `docs/开发/工具协议/交互调试接口.md`
+- `docs/开发/工具协议/作者辅助接口.md`
+- `docs/编译/组合前提与进展闭合.md`
+- `schema/examples/author-v2/typed-values.module.json`
+
+其他42份的SHA不同，但绝大多数经逐条查找的#892新增说明在#896仍可找到，或被有意改写为当前设计。不能因此断言42份有损，也不能因新文件存在而断言完全等价。
+
+具体差异与处置：
+
+| 方面 | #892历史主张 | #896现状/已有证据 | 处理 |
+| --- | --- | --- | --- |
+| 作者名称 | `/2`基础Identifier使用ASCII规则 | 当前`design-converged`用精确Name，Unicode标量序列且允许空名；需与具体Schema和引用结构匹配 | **版本化差异**：保留旧Reader的旧Name域，不通过替换正则合并。迁移需检查重名、空名、Unicode标量、来源映射、目标合法导出 |
+| 公开转导与零本地定义 | 允许有真实公开导入的export-only门面 | #896的结构化源码、导入/锁/读集规则已有，Reader/绑定亦分别取得实现 | 按精确语义保留，无需重新加一套`fn`包装；对锁重放、别名环、空exports目标作负例 |
+| 生成源归属 | `generated`不可再以`editSource:file`取得第二作者写权 | #896当前Project设计明确只允许`projection/derived`，历史`/2`仍冻结 | 不把新Schema覆盖旧Schema；生成内容编辑走原SourceOwner/回写对应 |
+| 数值和源精度 | 直接JSON整数、I64及Float/Bytes边界须分型解释，计数/索引精度不等于业务整数 | #896多处保留这些约束，Rust Reader保留原始数值词元；有限`/2`方法使用`bigint` | 同形不代表Target符合性；检查所有转换和旧源精度。不得以旧I64演示代替一般数学Int |
+| 规范性禁止/开放义务 | deny/forbid不同于未观测/未许可；open-ended不同于ongoing和未知期限 | #896文档仍含这些区分 | 不另造领域Bool；保留专业Norm/Policy/Clock/Authority/Observation Method需要 |
+| 公共ExecBody、对象Region | 词法if/while/var/return和对象控制分属不同语义 | #896结构文法及Rust词法/体分析扩展，但对象全专业运行资格未证明 | 只共享经验证的词法子域；对象field-write/super-init/ABI不得静默转为普通set |
+| IDE与工具Schema | check-method、semantic-change、source/files、CLI会话、候选等补充协议 | 相关Schema在#896对应路径均存在，很多新增条款原样保留 | 只在原六工具的准确能力协商下启用；Schema存在不等于Server/SDK/IDE已实现 |
+| 质量/资源/性能选择 | hard不得被soft弥补，动态容量需要真实联合准入 | #896文档多已保留，但措辞和消费者不同 | 查硬约束及有效窗口，不复写另一套评分器；代码消费者另验 |
+
+**分支处理原则：**对#892的46路径作`主张—现行owner—Schema—Reader—消费者—测试/反例`核对表。每项标 `exact preserved / semantically superseded / independently missing / obsolete with reason / unresolved`。目前**不能支持一刀切cherry-pick #892，也不能支持未经核实即删分支**。只有验证独立有效规则均有继承或正式替代，再提出关闭#892的候选；合并、关闭均需用户另行授权。
+
+## 3. 本地 vs #896的具体语义与机制差额
+
+### 3.1 入口与版本
+
+#896 `crates/gift-author-kernel/src/reader.rs::Reader::read`按准确标记只读`gift.author-module/design-converged`或`gift.project/design-converged`，保留source/expanded、源范围、版本和结构资格。`--analyze`走`project_input::analyze_request`及其名称、类型、效果阶段；但 `crates/gift-author-kernel/src/lib.rs::compile(bytes)`走`model::read_source`，严格只接受`gift.author-module/2`，属于`gift:finite-ordered-records/2`有限方法。**二者不是同一条已经闭合的生产编译路径**，不应将新源直接喂给旧`compile`，也不能把只读`--analyze`返回的类型事实冒称已选择Method/生成Target。
+
+本地旧参考接合文件 `src/branch_v2_bridge.py::lower_author_module_v2`，读取`/2`有限常量、函数和scan/filter，形成`src/gift_ir.py`的派生 IR，再交`src/emit_targets.py::{emit_ts,emit_rust}`；原11月5日桥明确限制为checked I64、静态有序记录、纯全函数，不支持完整Schema/Reader、跨模块、真实UseBinding、动态Provider或完整Requirement，也没有Rust目标实编证明。当前仓库已有更宽的数学Int有限方法，不能向旧I64回退。
+
+### 3.2 同名“Relation”不能合并
+
+旧`reference/gift_relations/algebra.py`的Relation是一组**具名端口+有限有型载体上的K-注解事实**；Scope是理论/模型/解释三个修订标识。它与#896 Rust `type_constraints::Relation`（Equal/Needs等类型约束判定）不是同一对象。旧关系Role、Sort、Scope、注解身份、输入覆盖必须独立保持，不通过变量名等于`Relation`自动落到公共类型求解器。
+
+旧关系的共同角色用于natural join、投影按fiber累加、Alternative要求相同端口、Rename需单射；无共享角色的join允许笛卡尔积。加入一个角色索引只能改善执行，不得改变数值重数/注解、重复事实、排序或作用身份。11月8日报告的非法零注解作者值必须**先核值属于声明的Sort，再消零**；即使结果为空也不能将违规输入合法化。
+
+六种`Algebra`已安装实例在11月5日源码里有可核对的确切代数：boolean（OR/AND，存在性）、count（N上的加/乘，重数）、tropical（min/+，None作无穷）、rational（非负Fraction加/乘）、provenance（符号单项式与系数的和积）、events（**固定事件样本空间子集**的并/交）。最后一种并非现实事件流、外部side effect或授权；Rational也不是统计真实性资格。不能把六种统一地优化成无重数集合、任意减法delta或事件回调。代数律、注解解码、预算与序列顺序另作可重复验收。
+
+### 3.3 查询/Method确实缺口
+
+#896 `crates/gift-author-kernel/src/model.rs::read_query`仅直接接受scan/filter，遇project、join、union、group、sort、limit、fixpoint会明确`NeedsMethod`。`body_analysis.rs`对部分专业区域保留`NeedsProfessionalBodyQualification`。因此本地关系Method有可接入的业务位置，但**不能直替整个模型或擅自扩大既有`finite-ordered-records/2`保证**。它需要选择一个与当前数据形态匹配的合格领域Method，明确是否基于有限K关系、bag、set或保序序列、是否有真实Sort/Scope、是否带效果、是否要求递归或增量。
+
+11月5日 `reference/gift_relations/maintenance.py::MaintainedPlan`明文仅支持**有限DAG**，在拓扑遍历遇递归时报错；其增量利用投影fiber/共享端口索引与旧新相关键，更新候选不可变、出错保留旧态，不使用虚构可减逆元。这说明不能据“存在增量维护器”而声称具备一般递归IVM。11月8日自动报告有后续递归相关测试，但当前未取得最新完整ZIP，递归增量的准确语义范围仍待源级审计。
+
+### 3.4 生成目标/研究数据
+
+11月5日双目标生成器有真实TS编译/Node执行报告，Rust只生成无rustc实编；#896自身Rust**内核**曾报告171项Rust测试，但常规目标仅有TS，尚不能证明通用Rust Target生成。接合目标应保留一份冻结已解释Method输入，在原P5派生目标中立计划，TS/Rust目标各自证明对应值域、顺序、错误/效果、资源和工件成员正确；Rust不能用TS的`bigint`名字猜一个等价ABI。
+
+独立的36MB原研究模型不是Gift作者源码，也不适合塞进#896当前每次4MiB输入的Reader。20面、1786U、568D、1294条问项关联、62理论、93规则记录应作为不可变依据/可查询关系/设计审计来源，由有凭据的Definition/Meaning/Requirement/Method消费者在实际需要时引用。研究材料可解释“为何保留某区别”，不能向一次编译颁发意义、权限或执行许可；不能只剩导航标签而丢原内容。
+
+## 4. 推荐融合架构（保留原职责，无第二Writer）
+
+唯一作者线：
+
+```text
+原作者字节（设计候选: gift.author-module/design-converged + gift.project/design-converged）
+  └─ SourceOwner / RetainedReader / exact SourceSnapshot, ModuleUse, BindingLock
+      └─ 原Rust Reader → Name/Lexical → Type/Definition/Use/Requirement/Effect → Needs
+          └─ P3/P4：选择有资格的领域MethodSpec与真实 UseBinding、TargetBinding
+              ├─ 普通有限有序记录方法（维持已有 /2 独立契约）
+              └─ 具有实际前提的有限K-Relation方法（从本地参考移植并逐域验收）
+                  └─ P5：可重建有型域计划/TargetProgramIR（不是作者源，不是第二GraphIR）
+                      ├─ P6：TS生成与真实类型/运行检查
+                      └─ P6：Rust生成与真实cargo/rustc/行为检查
+                          └─ P7：完整ArtifactSet、SourceMap、状态/证据、后继修改回源
+```
+
+研究/旧源线：
+
+```text
+原研究字节及568追溯（不可变来源）──> 基础抽象形成候选、专业桥、区别/反例审计
+历史 /1、/2、gift.author-structure/1 ──> 各自冻结旧Reader ──> 只读语义对照与有向迁移候选
+                                                    └──> 经明确作者采纳才写新唯一作者源
+```
+
+不引入第二份持久WorldIR、独立graph Writer、用户必须手写fn/let的文本语言、新六工具或中央字段总表。原Python引擎短期作为**独立预期值oracle/适配试验**；真正部署时由原Rust/仓库Method owner接管经证明可复用的机制。不维持两个长期可独立改义的生产Method。
+
+### 4.1 最小集成接口（概念合同，不是声称仓库已存在的TS/Rust类型）
+
+- `BoundRelationInputs`：引用实际作者定义、ModuleUse/Use发生、精确Scope（理论+模型+解释的修订）、Sort/Carrier及其成员身份、显式有限覆盖、数值和注解画像及原始来源。没有源或未知完整性不能默认空关系；未知专业Sort不转成Text名单。
+- `QualifiedRelationMethod`：针对已选Algebra和每种操作的合法输入、输出、正常/失败/停止、预算、优化法律、增量适用域、目标支持矩阵；`NeedsMethod`不变成空成功。
+- `DerivedRelationPlan`：只读，保留join共享角色、投影fiber、重名映射、重复和annotation表达；source@revision→Definition→Use→Method→Target节点与SourceMap可复算，生成器不得自行选择/改义。
+- `GeneratedArtifacts`：由原ArtifactSet/Target/Verification持有，保存TS/Rust源码、必要依赖/编译工具链身份、精确命令与结果、输出映射、完整性状态。不能因已生成源码就声称已编译、可运行、已发布或已完成要求。
+
+这些名称只表示映射所需字段和责任，真正落地优先复用已存在的`MethodSpec`、`UseBinding`、`TargetProgramIR`、`SourceMap`、`ArtifactSet`；若接口已承载，不新增同义字段或容器。
+
+## 5. 施工阶段、可撤回性和判定门
+
+**A. 冻结与盘点。** 获取11月8日最新完整629文件ZIP及其增量和交接，核对其完整SHA及严格前像，解开内部Manifest索引；对照11月5日源包做逐文件SHA集合和逻辑差异，而非把629减82作为新增能力数。将每一独立成果标注 `已独立实测/已设计未实现/旧参考/仅研究/已被#896取代/未知`，保留旧输入和负例，拒绝覆盖新版本。
+
+**B. #892规范差异收口。** 对46个改动文件由原owner归类；四份完全同Blob可快速通过“精确相同”审计，其余42份核核心条款而非用文件SHA不等当作语义缺失。尤其核 `ASCII→Unicode+空名`、`/2→design-converged`、纯转导、精度、生成源归属、Norm/oblige/avoid、ExecBody与对象专属项、工具协议Schema。保留语义与历史读档资格，不能把旧schema默认为当前Writer。没有确证的漏项留未决。
+
+**C. 选首个可跑通领域接缝。** 以一份`design-converged`作者模块表达有型有限Relation/Use和一个共享角色join，真实Rust Reader和名称/类型阶段检查，然后在P3/P4按明确Profile取得有限Relation Method、P5派生计划、P6输出TS并运行参考结果。作者源只改真实声明/参数，Join不是手写代码；先不增加新的顶层IR/作者语法。用旧Python方法作为独立对照，校验相同作用域、重数、预算和错误。
+
+**D. 通用化与六代数。** 扩展Project Import/Lock、无共享角色笛卡尔积、投影、重命名、Alternative，六代数和全部弱类型/错误负例；单次共享角色索引不能仅提高性能却改变budget/语义。纯数据、流式事件、开放世界和外部动作分别限定；特殊事件集合不能假冒真实外部事件。先定公共保持律，再批准对应优化；不得用幂等性删Count/Provenance/Rational的重复。
+
+**E. 增量和修订。** 精确输入修改→失效读集/影响选择→旧新关联键重算→候选结果→成功提交，失败仍保留旧态；DAG维持与固定点递归分开审查，证明不足先完整重算或返回Needs。源编辑必须保持Identity/Revision/UseOccurrence/SourceMap一致，旧发布工件不被热改。
+
+**F. Rust真实目标与多目标一致性。** 把编译器的Rust实现、TS目标和Rust目标三件事分别验收；所选完整作者/Method语义固定后，Rust Target选择合法整数/精度、容器/借用/ABI、Cargo依赖、工具链、构建/运行/输出。TS和Rust用独立Target检查而不是用同一个Printer或同一个错误实现自证；资源、平台及额外资格独立记录。
+
+**G. 来源资料、文档及分支收束。** 对原研究byte、全568逐项责任、1786项U和旧方法建立原资料保留及消费者链；专业Meaning的扩充必须有具体语义保持和反例。将真正已采用差异写回旧owner和少量必要的规范；退役重复README/报告只在原内容及依赖都保全后执行。#895、#896和#892不是三份平等真源；按相交owner形成一个可验收的目标变更，再经独立授权选择合并/关闭分支。不得擅自合并main。
+
+## 6. 最小但不能省掉的验收矩阵
+
+| 基础问题 | 必须验证的正/反例与判定 |
+| --- | --- |
+| 格式与作者权 | 三个历史Marker用准确Reader；converged源完整读；generated不可得第二Writer；原源byte/duplicate key/精确数字词元/Unicode与空名；不能误接不同格式 |
+| 语义形成 | 零注解非法Sort成员先拒绝，合法零注解消去；所有关系（含空）真实Scope/Algebra/Sort；同角色异Sort拒绝；合法Sort相同不同Scope不能暗合 |
+| Join/Project | 同角色匹配、无共享角色笛卡尔积、无匹配空输出、重复计数、投影fiber、端口重名与角色重映射；优化前后按同代数输出全等 |
+| 六代数 | Boolean/Count/Tropical/Rational/Provenance/Events各自加、乘、zero、one、重复/幂等、准确编码和预算；不能用样本关联代签现实概率/事件 |
+| 大规模预算 | 3250×3250无重合角色场景应正确返回空结果，不误`TARGET_RUNTIME_BUDGET`；不以不同操作指标当成实际加速比例，需单独测真实资源 |
+| 方法边界 | 未获资格的query、未知完整性、无合格Interpretation、未实现固定点/目标、异常效果分别保留准确Needs/拒绝/Stopped；合法静态情况不能被过度拒绝 |
+| 增量与恢复 | 修改/删除/重排/同值不同来源/旧新角色索引；增量与完整重算一致；预算错误不破坏旧态；对递归计划独立声明未支持或实证资格 |
+| 目标与精度 | 无界数学Int不能强压I64；目标TS/Rust源码实际编译、执行、逐目标观察对照；源码位置与输出成员均可追溯；Rust内核测试不能替代Rust目标验证 |
+| 研究/来源 | 原research SHA、568映射SHA与各计数；实例从U/D候选→Definition/Meaning→反例/Method→目标的真实踪迹；未解释域不发伪实现合格 |
+| 发布/再修改 | 单一author Writer、确定导入锁与使用发生、真SourceMap、输出闭包、版本与撤回；生成目标只能通过证据充足的回源协同编辑 |
+
+**结果门槛**：设计字段存在 ≠ Reader读得出 ≠ 名称/类型检查 ≠ Meaning资格 ≠ Method可运行 ≠ TS/Rust源码生成 ≠ 目标实编/行为一致 ≠ 正式仓库采用、运行或部署。每项用正确的测试和原始证据报告。未知不以默认空值、空产物或新版本标签宣告完成。
+
+## 7. 竞争策略与推荐
+
+- **整包复制本地Python工程进#896**：短期似乎最快，但新旧Reader/IR/Writer竞争、错误源范围、重复目标和跨语言源码所有权无法闭合；不采用为最终融合。
+- **全部以Rust重写并删本地参考**：长期单内核合理，但会损失成熟Python oracle、旧用例与研究来源；没有对照前不可先删，不适合直接起步。
+- **长期双生产内核（Python与Rust同时权威）**：允许明确的不同Method实现选择，但不允许两套可以独立改义的公共作者/专业Meaning；除非确实有分离消费者、接口与成本证据，否则增加漂移和治理成本。
+- **推荐：单一作者与原Method/Target阶段 + 保留Python独立oracle + 逐个把高价值K-关系机制进入合格Method**。初步可执行闭环先证一种关系Join/一种代数/TS，随后六代数、复合关系、增量、Rust Target；不同阶段保留真实未决与来源，随时可以回退到上一个完整版本。
+
+## 8. 现在无法断言的内容
+
+尚未获得11月8日最新629文件ZIP的准确字节，也没有在本审查中运行Rust/TS全套或与最新产物做逐行/逐成员diff；本文件不证明本地新成果均已覆盖，也不证明#892所有内容同义被吸收，更不证明不同执行目标的行为已经等价。此次已完成的是未来任务调度停用（不等于取消已启动的12:12轮次）、GitHub三条设计线的源码/规范检查、对#892改动路径与补丁的覆盖核对、对11月5日原研究/IR/关系代码的完整包读取与关键原始SHA核验，以及据此提出可实施的融合合同和验收路径。
