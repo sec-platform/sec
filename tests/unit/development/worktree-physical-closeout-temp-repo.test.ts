@@ -327,49 +327,7 @@ test('real registered worktree reaches registry and physical absence under one d
   });
 }, 30_000);
 
-test('completed worktree evidence is retained while the branch is live and reclaimed after ref settlement', async () => {
-  await withCloseoutFixture({}, async (value) => {
-    const authorization = await prepareWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations);
-    const receipt = await executeWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: authorization.authorizationPath
-    });
-    expect(receipt.terminal).toBe('completed');
-
-    const retained = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
-    expect(retained.retiredOperationIds).toEqual([]);
-    expect(retained.retained).toContainEqual({
-      operationId: authorization.operationId,
-      reason: 'branch-live',
-      terminal: 'completed'
-    });
-    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
-    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
-
-    git(value.repository, ['branch', '-D', value.branch]);
-    const reclaimed = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
-    expect(reclaimed.retiredOperationIds).toEqual([authorization.operationId]);
-    expect(reclaimed.ownerRetired).toBeTrue();
-    expect(reclaimed.retained).toEqual([]);
-    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
-    expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
-    expect(existsSync(authorization.proofRoot.path)).toBeFalse();
-  });
-}, 30_000);
-
-test('common-dir writer excludes worktree unregister and evidence retirement until released', async () => {
+test('completed worktree evidence honors lease and unknown-content fences before branch-settled GC', async () => {
   await withCloseoutFixture({}, async (value) => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
@@ -389,37 +347,61 @@ test('common-dir writer excludes worktree unregister and evidence retirement unt
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: authorization.authorizationPath
     });
-    const firstLease = await acquireWorkspaceWriteLease(commonDir);
+    const unregisterLease = await acquireWorkspaceWriteLease(commonDir);
     try {
       await expect(execute()).rejects.toThrow('Workspace writer lease is already held');
-      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
+      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u))
+        .toContain(`worktree ${gitPath(value.target)}`);
       expect(existsSync(value.target)).toBeTrue();
     } finally {
-      await firstLease.release();
+      await unregisterLease.release();
     }
-    expect((await execute()).terminal).toBe('completed');
-    git(value.repository, ['branch', '-D', value.branch]);
+    const receipt = await execute();
+    expect(receipt.terminal).toBe('completed');
 
-    const secondLease = await acquireWorkspaceWriteLease(commonDir);
+    const retained = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(retained.retiredOperationIds).toEqual([]);
+    expect(retained.retained).toContainEqual({
+      operationId: authorization.operationId,
+      reason: 'branch-live',
+      terminal: 'completed'
+    });
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+
+    git(value.repository, ['branch', '-D', value.branch]);
+    const gcLease = await acquireWorkspaceWriteLease(commonDir);
     try {
       await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
         .rejects.toThrow('Workspace writer lease is already held');
       expect(existsSync(authorization.authorizationPath)).toBeTrue();
     } finally {
-      await secondLease.release();
+      await gcLease.release();
     }
-    expect((await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository)).retiredOperationIds)
-      .toEqual([authorization.operationId]);
+    const operationRoot = path.dirname(authorization.authorizationPath);
+    const unknown = path.join(operationRoot, 'future-owner-evidence.json');
+    writeFileSync(unknown, '{}\n', 'utf8');
+    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+      .rejects.toThrow('unvalidated operation evidence');
+    expect(existsSync(unknown)).toBeTrue();
+    expect(existsSync(operationRoot)).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+    unlinkSync(unknown);
+    const reclaimed = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(reclaimed.retiredOperationIds).toEqual([authorization.operationId]);
+    expect(reclaimed.ownerRetired).toBeTrue();
+    expect(reclaimed.retained).toEqual([]);
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
+    expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
+    expect(existsSync(authorization.proofRoot.path)).toBeFalse();
   });
-}, 30_000);
+}, 90_000);
 
-test('empty ignored documentation coordination retirement requires native writer exclusion', async () => {
+test('documentation coordination rejects nonempty and non-file leaves before empty-leaf admission', async () => {
   await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
     const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
     mkdirSync(path.dirname(lock));
-    writeFileSync(lock, '');
-    expect(git(value.target, ['check-ignore', '-v', '.tmp/documentation-projection.lock'])).toContain('.tmp/');
-    const preparation = prepareWorktreePhysicalCloseout({
+    const admission = () => prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -427,6 +409,24 @@ test('empty ignored documentation coordination retirement requires native writer
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     }, worktreePhysicalCloseoutOperations);
+    writeFileSync(lock, 'x');
+    await expect(admission()).rejects.toThrow('refuses nonempty state');
+    expect(readFileSync(lock, 'utf8')).toBe('x');
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u))
+      .toContain(`worktree ${gitPath(value.target)}`);
+    expect(existsSync(path.join(value.repository, '.git', 'sec-worktree-closeout'))).toBeFalse();
+    unlinkSync(lock);
+    mkdirSync(lock);
+    await expect(admission()).rejects.toThrow();
+    expect(existsSync(lock)).toBeTrue();
+    expect(readdirSync(lock)).toEqual([]);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u))
+      .toContain(`worktree ${gitPath(value.target)}`);
+    expect(existsSync(path.join(value.repository, '.git', 'sec-worktree-closeout'))).toBeFalse();
+    rmSync(lock, { recursive: true, force: true });
+    writeFileSync(lock, '');
+    expect(git(value.target, ['check-ignore', '-v', '.tmp/documentation-projection.lock'])).toContain('.tmp/');
+    const preparation = admission();
     if (process.platform !== 'win32') {
       await expect(preparation).rejects.toThrow('requires native open-writer exclusion; this host capability is unavailable');
       expect(readFileSync(lock, 'utf8')).toBe('');
@@ -448,73 +448,7 @@ test('empty ignored documentation coordination retirement requires native writer
       authorizationPath: authorization.authorizationPath
     })).terminal).toBe('completed');
   });
-}, 30_000);
-
-test('nonempty documentation coordination state rejects closeout without deleting the leaf', async () => {
-  await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
-    const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-    mkdirSync(path.dirname(lock));
-    writeFileSync(lock, 'x');
-    await expect(prepareWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations)).rejects.toThrow('refuses nonempty state');
-    expect(readFileSync(lock, 'utf8')).toBe('x');
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-  });
-}, 30_000);
-
-test('non-file documentation coordination state rejects closeout without deleting the leaf', async () => {
-  await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
-    const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
-    mkdirSync(lock, { recursive: true });
-    await expect(prepareWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations)).rejects.toThrow();
-    expect(existsSync(lock)).toBeTrue();
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-  });
-}, 30_000);
-
-test('completed worktree GC rejects unknown operation evidence instead of deleting it', async () => {
-  await withCloseoutFixture({}, async (value) => {
-    const authorization = await prepareWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations);
-    await executeWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: authorization.authorizationPath
-    });
-    const operationRoot = path.dirname(authorization.authorizationPath);
-    const unknown = path.join(operationRoot, 'future-owner-evidence.json');
-    writeFileSync(unknown, '{}\n', 'utf8');
-    git(value.repository, ['branch', '-D', value.branch]);
-    await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
-      .rejects.toThrow('unvalidated operation evidence');
-    expect(existsSync(unknown)).toBeTrue();
-    expect(existsSync(operationRoot)).toBeTrue();
-    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
-  });
-}, 30_000);
+}, 90_000);
 
 test('one branch settlement retires completed current worktree evidence it makes eligible', async () => {
   await withCloseoutFixture({}, async (value) => {
