@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import { writeJson } from '../../../src/adapters/filesystem/files.ts';
 import path from 'node:path';
 
 import { createWorkspaceWriteLeaseManager } from '../../../src/adapters/filesystem/write-lease.ts';
@@ -289,28 +290,45 @@ test('upgrade retains its recovery snapshot when the write lease is lost before 
   }, 'engineering-compiler-upgrade-fence-recovery-');
 });
 
-test('upgrade records missing migration entry diagnostics before planning', async () => {
-  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
-    prefix: 'engineering-compiler-upgrade-missing-migration-entry-',
-    migration: {
-      id: 'mig-missing-entry-file',
-      kind: 'text-append',
-      entry: 'migrations/missing-entry-file.json',
-      requiresVerification: false
-    }
+test('upgrade dry-run rejects both missing migration entries and escaping targets without publishing artifacts', async () => {
+  // These failures share a pre-upgrade snapshot. The first preview cannot
+  // publish state, so resolving its absent entry allows the next distinct
+  // invalid input to be observed without preparing a second workspace.
+  const { workspaceRoot, versionRoot } = await prepareBlockUpgradeDryRunFixture({
+    prefix: 'engineering-compiler-upgrade-invalid-migration-preview-',
+    migrations: [
+      {
+        id: 'mig-missing-entry-file',
+        kind: 'text-append',
+        entry: 'migrations/missing-entry-file.json',
+        requiresVerification: false
+      },
+      {
+        id: 'mig-target-escape',
+        kind: 'text-append',
+        entry: 'migrations/target-escape.json',
+        requiresVerification: false,
+        body: {
+          id: 'mig-target-escape',
+          kind: 'text-append',
+          reason: 'Attempt to write outside the generated project.',
+          target: '../outside-project.md',
+          content: '- should be rejected.\n'
+        }
+      }
+    ]
   });
 
   const configPath = getWorkspacePaths(workspaceRoot).workspaceConfigPath;
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const diagnosticsPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics);
   const configBefore = await fs.readFile(configPath);
   const lockBefore = await fs.readFile(lockPath);
-  await expect(fs.lstat(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics)))
-    .rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(diagnosticsPath)).rejects.toMatchObject({ code: 'ENOENT' });
 
-  await expectUpgradeDryRunFailureWithoutDiagnostics(
-    workspaceRoot,
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    {
+  const assertionFailures: unknown[] = [];
+  try {
+    await expectUpgradeDryRunFailureWithoutDiagnostics(workspaceRoot, diagnosticsPath, {
       code: 'UPGRADE-MIGRATION-002',
       details: {
         failedCheck: 'migration-entries',
@@ -318,41 +336,25 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
         migrationKind: 'text-append',
         entry: 'migrations/missing-entry-file.json'
       }
-    }
-  );
-  expect(await fs.readFile(configPath)).toEqual(configBefore);
-  expect(await fs.readFile(lockPath)).toEqual(lockBefore);
-});
+    });
+    expect(await fs.readFile(configPath)).toEqual(configBefore);
+    expect(await fs.readFile(lockPath)).toEqual(lockBefore);
+  } catch (error) {
+    assertionFailures.push(error);
+  }
 
-test('upgrade records migration target path escape diagnostics before planning', async () => {
-  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
-    prefix: 'engineering-compiler-upgrade-target-escape-',
-    migration: {
-      id: 'mig-target-escape',
-      kind: 'text-append',
-      entry: 'migrations/target-escape.json',
-      requiresVerification: false,
-      body: {
-        id: 'mig-target-escape',
-        kind: 'text-append',
-        reason: 'Attempt to write outside the generated project.',
-        target: '../outside-project.md',
-        content: '- should be rejected.\n'
-      }
-    }
+  // Complete only the missing declaration. The second, unrelated migration
+  // remains an invalid path; neither dry-run is allowed to mutate the project.
+  await writeJson(path.join(versionRoot, 'migrations', 'missing-entry-file.json'), {
+    id: 'mig-missing-entry-file',
+    kind: 'text-append',
+    reason: 'Valid first migration to expose the remaining path boundary.',
+    target: 'src/installed/private/customer-normalizer.ts',
+    content: '// valid planned text append\n'
   });
 
-  const configPath = getWorkspacePaths(workspaceRoot).workspaceConfigPath;
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const configBefore = await fs.readFile(configPath);
-  const lockBefore = await fs.readFile(lockPath);
-  await expect(fs.lstat(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics)))
-    .rejects.toMatchObject({ code: 'ENOENT' });
-
-  await expectUpgradeDryRunFailureWithoutDiagnostics(
-    workspaceRoot,
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    {
+  try {
+    await expectUpgradeDryRunFailureWithoutDiagnostics(workspaceRoot, diagnosticsPath, {
       code: 'UPGRADE-MIGRATION-004',
       details: {
         failedCheck: 'migration-targets',
@@ -361,8 +363,14 @@ test('upgrade records migration target path escape diagnostics before planning',
         role: 'target',
         root: 'project'
       }
-    }
-  );
-  expect(await fs.readFile(configPath)).toEqual(configBefore);
-  expect(await fs.readFile(lockPath)).toEqual(lockBefore);
+    });
+    expect(await fs.readFile(configPath)).toEqual(configBefore);
+    expect(await fs.readFile(lockPath)).toEqual(lockBefore);
+  } catch (error) {
+    assertionFailures.push(error);
+  }
+
+  if (assertionFailures.length > 0) {
+    throw new AggregateError(assertionFailures, 'Invalid migration previews lost an independent rejection or left effects');
+  }
 });
