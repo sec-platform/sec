@@ -270,11 +270,7 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     resourceClass: 'runtime-heavy',
     prRiskBaseline: true
   }),
-  slowFileSuite('e2e-demo-doctor', 'cli/demo-doctor', 'compiler-demo-doctor-e2e', 120_000, {
-    parallelSafe: true,
-    resourceClass: 'runtime-heavy'
-  }),
-  slowFileSuite('e2e-pipeline-end-to-end', 'workspace/reference-pipeline', 'compiler-pipeline-end-to-end-e2e', 360_000),
+  slowFileSuite('e2e-pipeline-end-to-end', 'workspace/reference-pipeline', 'compiler-pipeline-end-to-end-e2e', 540_000),
   slowFileSuite('e2e-expanded-blocks', 'workspace/expanded-blocks', 'compiler-expanded-blocks-e2e', 360_000, { parallelSafe: true }),
   slowFileSuite('e2e-explain', 'cli/explain', 'compiler-explain-e2e', 360_000, {
     parallelSafe: true,

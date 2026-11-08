@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { readJson } from "../../../src/adapters/filesystem/files.ts";
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
-import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   explainWorkspace,
   initWorkspace,
@@ -13,11 +13,67 @@ import {
   verifyWorkspace
 } from '../../../src/bootstrap/engineering/cli.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../../helpers/graph-assertions.ts';
-import { expectCliSuccess } from '../../testkit/cli.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, expectCliVariants } from '../../testkit/cli.ts';
 import { createWorkspace } from '../../testkit/workspace.ts';
+
+const expectedDemoChecklistItemCount = [
+  'verification-report',
+  'runtime-report',
+  'policy-report',
+  'acceptance-coverage',
+  'graph-lock',
+  'provenance-registry',
+  ...CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => artifact.id),
+  'review-summary'
+].length;
+const [, explainGraphMermaidArtifact, explainGraphDotArtifact] = CI_EXPLAIN_GRAPH_ARTIFACTS;
 
 test('v0.1 reference pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
+
+  // The fresh root provides the same missing-artifact and pre-init Doctor inputs.
+  await expectCliText(workspaceRoot, ['demo', 'checklist'], [
+    `Demo checklist attention; items=${expectedDemoChecklistItemCount}; missing=${expectedDemoChecklistItemCount}`,
+    `verification-report: missing; ${CI_ARTIFACT_FILES.verificationReport}`,
+    `${explainGraphMermaidArtifact.id}: missing; ${explainGraphMermaidArtifact.path}`,
+    `${explainGraphDotArtifact.id}: missing; ${explainGraphDotArtifact.path}`,
+    'Next command: bun run demo:quickstart'
+  ]);
+
+  await expectCliVariants(workspaceRoot, ['doctor'], {
+    text: [
+      'Developer environment doctor',
+      'Checks: 5',
+      'workspace-roots',
+      'Workspace roots missing: model, src, .sec; run platform init.',
+      'runtime-dependencies'
+    ],
+    json: {
+      status: expect.any(String),
+      checkCount: 5,
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'bun' }),
+        expect.objectContaining({ id: 'workspace-plan' }),
+        expect.objectContaining({ id: 'project-package' }),
+        expect.objectContaining({
+          id: 'workspace-roots',
+          status: 'warn',
+          message: 'Workspace roots missing: model, src, .sec; run platform init.'
+        }),
+        expect.objectContaining({ id: 'runtime-dependencies' })
+      ]),
+      dependencies: expect.objectContaining({
+        mode: expect.any(String),
+        recommendedAction: expect.any(String)
+      })
+    },
+    compactJson: {
+      status: expect.any(String),
+      checkCount: 5,
+      dependencies: expect.objectContaining({ mode: expect.any(String) })
+    }
+  });
+
   const { workspaceRoot: resolvedWorkspaceRoot, modelRoot, prismaRoot } = getWorkspacePaths(workspaceRoot);
   const acceptanceCoveragePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
@@ -26,6 +82,22 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   const runtimeReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport);
 
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
+  // CLI init and its physical roots are independently observed by e2e-workspace.
+  await expectCliJson(
+    workspaceRoot,
+    ['doctor', '--json', '--compact'],
+    {
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'workspace-roots',
+          status: 'ok',
+          message: 'Workspace roots exist: workspace, model, src, .sec.'
+        })
+      ])
+    },
+    { compact: true }
+  );
+
   const prismaTemplateDirectory = path.join(modelRoot, 'schema');
   await fs.mkdir(prismaTemplateDirectory, { recursive: true });
   await fs.writeFile(path.join(prismaTemplateDirectory, 'db.prisma.template'), `
@@ -184,4 +256,4 @@ model CustomExtension {
       CI_ARTIFACT_FILES.reviewSummary
     ])
   );
-}, 360000);
+}, 540000);
