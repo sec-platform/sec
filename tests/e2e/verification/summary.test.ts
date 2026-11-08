@@ -5,7 +5,10 @@ import path from 'node:path';
 import { publishReviewSummary } from '../../../src/adapters/compilation/emit/publish-review-summary.ts';
 import { buildReviewSummary } from '../../../src/adapters/compilation/emit/write-review-summary.ts';
 import { readJson, writeJson } from "../../../src/adapters/filesystem/files.ts";
-import { resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../../src/adapters/workspace/yaml.ts';
+import { runPolicyGate } from '../../../src/adapters/verification/run-policy-gate.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../../src/semantics/policies/rules.ts';
 import type { AcceptanceCoverageReport } from '../../../src/assurance/acceptance/coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../../src/assurance/verification/contract/types.ts';
@@ -19,6 +22,9 @@ import {
 } from '../../helpers/review-fixtures.ts';
 import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess } from '../../testkit/cli.ts';
 import { createWorkspace, prepareComposedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
+
+const TENANT_FLOW_RULE = TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE;
+const TENANT_FLOW_PREDICATE = policySemanticRule(TENANT_FLOW_RULE).requiredPredicate;
 
 // Review Summary production and durable-artifact contracts.
 async function readReviewInputs(workspaceRoot: string): Promise<{
@@ -43,6 +49,28 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
 
 test('canonical Review Summary publication persists the artifact and generated path', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-write-');
+  // Source declaration rejections require no Lock or separate workspace.
+  const { policiesRoot } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(policiesRoot, { recursive: true });
+  // Each rejection occurs in the uncached declaration reader, before a Lock or
+  // workspace evaluation is acquired. Remove its sole file before the next input.
+  for (const [file, policies, failure] of [
+    ['unknown.yaml', [{ id: 'unknown-rule', severity: 'error',
+      appliesTo: ['entity/customer-basic'], rule: 'source_text_looks_safe' }], /Policy source violates the exact schema/],
+    ['duplicate.yaml', [
+      { id: 'duplicate-policy', severity: 'warn', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE },
+      { id: 'duplicate-policy', severity: 'blocker', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE }
+    ], /Conflicting duplicate policy id/],
+    ['official-conflict.yaml', [
+      { id: 'tenant-scope-required', severity: 'blocker',
+        appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE }
+    ], /Conflicting policy declarations/]
+  ] as const) {
+    const target = path.join(policiesRoot, file);
+    await writeYaml(target, { policies });
+    await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(failure);
+    await fs.rm(target);
+  }
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
   const { lock, provenance, report, coverage } = buildReviewInputs({
@@ -87,9 +115,12 @@ test('canonical Review Summary publication persists the artifact and generated p
   expect(rejectedReview.stdout).toBe('');
   expect(rejectedReview.stderr).toContain('duplicate key "formatVersion"');
   expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
-}, 180000);
+}, 360000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-review-fast-' });
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-review-fast-',
+    blockIds: ['ticket/basic', 'worklog/basic']
+  });
   const projectRoot = workspaceRoot;
   const customerServicePath = path.join(
     projectRoot,
@@ -99,6 +130,43 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
     'customer-service.ts'
   );
   const customerService = await fs.readFile(customerServicePath, 'utf8');
+  // The live Policy Gate is observed before mutating the same independently owned workspace.
+  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+  await fs.mkdir(projectPoliciesRoot, { recursive: true });
+  await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
+    policies: [{
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['entity/customer-basic', 'ticket/basic', 'worklog/basic'],
+      rule: TENANT_FLOW_RULE
+    }]
+  });
+
+  const gateReport = await runPolicyGate(workspaceRoot);
+  const tenantScopePolicy = gateReport.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
+
+  expect(gateReport.status).toBe('passed');
+  expect(gateReport.violations).toEqual([]);
+  expect(gateReport.diagnostics).toEqual([]);
+  expect(gateReport.evaluation?.requiredSemanticPredicates).toContain(TENANT_FLOW_PREDICATE);
+  expect(tenantScopePolicy).toMatchObject({
+    sourceScope: 'project',
+    sourcePath: 'model/policies/tenant.yaml'
+  });
+  expect(gateReport.evaluation?.assurance).toBe('semantic');
+  expect(tenantScopePolicy?.targets).toEqual([
+    'src/installed/entity/customer-service.ts',
+    'src/installed/ticket/ticket-service.ts',
+    'src/installed/worklog/worklog-service.ts'
+  ]);
+  expect(gateReport.evaluation?.unsupportedSemanticPredicates).toEqual([]);
+
+  // The existing composed multi-block workspace also exercises the Policy Gate
+  // fail-closed target read, without repeating its full setup in another test.
+  await fs.rm(customerServicePath);
+  await expect(runPolicyGate(workspaceRoot)).rejects.toMatchObject({ code: 'VERIFY-POLICY-003' });
+  await fs.writeFile(customerServicePath, customerService, 'utf8');
+  await fs.rm(path.join(projectPoliciesRoot, 'tenant.yaml'));
   const policyViolatingCustomerService = customerService
     .replace("import { currentTenant } from '../tenant/context.ts';\n", '')
     .replaceAll('const tenantId = currentTenant(session);', 'const tenantId = session.tenantId;');
@@ -151,7 +219,7 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
       }
     ])
   );
-}, 180000);
+}, 360000);
 // CLI overview presentation keeps the existing runtime-heavy suite and shared locked workspace.
 // 只有 overview acceptance 被选中时才创建一次 locked + explained Workspace。
 // 文件内其他 lightweight summary sentinel 不为未选择的完整 Pipeline 付费。

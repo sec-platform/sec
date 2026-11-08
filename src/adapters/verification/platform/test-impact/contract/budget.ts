@@ -317,11 +317,10 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   )),
   slowFileSuite('e2e-manifest', 'workspace/override-manifest', 'compiler-manifest-e2e'),
   slowFileSuite('e2e-pipeline', 'workspace/pipeline', 'compiler-pipeline-e2e'),
-  slowFileSuite('e2e-policy', 'verification/policy', 'compiler-policy-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-private-registry', 'workspace/private-registry', 'compiler-private-registry-e2e'),
   slowFileSuite('e2e-registry', 'toolchain/registry', 'compiler-registry-e2e'),
   slowFileSuite('e2e-repair', 'workspace/repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-summary', 'verification/summary', 'compiler-summary-e2e', 120_000, {
+  slowFileSuite('e2e-summary', 'verification/summary', 'compiler-summary-e2e', 960_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
   }),
