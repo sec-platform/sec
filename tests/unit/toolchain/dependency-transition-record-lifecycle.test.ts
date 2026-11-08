@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { dependencyTransitionRecordBytes, parseDependencyTransitionRecord } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { hasExactObjectKeys } from '../../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
 import {
   advanceDependencyTransition, beginDependencyTransition, markDependencyTransitionFailure,
   readDependencyTransition, readDependencyTransitionLedger, transitionFailure
@@ -52,6 +53,14 @@ function assertDeepFrozen(value: unknown): void {
 }
 
 test('begin, successor and durable readback retain one exact canonical immutable record', async () => using(async f => {
+  // Keep the independent exact-key oracle in the existing record lifecycle.
+  const packed = { 'a\0b': 1 };
+  // A pure reject-all implementation must not satisfy the negative examples.
+  assert.equal(hasExactObjectKeys({ a: 1, b: 2 }, ['a', 'b']), true);
+  assert.equal(hasExactObjectKeys(packed, ['a\0b']), true);
+  assert.equal(hasExactObjectKeys(packed, ['a', 'b']), false);
+  assert.equal(hasExactObjectKeys(null, ['a']), false);
+  assert.equal(hasExactObjectKeys([], []), false);
   const first = await beginDependencyTransition(request(f));
   assert.equal(first.phase, 'prepared'); assert.equal(first.sequence, 1);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
