@@ -65,6 +65,10 @@ test('begin, successor and durable readback retain one exact canonical immutable
   assert.equal(first.phase, 'prepared'); assert.equal(first.sequence, 1);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
   assertDeepFrozen(first);
+  await assert.rejects(advanceDependencyTransition({ ...first }, { phase: 'complete' }, f.options), {
+    code: 'RUNTIME-DEPS-004',
+    message: 'Dependency transition write requires an owner-admitted immutable record'
+  });
   const second = await advanceDependencyTransition(first, { phase: 'complete' }, f.options);
   assert.equal(second.sequence, 2); assert.equal(second.previousRecordDigest, first.recordDigest);
   assert.equal(second.operationKey, first.operationKey); assertDeepFrozen(second);
@@ -73,9 +77,23 @@ test('begin, successor and durable readback retain one exact canonical immutable
   assertDeepFrozen(parsed); assert.deepEqual(parsed, second);
 }));
 
-test('begin rejects a structural source clone before creating any transition namespace', async () => using(async f => {
+test('absent transition namespace rejects forged sources, read effects and cancellation', async () => using(async f => {
   await assert.rejects(beginDependencyTransition({ ...request(f), sourceGeneration: { ...f.sourceGeneration } }),
     (error: unknown) => error instanceof Error && error.message.includes('was not issued by the physical source compiler'));
+  assert.equal(existsSync(path.join(f.root, '.tmp')), false);
+
+  const readOptions = new Proxy({ ...f.options,
+    get beforeCommit() { assert.fail('reader acquired write fence'); throw new Error('unreachable'); },
+    get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); throw new Error('unreachable'); }
+  }, { ownKeys() { assert.fail('reader enumerated facade'); } });
+  assert.equal(await readDependencyTransitionLedger(f.root, readOptions), null);
+  assert.equal(existsSync(dependencyTransitionNamespacePaths(f.root).recordsRoot), false);
+
+  const controller = new AbortController(), reason = new Error('cancelled');
+  const cancelOptions = runtimeDependencyOperationControls({ ...f.options, signal: controller.signal });
+  const pending = readDependencyTransitionLedger(f.root, cancelOptions);
+  controller.abort(reason);
+  await assert.rejects(pending, error => error === reason);
   assert.equal(existsSync(path.join(f.root, '.tmp')), false);
 }));
 
@@ -104,27 +122,8 @@ test('project runtime bridge records bind a project locator to an external issue
   assert.deepEqual(parseDependencyTransitionRecord(dependencyTransitionRecordBytes(record)), record);
 }));
 
-test('read-only observation ignores effect capabilities and has no namespace creation side effect', async () => using(async f => {
-  const options = new Proxy({ ...f.options, get beforeCommit() { assert.fail('reader acquired write fence'); throw new Error('unreachable'); },
-    get generatedStateLifecycle() { assert.fail('reader acquired lifecycle'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
-  assert.equal(await readDependencyTransitionLedger(f.root, options), null);
-  assert.equal(existsSync(dependencyTransitionNamespacePaths(f.root).recordsRoot), false);
-}));
 
-test('cancellation during an absent-ledger observation does not become a successful null result', async () => using(async f => {
-  const controller = new AbortController(), reason = new Error('cancelled');
-  const options = runtimeDependencyOperationControls({ ...f.options, signal: controller.signal });
-  const pending = readDependencyTransitionLedger(f.root, options); controller.abort(reason);
-  await assert.rejects(pending, error => error === reason);
-}));
 
-test('a structural clone of a valid record is not admitted to effectful succession', async () => using(async f => {
-  const first = await beginDependencyTransition(request(f));
-  await assert.rejects(advanceDependencyTransition({ ...first }, { phase: 'complete' }, f.options), {
-    code: 'RUNTIME-DEPS-004',
-    message: 'Dependency transition write requires an owner-admitted immutable record'
-  });
-}));
 
 test('falsy failure projections stay nonempty and reach the durable writer unchanged', async () => {
   const failures = [undefined, null, false, 0, ''].map(reason => transitionFailure(reason));
