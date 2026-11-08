@@ -1,0 +1,107 @@
+{
+  "explanation": "These mappings refer to existing research designs, never to automatic semantic authority. Only declared partial consumers are actually installed.",
+  "original_mapping_sha256": "735fed9f13fdd7f865103567bb9555d81676ba8e69792fde234471074cc0fdfd",
+  "mapping": [
+    {
+      "id": "D0009",
+      "original_name": "主体标识",
+      "source_units": [
+        "U0017",
+        "U0022",
+        "U0038"
+      ],
+      "scope": "partial",
+      "consumer": "use identities and definition references",
+      "limit": "full namespace/real-object identity semantics not implemented"
+    },
+    {
+      "id": "D0048",
+      "original_name": "角色实参绑定",
+      "source_units": [
+        "U0067",
+        "U0066",
+        "U0070"
+      ],
+      "scope": "partial",
+      "consumer": "typed named input ports and same-use argument binding",
+      "limit": "arbitrary n-ary predicates and identity roles beyond sequence inputs need own methods"
+    },
+    {
+      "id": "D0089",
+      "original_name": "量词树",
+      "source_units": [
+        "U0135",
+        "U0136",
+        "U0137",
+        "U0138",
+        "U0139",
+        "U0710"
+      ],
+      "scope": "not implemented",
+      "consumer": "retained complete research contract",
+      "limit": "general binder/quantifier structures remain with the legacy finite-logic reference; not part of current multi-target IR dialect"
+    },
+    {
+      "id": "D0110",
+      "original_name": "空值政策",
+      "source_units": [
+        "U0042",
+        "U0043",
+        "U0044",
+        "U0048"
+      ],
+      "scope": "research only",
+      "consumer": "type family research",
+      "limit": "no claim of full subtype/generic type solver"
+    },
+    {
+      "id": "D0185",
+      "original_name": "解释修订",
+      "source_units": [
+        "U0213",
+        "U0601",
+        "U1359"
+      ],
+      "scope": "partial",
+      "consumer": "definition revision and source digest",
+      "limit": "not a universal semantic interpretation version resolver"
+    },
+    {
+      "id": "D0423",
+      "original_name": "方法合同",
+      "source_units": [
+        "U0514",
+        "U0516",
+        "U0517"
+      ],
+      "scope": "partial",
+      "consumer": "installed method kind + typed input/output and basic method obligations",
+      "limit": "full failure/effect/progress/resource contract not implemented"
+    },
+    {
+      "id": "D0444",
+      "original_name": "视图对应",
+      "source_units": [
+        "U0561",
+        "U0648",
+        "U1553"
+      ],
+      "scope": "partial",
+      "consumer": "source map from generated line ranges to source definition and use",
+      "limit": "no general editable view lens or source regeneration from modified Rust"
+    },
+    {
+      "id": "D0568",
+      "original_name": "查询覆盖切面",
+      "source_units": [
+        "U0559",
+        "U0335",
+        "U1706"
+      ],
+      "scope": "partial",
+      "consumer": "finite fully enumerated local input coverage",
+      "limit": "not evidence about open world, secret visibility or unlimited budgets"
+    }
+  ],
+  "all_other_D": "preserved as design inputs in original complete 568 contract mapping, not implemented"
+}

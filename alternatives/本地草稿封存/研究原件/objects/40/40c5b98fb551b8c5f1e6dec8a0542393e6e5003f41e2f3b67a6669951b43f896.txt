@@ -1,0 +1,34 @@
+# 共同模型的实际计算
+
+全部对象为明示的有限假设模型；不是现场执行。
+
+## 请求
+
+| 对象发生 | actor | amount | start | end | purpose | fits | permitted_in_model | locally_acceptable |
+|---|---|---|---|---|---|---|---|---|
+| {"identity": "r1", "sort": "Request"} | {"identity": "alice", "sort": "Agent"} | {"denominator": 1, "numerator": 4} | 0 | 2 | research | true | true | true |
+| {"identity": "r2", "sort": "Request"} | {"identity": "bob", "sort": "Agent"} | {"denominator": 1, "numerator": 1} | 0 | 2 | research | true | false | false |
+| {"identity": "r3", "sort": "Request"} | {"identity": "alice", "sort": "Agent"} | {"denominator": 1, "numerator": 8} | 0 | 2 | research | false | false | false |
+| {"identity": "r4", "sort": "Request"} | {"identity": "alice", "sort": "Agent"} | {"denominator": 1, "numerator": 4} | 10 | 12 | research | true | false | false |
+| {"identity": "r5", "sort": "Request"} | {"identity": "alice", "sort": "Agent"} | {"denominator": 1, "numerator": 4} | 0 | 2 | sale | true | false | false |
+| {"identity": "r6", "sort": "Request"} | {"identity": "alice", "sort": "Agent"} | {"denominator": 1, "numerator": 4} | 0 | 2 | research | true | true | true |
+
+## 义务记录
+
+| 对象发生 | actor | due | coverage_to | status |
+|---|---|---|---|---|
+| {"identity": "o1", "sort": "Duty"} | {"identity": "alice", "sort": "Agent"} | 7 | 8 | timely_record |
+| {"identity": "o2", "sort": "Duty"} | {"identity": "alice", "sort": "Agent"} | 7 | 8 | violation_supported |
+| {"identity": "o3", "sort": "Duty"} | {"identity": "alice", "sort": "Agent"} | 7 | 4 | unresolved |
+| {"identity": "o4", "sort": "Duty"} | {"identity": "alice", "sort": "Agent"} | 10 | 8 | pending |
+
+## 新定义自动分类
+
+| 对象发生 | needs_coordination |
+|---|---|
+| {"identity": "r1", "sort": "Request"} | true |
+| {"identity": "r2", "sort": "Request"} | false |
+| {"identity": "r3", "sort": "Request"} | false |
+| {"identity": "r4", "sort": "Request"} | false |
+| {"identity": "r5", "sort": "Request"} | false |
+| {"identity": "r6", "sort": "Request"} | true |

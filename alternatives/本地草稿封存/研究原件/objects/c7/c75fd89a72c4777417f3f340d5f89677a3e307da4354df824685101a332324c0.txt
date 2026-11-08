@@ -1,0 +1,54 @@
+# Gift · 统一有型IR与TS/Rust双目标生成（实际合一参考包）
+
+**不是新文本编程语言，也不是生产版已经集成。** 作者源是非代码的定义、采用、端口连接和要求；编译后的IR有明确的类型、实例、关系及语义画像。TS/Rust生成器消费完全相同的IR。原多维研究全部保留为设计依据，而非编译器运行前必须遍历的568字段。
+
+## 直接复现
+
+从包根目录运行：
+
+```sh
+python compile.py examples/shared_views.author.json --out generated/shared
+python compile.py examples/two_predicates.author.json --out generated/second
+python -m unittest discover -s tests -v
+PYTHONPATH=reference python -m unittest discover -s reference/tests_relations -p test_general.py -v
+python tools/check_release.py
+```
+
+Windows PowerShell运行旧参考测试：
+
+```powershell
+$env:PYTHONPATH = 'reference'
+python -m unittest discover -s reference/tests_relations -p test_general.py -v
+```
+
+编译输出`generated/<project>/semantic_ir.json`、`program.ts`、`program.rs`、`source_map.json`、`expected.txt`及`verification.json`。仅Python标准库和系统中可用的目标工具链：若安装Node+tsc，将真正编译运行TS并按精确行结果对照；若安装rustc，将真正编译运行Rust并与同一参考对照。**本次环境有Node/tsc，无rustc，所以Rust状态仍为“生成但未实编”。**
+
+## 使用什么，不使用什么
+
+- 主文档只有`Gift统一模型_唯一主稿.md`与本README；模型不另立一套竞争本体。
+- `data/research_model.original.json`是原1,786项、568问、93份规则、62份理论、21,676份维面归属等**原始研究模型准确字节**。
+- `data/多维到Gift模型_568项逐项追溯.json`保留全部568个问题的来源、语义、反例线索及应由模型承担的区别；仅部分转为实际可执行消费者。
+- `reference/`保留前一版真实有限逻辑/关系解释器的源代码、原项目及原测试；通过原17项关系测试。它们是可信参考方法的候选，不拥有新作者规范，也不能凭归档自动获得双Target支持。
+- `src/gift_ir.py`将非代码结构形成实际可执行的*派生*有型IR并运行独立Python参考结果；`src/emit_targets.py`含两个Target生成器。
+- `generated/`是实际生成的IR、TS、Rust和输出；不允许在运行时把研究原始JSON当成已理解的计算节点。
+
+**未做**：GitHub生产仓库修改/合并、自动把568项变成解释器、通用Requirement→Method求解、完整Rust实编验收、任意目标语言一键成功、真实外部动作。
+
+历史原件与整个研究来源如需字节核验，请结合此前独立保留的《Gift_1786项信息与全部接合_整合包.zip》使用；本轻量工作包不循环嵌套完整前代档案。具体技术合同、结果和缺口见唯一模型主稿第九节。
+
+## 与仓库最新设计分支的接合（2026-11-05）
+
+最新汇总设计基线：`sec-platform/sec@81b0f70f610134241ea020a50663744a3818100f` (`codex/design-closure-20261023`)。已另开[待审PR #895](https://github.com/sec-platform/sec/pull/895)，仅在**原编译规范**中落实这一有限接合；没有写入生产代码、修改`main`或宣称完成仓库的全量Reader。
+
+**原生/2有限画像实际可运行：**`examples/repo_v2_query.author.json`使用仓库`gift.author-module/2`的`core:constant`、`core:function`和`data:query`结构；`src/branch_v2_bridge.py`只读地检查已具资格的静态有序序列、完整的纯三值比较、checked I64/Bool/Text，形成**派生目标IR**（与原`src/gift_ir.py`同一IR，不另建Writer），由现有`src/emit_targets.py`产生TS与Rust。完整源、导出、版本和方法来源见`generated/repo_v2/branch_correspondence.json`。
+
+```sh
+python compile.py examples/repo_v2_query.author.json --out generated/repo_v2
+python -m unittest discover -s tests -v
+PYTHONPATH=reference python -m unittest discover -s reference/tests_relations -p test_general.py -v
+python tools/check_release.py
+```
+
+**严格边界：**该参考桥只支持所列`/2`子集；尚未做仓库完整JSON Schema/Reader符合性验证，未处理跨模块Import/UseBinding/动态Provider/完整Requirement或`design-converged`候选版本；仓库无界`int`**不能**无证缩为I64，未知方法/效果/顺序/权限均返回明确缺项。Rust源码有实际输出但本环境无`rustc`。旧`gift.author-structure/1`仍作为参考输入**隔离保留**，绝不是仓库已采用的源协议。
+
+**IR责任位置：**正式作者真源仍是仓库ModuleRevision中的Definition/Use/Requirement；EngineeringIR的实体/事实不是全部专业执行语义；本包IR只是固定Method下可重建的P5 TargetProgramIR候选，不是全世界单一IR或第二本体。旧1,786项U、568项D及62理论保持准确字节、用于实际模型形成/反例/覆盖验收，不被删成标签，也不要求普通编译遍历它们。分支汇总设计本身比这份有限实现宽得多。

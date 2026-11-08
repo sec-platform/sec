@@ -1,202 +1,737 @@
 {
-  "schema": "gift.research-source-custody.partial/1",
-  "scope": "Historical originals whose bytes have been independently transferred and Git-blob verified in this branch; excludes unavailable originals",
-  "complete": false,
-  "verified_objects": [
+  "schema": "gift.research-source-custody/1",
+  "source_scope": "Available local Gift semantic research and design-fusion documents selected in this delivery; not a claim to all Library files or all historical versions.",
+  "unique_sources": 58,
+  "total_source_bytes": 44125502,
+  "objects": [
     {
       "sha256": "8949993d4a53d475b7e73cc6e09d03b9b66eb494e9ca381e1f8c1b534a8ab7cd",
-      "git_blob_sha": "3e896bd09c64dcd9bb587f3345aca9f6e0097d5c",
-      "path": "alternatives/本地草稿封存/研究原件/objects/89/8949993d4a53d475b7e73cc6e09d03b9b66eb494e9ca381e1f8c1b534a8ab7cd.txt",
-      "label": "开发面与统一语义设计"
+      "bytes": 27049,
+      "object": "objects/89/8949993d4a53d475b7e73cc6e09d03b9b66eb494e9ca381e1f8c1b534a8ab7cd.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/89/8949993d4a53d475b7e73cc6e09d03b9b66eb494e9ca381e1f8c1b534a8ab7cd.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "design_document",
+      "source_names": [
+        "Gift_开发面与统一语义_影响分析和源码生成总体设计_20261105.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "d123ad29279c575b28b5afeb7fb7cd0e9b9eef4fb2c834eaf318f70349a6c3e8",
+      "bytes": 960303,
+      "object": "../../../docs/信息/研究数据/sources_registry-d123ad29279c.json",
+      "repository_path": "docs/信息/研究数据/sources_registry-d123ad29279c.json",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/baseline/sources_registry.json",
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/sources/inherited_source_registry.json"
+      ],
+      "original_extension": ".json"
+    },
+    {
+      "sha256": "103e4996011cfb44e73e9c3dcda06ddf0eff66f428b65d3a556e99b84e8831a3",
+      "bytes": 182212,
+      "object": "../../../docs/信息/研究数据/contracts-103e4996011c.psv",
+      "repository_path": "docs/信息/研究数据/contracts-103e4996011c.psv",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/sources/contracts.psv"
+      ],
+      "original_extension": ".psv"
+    },
+    {
+      "sha256": "31df7289e53ef4d129158c53f1d34205280518a06a46345a90d1b203b942e207",
+      "bytes": 15802,
+      "object": "../../../docs/信息/研究数据/profiles-31df7289e53e.psv",
+      "repository_path": "docs/信息/研究数据/profiles-31df7289e53e.psv",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/sources/profiles.psv"
+      ],
+      "original_extension": ".psv"
+    },
+    {
+      "sha256": "7d07206b41a1deb68b7e9edbae208bf9b02558628e11096117afcc38999e57c9",
+      "bytes": 3199,
+      "object": "../../../docs/信息/研究数据/有限IR参考追溯-7d07206b41a1.json",
+      "repository_path": "docs/信息/研究数据/有限IR参考追溯-7d07206b41a1.json",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_IR_仓库分支设计融合_20261105.zip!Gift_IR_仓库设计融合_20261105/data/IR模型设计_具名追溯.json",
+        "Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip!data/IR模型设计_具名追溯.json"
+      ],
+      "original_extension": ".json"
+    },
+    {
+      "sha256": "c64d0bc4452a24e36f83fbfd27d22fe64dec4259666be7cbdac7b44a806b157e",
+      "bytes": 36217206,
+      "object": "../../../docs/信息/研究数据/research_model.original-c64d0bc4452a.json.gz",
+      "repository_path": "docs/信息/研究数据/research_model.original-c64d0bc4452a.json.gz",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_IR_仓库分支设计融合_20261105.zip!Gift_IR_仓库设计融合_20261105/data/research_model.original.json",
+        "Gift_统一模型_精简工作基线_20261105.zip!data/research_model.original.json",
+        "Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip!data/research_model.original.json"
+      ],
+      "original_extension": ".json",
+      "storage_encoding": "gzip; mtime=0; original content recovered by gzip decompression",
+      "stored_sha256": "34286de87ec832a448ae66219409438cb307d550c5b5856f93c51c99b0819e40",
+      "stored_bytes": 2721713
+    },
+    {
+      "sha256": "735fed9f13fdd7f865103567bb9555d81676ba8e69792fde234471074cc0fdfd",
+      "bytes": 907711,
+      "object": "../../../docs/信息/研究数据/568项模型责任追溯-735fed9f13fd.json",
+      "repository_path": "docs/信息/研究数据/568项模型责任追溯-735fed9f13fd.json",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_IR_仓库分支设计融合_20261105.zip!Gift_IR_仓库设计融合_20261105/data/多维到Gift模型_568项逐项追溯.json",
+        "Gift_统一模型_精简工作基线_20261105.zip!data/多维到Gift模型_568项逐项追溯.json",
+        "Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip!data/多维到Gift模型_568项逐项追溯.json"
+      ],
+      "original_extension": ".json"
     },
     {
       "sha256": "a1b312c8f0d520d86e6be177d9b5453a7639137a20ee908ccbc933ccf3cbbec7",
-      "git_blob_sha": "62bc32f8969c01ed4d6108b03f57dc3c69f1ec13",
-      "path": "alternatives/本地草稿封存/研究原件/objects/a1/a1b312c8f0d520d86e6be177d9b5453a7639137a20ee908ccbc933ccf3cbbec7.txt",
-      "label": "首批源码提交验收记录"
+      "bytes": 10210,
+      "object": "objects/a1/a1b312c8f0d520d86e6be177d9b5453a7639137a20ee908ccbc933ccf3cbbec7.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/a1/a1b312c8f0d520d86e6be177d9b5453a7639137a20ee908ccbc933ccf3cbbec7.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "review_document",
+      "source_names": [
+        "Gift_全融合_首批源码提交与验收记录_20261108.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "919fbb91b01975e0a1fa0e041fd7637a3ca4c9f476a51ac45da17d323a7fbaa4",
-      "git_blob_sha": "f59837bea0ef8a5748297d058b5e4ec997cd24d0",
-      "path": "alternatives/本地草稿封存/研究原件/objects/91/919fbb91b01975e0a1fa0e041fd7637a3ca4c9f476a51ac45da17d323a7fbaa4.txt",
-      "label": "接口与并发机制续审"
+      "bytes": 36246,
+      "object": "objects/91/919fbb91b01975e0a1fa0e041fd7637a3ca4c9f476a51ac45da17d323a7fbaa4.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/91/919fbb91b01975e0a1fa0e041fd7637a3ca4c9f476a51ac45da17d323a7fbaa4.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "review_document",
+      "source_names": [
+        "Gift_融合接合_接口与并发机制续审_20261108.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "ae5eafff70a99fe221a77df0689cb42b7ce2b4be8b923526772e3a35e1ff74c3",
-      "git_blob_sha": "d301eb7fe20da130746c5c9a88049fc00ad82dc8",
-      "path": "alternatives/本地草稿封存/研究原件/objects/ae/ae5eafff70a99fe221a77df0689cb42b7ce2b4be8b923526772e3a35e1ff74c3.txt",
-      "label": "工程完整修订方案"
+      "bytes": 59185,
+      "object": "objects/ae/ae5eafff70a99fe221a77df0689cb42b7ce2b4be8b923526772e3a35e1ff74c3.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/ae/ae5eafff70a99fe221a77df0689cb42b7ce2b4be8b923526772e3a35e1ff74c3.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "review_document",
+      "source_names": [
+        "Gift_融合方案_工程完整修订_20261108.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "bbdee52d68949b4622bf983e1a6bdfd3c45ca24704fd1f4a2b64236c66aa20a3",
-      "git_blob_sha": "d35758b41fe9e9d5aa7fc37815ab80fa5bdf03fc",
-      "path": "alternatives/本地草稿封存/研究原件/objects/bb/bbdee52d68949b4622bf983e1a6bdfd3c45ca24704fd1f4a2b64236c66aa20a3.txt",
-      "label": "设计差异审查"
+      "bytes": 22789,
+      "object": "objects/bb/bbdee52d68949b4622bf983e1a6bdfd3c45ca24704fd1f4a2b64236c66aa20a3.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/bb/bbdee52d68949b4622bf983e1a6bdfd3c45ca24704fd1f4a2b64236c66aa20a3.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "review_document",
+      "source_names": [
+        "Gift_设计差异审查与融合实施方案_20261108.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "f26fb7a0d410985a17d9a2bf59e6c50e1234270cea6799771632a6341c2645fc",
-      "git_blob_sha": "cd5bcae3a8ead06253df9cd0b90f48f9c6102fe7",
-      "path": "alternatives/本地草稿封存/研究原件/objects/f2/f26fb7a0d410985a17d9a2bf59e6c50e1234270cea6799771632a6341c2645fc.txt",
-      "label": "全量多维结构总说明"
+      "bytes": 15863,
+      "object": "objects/f2/f26fb7a0d410985a17d9a2bf59e6c50e1234270cea6799771632a6341c2645fc.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/f2/f26fb7a0d410985a17d9a2bf59e6c50e1234270cea6799771632a6341c2645fc.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/README.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "dcefd94c991963bc6b66ac2231bcba080d62560bf5477606f43480bd5279f58c",
+      "bytes": 1273830,
+      "object": "../../../docs/信息/研究数据/1786项完整内容与多维承接-dcefd94c9919.txt",
+      "repository_path": "docs/信息/研究数据/1786项完整内容与多维承接-dcefd94c9919.txt",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/docs/1786项完整内容与多维承接.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "b1757d4d18a2f347446f7f5c53b102a3fbef10960b8418e6511c5c5e7dd97d56",
+      "bytes": 570258,
+      "object": "../../../docs/信息/研究数据/568项具体合同-b1757d4d18a2.txt",
+      "repository_path": "docs/信息/研究数据/568项具体合同-b1757d4d18a2.txt",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/docs/568项具体合同.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/Gift_568项具体合同_完整稿.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "f7fc0b1934339e0d999283c9dc7a4c69f08d207a432e3686f89c94e7c8783a57",
+      "bytes": 45390,
+      "object": "../../../docs/信息/研究数据/值结构定义-f7fc0b193433.txt",
+      "repository_path": "docs/信息/研究数据/值结构定义-f7fc0b193433.txt",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/docs/值结构定义.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "f9936eb70e591eed3dedc20381b2a1d4988d49fed329131f1198f1419950d1fb",
+      "bytes": 1038189,
+      "object": "../../../docs/信息/研究数据/全部问题具名接合-f9936eb70e59.txt",
+      "repository_path": "docs/信息/研究数据/全部问题具名接合-f9936eb70e59.txt",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/docs/全部问题具名接合.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "7d9953d69b6a21431dc8f41c43e1a9b375a1835ddf44099c4cee447703c968ef",
+      "bytes": 439756,
+      "object": "../../../docs/信息/研究数据/既有构造与接合完整保留-7d9953d69b6a.txt",
+      "repository_path": "docs/信息/研究数据/既有构造与接合完整保留-7d9953d69b6a.txt",
+      "source_role": "READ_ONLY_RESEARCH_INPUT",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/docs/既有构造与接合完整保留.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "f7fae3d1ea48ad3eb222dfe3e65a7f0f3370edcf2ad581e60fd1fe7e5ae3a2e8",
-      "git_blob_sha": "03520a99154400657fb52777943c8a9130b34a16",
-      "path": "alternatives/本地草稿封存/研究原件/objects/f7/f7fae3d1ea48ad3eb222dfe3e65a7f0f3370edcf2ad581e60fd1fe7e5ae3a2e8.txt",
-      "label": "全量多维结构交付与验收"
+      "bytes": 2743,
+      "object": "objects/f7/f7fae3d1ea48ad3eb222dfe3e65a7f0f3370edcf2ad581e60fd1fe7e5ae3a2e8.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/f7/f7fae3d1ea48ad3eb222dfe3e65a7f0f3370edcf2ad581e60fd1fe7e5ae3a2e8.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_1786项信息与全部接合_整合包(2).zip!Gift_全量多维语义结构_定稿/交付与验收.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "a6a13420903ebb82f47b710f167594b9caad016a87ab271e8e4cc04d5e707854",
+      "bytes": 33635,
+      "object": "objects/a6/a6a13420903ebb82f47b710f167594b9caad016a87ab271e8e4cc04d5e707854.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/a6/a6a13420903ebb82f47b710f167594b9caad016a87ab271e8e4cc04d5e707854.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_IR_仓库分支设计融合_20261105.zip!Gift_IR_仓库设计融合_20261105/Gift统一模型_唯一主稿.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "c75fd89a72c4777417f3f340d5f89677a3e307da4354df824685101a332324c0",
+      "bytes": 5025,
+      "object": "objects/c7/c75fd89a72c4777417f3f340d5f89677a3e307da4354df824685101a332324c0.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/c7/c75fd89a72c4777417f3f340d5f89677a3e307da4354df824685101a332324c0.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_IR_仓库分支设计融合_20261105.zip!Gift_IR_仓库设计融合_20261105/README.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "e23f40d9af03891f5cf6cb19ae9b2aa43fb4109e0df90bc821307a5fa5b3ab38",
+      "bytes": 3903,
+      "object": "objects/e2/e23f40d9af03891f5cf6cb19ae9b2aa43fb4109e0df90bc821307a5fa5b3ab38.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/e2/e23f40d9af03891f5cf6cb19ae9b2aa43fb4109e0df90bc821307a5fa5b3ab38.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_组合选择与持续修改_完整研究包.zip!README.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "1f076d24b2bb898b1b93ca0aee06329c06123f0e173f8afa1bc58923fc472c96",
-      "git_blob_sha": "c146b5b0ae84375fc0e8065407bf08df76b1618a",
-      "path": "alternatives/本地草稿封存/研究原件/objects/1f/1f076d24b2bb898b1b93ca0aee06329c06123f0e173f8afa1bc58923fc472c96.txt",
-      "label": "生成与消费规则12项"
+      "bytes": 12263,
+      "object": "objects/1f/1f076d24b2bb898b1b93ca0aee06329c06123f0e173f8afa1bc58923fc472c96.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/1f/1f076d24b2bb898b1b93ca0aee06329c06123f0e173f8afa1bc58923fc472c96.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_组合选择与持续修改_完整研究包.zip!baseline/Gift_生成与消费规则_12项.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "8170248b65c2bdac3a69bdf86d55a3cdc7e6ada02be14fe8e4a4edbe346d6155",
-      "git_blob_sha": "ec251f848c0ab7f4b90955165f0ca66f4c8ffea1",
-      "path": "alternatives/本地草稿封存/研究原件/objects/81/8170248b65c2bdac3a69bdf86d55a3cdc7e6ada02be14fe8e4a4edbe346d6155.txt",
-      "label": "语义校准与局部构造首轮"
+      "bytes": 21723,
+      "object": "objects/81/8170248b65c2bdac3a69bdf86d55a3cdc7e6ada02be14fe8e4a4edbe346d6155.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/81/8170248b65c2bdac3a69bdf86d55a3cdc7e6ada02be14fe8e4a4edbe346d6155.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_组合选择与持续修改_完整研究包.zip!baseline/Gift_语义校准与局部构造_首轮成果.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "58bd61d421133d5117a48502cb88a81188a011cb25baf6e68809fbb0ddc494da",
+      "bytes": 12930,
+      "object": "objects/58/58bd61d421133d5117a48502cb88a81188a011cb25baf6e68809fbb0ddc494da.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/58/58bd61d421133d5117a48502cb88a81188a011cb25baf6e68809fbb0ddc494da.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_组合选择与持续修改_完整研究包.zip!sources/历史_有条件实现与公共行为保持.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "5bd91f58d9febf9b15e75a079bd0302c4272c6432cecaf9b1af2627c3f1faca1",
+      "bytes": 24198,
+      "object": "objects/5b/5bd91f58d9febf9b15e75a079bd0302c4272c6432cecaf9b1af2627c3f1faca1.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/5b/5bd91f58d9febf9b15e75a079bd0302c4272c6432cecaf9b1af2627c3f1faca1.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_统一模型_精简工作基线_20261105.zip!Gift统一模型_唯一主稿.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "55e31c3440954245e57a6c08fdd0db936e5903ce58097684d901f07ac3b56fb7",
+      "bytes": 1661,
+      "object": "objects/55/55e31c3440954245e57a6c08fdd0db936e5903ce58097684d901f07ac3b56fb7.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/55/55e31c3440954245e57a6c08fdd0db936e5903ce58097684d901f07ac3b56fb7.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_统一模型_精简工作基线_20261105.zip!README.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "62eed66b894f090e1232c0e8bd0f1e9547412462d07c5c4cafd5c43f42efe817",
-      "git_blob_sha": "6f70fcacd4c3b35560da0ebf86393fe6199bb3d5",
-      "path": "alternatives/本地草稿封存/研究原件/objects/62/62eed66b894f090e1232c0e8bd0f1e9547412462d07c5c4cafd5c43f42efe817.txt",
-      "label": "Gift统一模型旧主稿"
+      "bytes": 31915,
+      "object": "objects/62/62eed66b894f090e1232c0e8bd0f1e9547412462d07c5c4cafd5c43f42efe817.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/62/62eed66b894f090e1232c0e8bd0f1e9547412462d07c5c4cafd5c43f42efe817.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip!Gift统一模型_唯一主稿.md"
+      ],
+      "original_extension": ".md"
     },
     {
-      "sha256": "3380dc196bd673fe6b337dd454aca5fa7f0e84b57d3ebffbf6643c5e66e3b327",
-      "git_blob_sha": "f30e98f77125e97255932a5575a66b6f31c9220a",
-      "path": "alternatives/本地草稿封存/研究原件/objects/33/3380dc196bd673fe6b337dd454aca5fa7f0e84b57d3ebffbf6643c5e66e3b327.txt",
-      "label": "可组合合同与跨尺度控制"
+      "sha256": "9a2f9e01861f6f2f77581c335f3f2abeefb320dd7ddb195ed22364dfa42e9d97",
+      "bytes": 2883,
+      "object": "objects/9a/9a2f9e01861f6f2f77581c335f3f2abeefb320dd7ddb195ed22364dfa42e9d97.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/9a/9a2f9e01861f6f2f77581c335f3f2abeefb320dd7ddb195ed22364dfa42e9d97.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip!README.md"
+      ],
+      "original_extension": ".md"
     },
     {
-      "sha256": "41c923413c956fb81e1e8593a93db846d58e808240ea57976197fb6963bd78e8",
-      "git_blob_sha": "7d09a3f3cdc8cd9dbdb0184ca46d66d80dbe3930",
-      "path": "alternatives/本地草稿封存/研究原件/objects/41/41c923413c956fb81e1e8593a93db846d58e808240ea57976197fb6963bd78e8.txt",
-      "label": "组合选择与修改24项"
-    },
-    {
-      "sha256": "e2dd85b4d08d25886f442342c969ca37d0c31d4798ba23e28279516d14b4b75f",
-      "git_blob_sha": "77bbae10e46b8738b27312e5251d8acbf33c7faa",
-      "path": "alternatives/本地草稿封存/研究原件/objects/e2/e2dd85b4d08d25886f442342c969ca37d0c31d4798ba23e28279516d14b4b75f.txt",
-      "label": "专业桥具体构造"
-    },
-    {
-      "sha256": "a116b3169dbd157875372913385193d98fcccb06fc57f9a9e314399b8c8769bc",
-      "git_blob_sha": "ebc9779c1a9c6a079e8c7637bd0911b6772aa999",
-      "path": "alternatives/本地草稿封存/研究原件/objects/a1/a116b3169dbd157875372913385193d98fcccb06fc57f9a9e314399b8c8769bc.txt",
-      "label": "跨专业语义接合与共同生成"
-    },
-    {
-      "sha256": "253318c4054a7c0c502b402affcabaed60dec147567d075701b01d8cf0dbd902",
-      "git_blob_sha": "3182f15885bae32279a37aaa138bddef8e277db1",
-      "path": "alternatives/本地草稿封存/研究原件/objects/25/253318c4054a7c0c502b402affcabaed60dec147567d075701b01d8cf0dbd902.txt",
-      "label": "语义根部实际运行与交付"
-    },
-    {
-      "sha256": "374f3de9009fbf0961c5f628392ffeea02e83cd3cb6d49043903c9b3008b6569",
-      "git_blob_sha": "595f47ccf85bb7d6e1daf0af4b6fc5ffc5251a56",
-      "path": "alternatives/本地草稿封存/研究原件/objects/37/374f3de9009fbf0961c5f628392ffeea02e83cd3cb6d49043903c9b3008b6569.txt",
-      "label": "语义内核与表示投影裁决"
-    },
-    {
-      "sha256": "a3df118c8beb199123d8a46f8dc7f7dc6b835dc2c7e3e048100ee25dee0be6b6",
-      "git_blob_sha": "c4b4ac74020c23b188698c62a92eb290810ad6d8",
-      "path": "alternatives/本地草稿封存/研究原件/objects/a3/a3df118c8beb199123d8a46f8dc7f7dc6b835dc2c7e3e048100ee25dee0be6b6.txt",
-      "label": "通用关系整体结构优化"
-    },
-    {
-      "sha256": "28cc695f77deb5b84a67855baf67afbda03354dde5be8564cd6768387f502260",
-      "git_blob_sha": "2b2c8462af0226fa44e891faf0c144df784ad1eb",
-      "path": "alternatives/本地草稿封存/研究原件/objects/28/28cc695f77deb5b84a67855baf67afbda03354dde5be8564cd6768387f502260.txt",
-      "label": "通用关系重构范围"
-    },
-    {
-      "sha256": "a508b79f64437d7589d966c1a7156f2de1dbb69bfd01d5e70048b48ee1dadfde",
-      "git_blob_sha": "4e7a7d292da4f9b3e1850c877bfc00cfcc00f26b",
-      "path": "alternatives/本地草稿封存/研究原件/objects/a5/a508b79f64437d7589d966c1a7156f2de1dbb69bfd01d5e70048b48ee1dadfde.txt",
-      "label": "通用关系统一版使用说明"
-    },
-    {
-      "sha256": "5bb07adc001d0a9840aebeefdb05af9b15e75a079bd0302c4272c6432cecaf9b1f",
-      "git_blob_sha": "975b125eada8dec8a1fc0b36ad98d35f178ded46",
-      "path": "alternatives/本地草稿封存/研究原件/objects/5b/5bb07adc001d0a9840aebeefdb05af9b15e75a079bd0302c4272c6432cecaf9b1f.txt",
-      "label": "本地成品使用说明"
-    },
-    {
-      "sha256": "29aa1acbe82eec3f84bd91c181cd77669d6d9b97dee1c8af11a5a0926b6308d98",
-      "git_blob_sha": "2a30105cd9c8cdb0e6145fcdbf8cc30d0182967c",
-      "path": "alternatives/本地草稿封存/研究原件/objects/29/29aa1acbe82eec3f84bd91c181cd77669d6d9b97dee1c8af11a5a0926b6308d98.txt",
-      "label": "统一语义体系组合生成"
-    },
-    {
-      "sha256": "b1c4d67bbc3fc5b8253636bfaf3c381ac1e2f952b35e81498c0b95fc9de6578d",
-      "git_blob_sha": "8f9a5bdf562b5ca04233e5ee1528559e69b39010",
-      "path": "alternatives/本地草稿封存/研究原件/objects/b1/b1c4d67bbc3fc5b8253636bfaf3c381ac1e2f952b35e81498c0b95fc9de6578d.txt",
-      "label": "语义根部形成解释合同"
-    },
-    {
-      "sha256": "2f55e0b8e97cd309e6ca3c15b2c2cfa9eaae3a85abda95d934dcdfc6ede7b2a1",
-      "git_blob_sha": "95398cb0a5b580e15972457cf37ee2e378d92542",
-      "path": "alternatives/本地草稿封存/研究原件/objects/2f/2f55e0b8e97cd309e6ca3c15b2c2cfa9eaae3a85abda95d934dcdfc6ede7b2a1.txt",
-      "label": "通用关系统一版验收"
-    },
-    {
-      "sha256": "8981894460fe1697a650d8a9e6f518d646a1419c4619dd89c5ac3c7bb6dff6bd",
-      "git_blob_sha": "d14d1821f4da2b0e27f32fa2b97e35c53bae866c",
-      "path": "alternatives/本地草稿封存/研究原件/objects/89/8981894460fe1697a650d8a9e6f518d646a1419c4619dd89c5ac3c7bb6dff6bd.txt",
-      "label": "本地成品结构与责任"
-    },
-    {
-      "sha256": "bf51bb85b8dc318375249f2054f33bb9d7ffc6e3cc8b27e709c518675b319acb",
-      "git_blob_sha": "b9bd568f45a4b41370afa67529a338428b7fb175",
-      "path": "alternatives/本地草稿封存/研究原件/objects/bf/bf51bb85b8dc318375249f2054f33bb9d7ffc6e3cc8b27e709c518675b319acb.txt",
-      "label": "通用关系持续维护说明"
-    },
-    {
-      "sha256": "d94f6507be7b61fea7c4f29269563c1e8442e05db836579f6341c19b0b031dcc",
-      "git_blob_sha": "9133892e589385a84bc375e2514d2ea43737974d",
-      "path": "alternatives/本地草稿封存/研究原件/objects/d9/d94f6507be7b61fea7c4f29269563c1e8442e05db836579f6341c19b0b031dcc.txt",
-      "label": "持续维护实际验收"
-    },
-    {
-      "sha256": "9cee2aab5b74616cd32991c695100af364cc1fe2948eb2c97c069c248f8949f7",
-      "git_blob_sha": "98d82ff93b0f05a47b5ab240138b3e58ee141cc2",
-      "path": "alternatives/本地草稿封存/研究原件/objects/9c/9cee2aab5b74616cd32991c695100af364cc1fe2948eb2c97c069c248f8949f7.txt",
-      "label": "关系持续维护与撤回"
-    },
-    {
-      "sha256": "e431a63c20c158b51fab45d4a941149da63f1fd32a39c0dde7b170becc50e07e",
-      "git_blob_sha": "6c7ad3bd00a80569c1e5a142960a9cda2cf8f622",
-      "path": "alternatives/本地草稿封存/研究原件/objects/e4/e431a63c20c158b51fab45d4a941149da63f1fd32a39c0dde7b170becc50e07e.txt",
-      "label": "本地成品实际验收"
-    },
-    {
-      "sha256": "f72a6e2cb314b4c704ff817f43559a9893351892f05ef8acbaa7abfc160dffcf",
-      "git_blob_sha": "7fc99d5ed619af912ba9dfe318ea1afb29060659",
-      "path": "alternatives/本地草稿封存/研究原件/objects/f7/f72a6e2cb314b4c704ff817f43559a9893351892f05ef8acbaa7abfc160dffcf.txt",
-      "label": "关系全流程整合"
-    },
-    {
-      "sha256": "2c666977758571f905e5ae48dcff2311dfbb5446c5966582e249fef8efbd4089",
-      "git_blob_sha": "2803ee7ea7f7829110765dab24b1cb3fa2e2402b",
-      "path": "alternatives/本地草稿封存/研究原件/objects/2c/2c666977758571f905e5ae48dcff2311dfbb5446c5966582e249fef8efbd4089.txt",
-      "label": "旧分类与新机制接合"
+      "sha256": "372a975faa4af829f0abbe7fe35eda4aa4b7882fffecc660d69055d2c4e6d4d3",
+      "bytes": 2998,
+      "object": "objects/37/372a975faa4af829f0abbe7fe35eda4aa4b7882fffecc660d69055d2c4e6d4d3.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/37/372a975faa4af829f0abbe7fe35eda4aa4b7882fffecc660d69055d2c4e6d4d3.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/README.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "b6834b0fc981df53387fd3f1430a0bb3f43310b7f71a298f03c7c40d095ab467",
-      "git_blob_sha": "a6344bba12d7352ce9cbd04e3590e687402c91fd",
-      "path": "alternatives/本地草稿封存/研究原件/objects/b6/b6834b0fc981df53387fd3f1430a0bb3f43310b7f71a298f03c7c40d095ab467.txt",
-      "label": "信息单元语义校准1786项"
+      "bytes": 877827,
+      "object": "objects/b6/b6834b0fc981df53387fd3f1430a0bb3f43310b7f71a298f03c7c40d095ab467.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/b6/b6834b0fc981df53387fd3f1430a0bb3f43310b7f71a298f03c7c40d095ab467.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/baseline/Gift_信息单元_语义校准后1786项.md",
+        "Gift_组合选择与持续修改_完整研究包.zip!baseline/Gift_信息单元_语义校准后1786项.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "3380dc196bd673fe6b337dd454aca5fa7f0e84b57d3ebffbf6643c5e66e3b327",
+      "bytes": 32012,
+      "object": "objects/33/3380dc196bd673fe6b337dd454aca5fa7f0e84b57d3ebffbf6643c5e66e3b327.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/33/3380dc196bd673fe6b337dd454aca5fa7f0e84b57d3ebffbf6643c5e66e3b327.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/baseline/Gift_可组合合同与跨尺度控制_实质推进.md",
+        "Gift_组合选择与持续修改_完整研究包.zip!research/主成果.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "41c923413c956fb81e1e8593a93db846d58e808240ea57976197fb6963bd78e8",
+      "bytes": 33935,
+      "object": "objects/41/41c923413c956fb81e1e8593a93db846d58e808240ea57976197fb6963bd78e8.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/41/41c923413c956fb81e1e8593a93db846d58e808240ea57976197fb6963bd78e8.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/baseline/Gift_组合选择与修改_24项具体规则.md",
+        "Gift_组合选择与持续修改_完整研究包.zip!research/具体规则全文.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "e2dd85b4d08d25886f442342c969ca37d0c31d4798ba23e28279516d14b4b75f",
+      "bytes": 21410,
+      "object": "objects/e2/e2dd85b4d08d25886f442342c969ca37d0c31d4798ba23e28279516d14b4b75f.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/e2/e2dd85b4d08d25886f442342c969ca37d0c31d4798ba23e28279516d14b4b75f.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/research/专业桥的具体构造.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "a116b3169dbd157875372913385193d98fcccb06fc57f9a9e314399b8c8769bc",
+      "bytes": 35561,
+      "object": "objects/a1/a116b3169dbd157875372913385193d98fcccb06fc57f9a9e314399b8c8769bc.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/a1/a116b3169dbd157875372913385193d98fcccb06fc57f9a9e314399b8c8769bc.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/research/跨专业语义接合与共同生成.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "67c9ffbe924a34da0a07a3e420cabbfac6eec0308e3808b2c216bcb6f0505d8e",
+      "bytes": 2120,
+      "object": "objects/67/67c9ffbe924a34da0a07a3e420cabbfac6eec0308e3808b2c216bcb6f0505d8e.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/67/67c9ffbe924a34da0a07a3e420cabbfac6eec0308e3808b2c216bcb6f0505d8e.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_跨专业语义接合与共同生成_完整包.zip!Gift_跨专业语义接合/交付与验证范围.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "d64e32c59e2e8a1ca9f036cfda4602f90c616ac9976635a3d09ae6768e18167c",
+      "bytes": 3959,
+      "object": "objects/d6/d64e32c59e2e8a1ca9f036cfda4602f90c616ac9976635a3d09ae6768e18167c.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/d6/d64e32c59e2e8a1ca9f036cfda4602f90c616ac9976635a3d09ae6768e18167c.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/README.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "1fae53daccbb512968e8b5c666a54c43230ae4b677f504585b8214dc05517a66",
+      "bytes": 4485,
+      "object": "objects/1f/1fae53daccbb512968e8b5c666a54c43230ae4b677f504585b8214dc05517a66.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/1f/1fae53daccbb512968e8b5c666a54c43230ae4b677f504585b8214dc05517a66.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/baseline/Gift_语义根部_可运行参考包.zip!Gift_语义根部参考实现/README.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "ead8775a09684a25f5b7c3f42f814583dbdec8a2d7b8005b805bff61d69ed6e3",
+      "bytes": 171423,
+      "object": "objects/ea/ead8775a09684a25f5b7c3f42f814583dbdec8a2d7b8005b805bff61d69ed6e3.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/ea/ead8775a09684a25f5b7c3f42f814583dbdec8a2d7b8005b805bff61d69ed6e3.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/baseline/Gift_语义根部_可运行参考包.zip!Gift_语义根部参考实现/docs/1294项旧接合的准确分流.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "253318c4054a7c0c502b402affcabaed60dec147567d075701b01d8cf0dbd902",
+      "bytes": 6314,
+      "object": "objects/25/253318c4054a7c0c502b402affcabaed60dec147567d075701b01d8cf0dbd902.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/25/253318c4054a7c0c502b402affcabaed60dec147567d075701b01d8cf0dbd902.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/baseline/Gift_语义根部_可运行参考包.zip!Gift_语义根部参考实现/docs/本轮成果与验证.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "374f3de9009fbf0961c5f628392ffeea02e83cd3cb6d49043903c9b3008b6569",
+      "bytes": 26151,
+      "object": "objects/37/374f3de9009fbf0961c5f628392ffeea02e83cd3cb6d49043903c9b3008b6569.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/37/374f3de9009fbf0961c5f628392ffeea02e83cd3cb6d49043903c9b3008b6569.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/baseline/Gift_语义根部_可运行参考包.zip!Gift_语义根部参考实现/legacy/Gift_语义内核与表示投影_根本分离裁决.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "0a4ca45f080ba0ee619a6f8cdeb3f44b200dbe07d74c0695b7c31951762e56db",
+      "bytes": 2502,
+      "object": "objects/0a/0a4ca45f080ba0ee619a6f8cdeb3f44b200dbe07d74c0695b7c31951762e56db.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/0a/0a4ca45f080ba0ee619a6f8cdeb3f44b200dbe07d74c0695b7c31951762e56db.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/通用关系原包.zip!Gift_通用关系与整体重构/README.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "a3df118c8beb199123d8a46f8dc7f7dc6b835dc2c7e3e048100ee25dee0be6b6",
+      "bytes": 23935,
+      "object": "objects/a3/a3df118c8beb199123d8a46f8dc7f7dc6b835dc2c7e3e048100ee25dee0be6b6.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/a3/a3df118c8beb199123d8a46f8dc7f7dc6b835dc2c7e3e048100ee25dee0be6b6.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/通用关系原包.zip!Gift_通用关系与整体重构/docs/总体结构优化.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "28cc695f77deb5b84a67855baf67afbda03354dde5be8564cd6768387f502260",
+      "bytes": 3167,
+      "object": "objects/28/28cc695f77deb5b84a67855baf67afbda03354dde5be8564cd6768387f502260.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/28/28cc695f77deb5b84a67855baf67afbda03354dde5be8564cd6768387f502260.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/通用关系原包.zip!Gift_通用关系与整体重构/docs/重构决策与已实现范围.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "a508b79f64437d7589d966c1a7156f2de1dbb69bfd01d5e70048b48ee1dadfde",
+      "bytes": 3288,
+      "object": "objects/a5/a508b79f64437d7589d966c1a7156f2de1dbb69bfd01d5e70048b48ee1dadfde.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/a5/a508b79f64437d7589d966c1a7156f2de1dbb69bfd01d5e70048b48ee1dadfde.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline_incremental/original/README.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/使用说明_通用组合版.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "5bb07adc001daff33e0793519dd8f2ddd16e0ea67d07661d4c56c0c9dc14bf1f",
+      "bytes": 10108,
+      "object": "objects/5b/5bb07adc001daff33e0793519dd8f2ddd16e0ea67d07661d4c56c0c9dc14bf1f.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/5b/5bb07adc001daff33e0793519dd8f2ddd16e0ea67d07661d4c56c0c9dc14bf1f.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline_v1/original/README.md"
+      ],
+      "original_extension": ".md"
     },
     {
       "sha256": "29ca8c06b2bfce261300e2cb8b2a21f150b6460be749e51934ae5c399b4a89cd",
-      "git_blob_sha": "38b0a5ef9b902ed6450795afd2c9133a96bb1ad6",
-      "path": "alternatives/本地草稿封存/研究原件/objects/29/29ca8c06b2bfce261300e2cb8b2a21f150b6460be749e51934ae5c399b4a89cd.txt",
-      "label": "1786项完整分类"
+      "bytes": 801550,
+      "object": "objects/29/29ca8c06b2bfce261300e2cb8b2a21f150b6460be749e51934ae5c399b4a89cd.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/29/29ca8c06b2bfce261300e2cb8b2a21f150b6460be749e51934ae5c399b4a89cd.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/Gift_1786项_从准确源生成的完整分类.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/docs/全量分类生成正文.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/docs/全量分类生成正文.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "29aa1acbe82ec3f84bd91c181cd77669d6d9b97dee1c8af11a5a0926b6308d98",
+      "bytes": 21014,
+      "object": "objects/29/29aa1acbe82ec3f84bd91c181cd77669d6d9b97dee1c8af11a5a0926b6308d98.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/29/29aa1acbe82ec3f84bd91c181cd77669d6d9b97dee1c8af11a5a0926b6308d98.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/Gift_统一语义体系_内容组合与生成投影.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/docs/主成果.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/docs/主成果.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "b1c4d67bbc3fc5b8253636bfaf3c381ac1e2f952b35e81498c0b95fc9de6578d",
+      "bytes": 9794,
+      "object": "objects/b1/b1c4d67bbc3fc5b8253636bfaf3c381ac1e2f952b35e81498c0b95fc9de6578d.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/b1/b1c4d67bbc3fc5b8253636bfaf3c381ac1e2f952b35e81498c0b95fc9de6578d.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/Gift_语义根部_形成解释与投影合同.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/baseline/Gift_语义根部_形成解释与投影合同.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/baseline/Gift_语义根部_可运行参考包.zip!Gift_语义根部参考实现/docs/语义形成与解释.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/baseline/Gift_语义根部_形成解释与投影合同.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "2f55e0b8e97cd309e6ca3c15b2c2cfa9eaae3a85abda95d934dcdfc6ede7b2a1",
+      "bytes": 3363,
+      "object": "objects/2f/2f55e0b8e97cd309e6ca3c15b2c2cfa9eaae3a85abda95d934dcdfc6ede7b2a1.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/2f/2f55e0b8e97cd309e6ca3c15b2c2cfa9eaae3a85abda95d934dcdfc6ede7b2a1.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/实际验收与保全.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "8981894460fe1697a650d8a9e6f518d646a1419c4619dd89c5ac3c7bb6dff6bd",
+      "bytes": 5009,
+      "object": "objects/89/8981894460fe1697a650d8a9e6f518d646a1419c4619dd89c5ac3c7bb6dff6bd.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/89/8981894460fe1697a650d8a9e6f518d646a1419c4619dd89c5ac3c7bb6dff6bd.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/成品结构与语义责任.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "bf51bb85b8dc318375249f2054f33bb9d7ffc6e3cc8b27e709c518675b319acb",
+      "bytes": 2873,
+      "object": "objects/bf/bf51bb85b8dc318375249f2054f33bb9d7ffc6e3cc8b27e709c518675b319acb.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/bf/bf51bb85b8dc318375249f2054f33bb9d7ffc6e3cc8b27e709c518675b319acb.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/持续维护_使用与交接.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "d94f6507be7b61fea7c4f29269563c1e8442e05db836579f6341c19b0b031dcc",
+      "bytes": 3123,
+      "object": "objects/d9/d94f6507be7b61fea7c4f29269563c1e8442e05db836579f6341c19b0b031dcc.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/d9/d94f6507be7b61fea7c4f29269563c1e8442e05db836579f6341c19b0b031dcc.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/持续维护_实际交付与边界.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "9cee2aab5b74616cd32991c695100af364cc1fe2948eb2c97c069c248f8949f7",
+      "bytes": 12388,
+      "object": "objects/9c/9cee2aab5b74616cd32991c695100af364cc1fe2948eb2c97c069c248f8949f7.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/9c/9cee2aab5b74616cd32991c695100af364cc1fe2948eb2c97c069c248f8949f7.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/持续维护_形成组合与变化合同.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "e431a63c20c158b51fab45d4a941149da63f1fd32a39c0dde7b170becc50e07e",
+      "bytes": 4701,
+      "object": "objects/e4/e431a63c20c158b51fab45d4a941149da63f1fd32a39c0dde7b170becc50e07e.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/e4/e431a63c20c158b51fab45d4a941149da63f1fd32a39c0dde7b170becc50e07e.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/本轮交付与实际验收.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "f72a6e2cb314b4c704ff817f43559a9893351892f05ef8acbaa7abfc160dffcf",
+      "bytes": 14303,
+      "object": "objects/f7/f72a6e2cb314b4c704ff817f43559a9893351892f05ef8acbaa7abfc160dffcf.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/f7/f72a6e2cb314b4c704ff817f43559a9893351892f05ef8acbaa7abfc160dffcf.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/docs/统一结构与迁移.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "b5539481b698226fda45fd7c0c8f1a60b221ed8a3f3541c9c8fada398fa1bd53",
+      "bytes": 2654,
+      "object": "objects/b5/b5539481b698226fda45fd7c0c8f1a60b221ed8a3f3541c9c8fada398fa1bd53.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/b5/b5539481b698226fda45fd7c0c8f1a60b221ed8a3f3541c9c8fada398fa1bd53.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/README.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/README.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "40c5b98fb551b8c5f1e6dec8a0542393e6e5003f41e2f3b67a6669951b43f896",
+      "bytes": 2101,
+      "object": "objects/40/40c5b98fb551b8c5f1e6dec8a0542393e6e5003f41e2f3b67a6669951b43f896.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/40/40c5b98fb551b8c5f1e6dec8a0542393e6e5003f41e2f3b67a6669951b43f896.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/docs/共同模型的实际投影.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/docs/共同模型的实际投影.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "2c666977758571f905e5ae48dcff2311dfbb5446c5966582e249fef8efbd4089",
+      "bytes": 3357,
+      "object": "objects/2c/2c666977758571f905e5ae48dcff2311dfbb5446c5966582e249fef8efbd4089.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/2c/2c666977758571f905e5ae48dcff2311dfbb5446c5966582e249fef8efbd4089.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/docs/实际交付.md",
+        "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/docs/实际交付.md"
+      ],
+      "original_extension": ".md"
     }
   ],
-  "expected_originals_in_previous_bundle": 47,
-  "verified_count": 32,
-  "remaining_unverified_count": 15
+  "unavailable": [
+    {
+      "name": "Gift_有型投影跨绑定与见证过滤保义优化_20261108_完整工程.zip",
+      "reported_sha256": "5722b10f1b3928f9f1ddac079e0a14707e0aa6de89765b9b5f68ce2f19334965",
+      "status": "BYTES_NOT_RECOVERED; report only; no source-level adoption claimed"
+    }
+  ],
+  "storage_note": "Research model retained losslessly as deterministic gzip; object SHA-256/bytes refer to exact decoded original, stored_sha256/stored_bytes refer to repository gzip. All other files stored raw.",
+  "complete": true
 }

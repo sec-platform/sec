@@ -1,0 +1,53 @@
+# Gift：语义根部脱离目录与投影——可运行参考交付
+
+日期：2026-11-03。状态：**独立的本地参考实现与迁移覆盖层**，不是已经采用的 Gift 生产编译器，不改 GitHub、不修改原附件、不连接现场系统。
+
+这次直接实现上一稿要求的依赖方向：**声明、绑定和真实语义解释先成立，查询与呈现随后消费结果；U编号、D编号、目录、矩阵和界面不参与概念的合法形成。**
+
+## 直接运行
+
+需要 Python 3.10+，只用标准库；不用安装任何依赖或联网。该最低版本是所用语法/API要求，本次实际测试环境见运行回执。
+
+```sh
+python tools/run_checks.py
+python tools/run_demo.py
+python gift.py check --module examples/observation.module.json --module examples/temperature.module.json
+python gift.py evaluate --module examples/observation.module.json --module examples/temperature.module.json --model examples/observation.model.json --expression examples/temperature.query.json
+python gift.py view --module examples/observation.module.json --module examples/temperature.module.json --format text
+```
+
+第一次查询的正常输出为 `evaluated_in_model / Bool / false`：在这份明确的假设模型中，并非所有样本都低于40。false是一次有效的模型答案，不是命令执行故障。`needs`（缺方法/超预算）和`invalid`（非法结构/绑定）在外层分别返回，不能代替逻辑值。
+
+## 已接通的完整路径
+
+准确版本源 → 模块导入与共享身份 → 签名/类型/作用域检查 → 非循环定义体解释 → 完整模型校验 → 命题求值或有限行为方法 → 文字/表格投影 → 有权且前像匹配的源修订 → 新模型重绑定 → 新旧结果可分别回读。
+
+`tools/run_demo.py`还会：
+
+- 更改显示标题，确认源摘要和求值答案不变；
+- 把温度要求从40改为42，产生新源修订，重新绑定模型，原40版本和原观察仍可查询；
+- 将相同命题分别用于假设、引述、断言和要求，确认这些行为不修改模型、也不产生现场权限；
+- 加载没有出现在568目录中的“可播种”定义，无需修改核心代码；
+- 在完整有限状态模型上区分“存在到目标的路径”和“全部允许后继必然在有限步到达目标”。
+
+## 文件职责
+
+- `gift_core/kernel.py`：准确版本模块装配、受信解释器选择和纯修订候选。
+- `gift_core/profiles/classical.py`：本次真正实现的多类经典一阶语义、精确整数/有理数及有限模型方法。没有以AST存在代替解释。
+- `gift_core/usage.py`：同一内容的使用与有限行为分析；不授予现实效力。
+- `gift_core/projection.py`：只读投影，无逆向修改语义能力。
+- `examples/`：可直接运行的作者源、模型和查询；业务名仅在这里声明。
+- `data/catalogue_boundary_audit.json`：原1,786项、568项及1,294条接合的非破坏性迁移记录。
+- `legacy/`：原整合包、上轮分离裁决和旧有限参考方法，按原字节保留。
+- `docs/`：语义定义、适用范围、参考证明与迁移说明。
+- `results/`：真实运行结果；不包含 Gift 生产运行或世界事实证明。
+
+## 当前明确支持与限制
+
+支持开放业务签名、具名多元关系（Bool值全函数）、词法绑定、参数化的非循环定义、模型约束、相同解释下的模块组合、有限完整自定义域、完整 Bool 域、精确 Int/Rat/Text 地面计算、全称/存在的有限求值，以及有限全后继完成检查。
+
+Int/Rat/Text 的语义域不会因测试样本而截断；缺枚举方法的量词返回 `needs`，不把样本枚举当全域结论。自定义域若声明有限完整，模型必须确实提供全体成员和全域函数表。空域政策显式。模型约束不成立只拒绝该模型，不宣告理论普遍无解。
+
+未实现：一般递归程序、高阶/依赖类型、连续系统、概率核、规范效力推导、全部专业理论的元解释器、通用定理证明/综合、真实源回写UI、Target源码生成与外部执行。未知画像保留源但不执行，不偷换成Bool解释。本包是现有Gift Definition/Meaning/Type/Expr责任的参考验证，不发布第二份正式作者语言。
+
+删除 `legacy/`、`data/`、阅读页和568目录后，`gift_core/`连同准确示例源仍可运行；独立临时目录子进程测试已实际覆盖这个性质。

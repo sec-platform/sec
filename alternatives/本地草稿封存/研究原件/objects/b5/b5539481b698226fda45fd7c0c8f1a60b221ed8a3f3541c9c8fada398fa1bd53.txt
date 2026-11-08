@@ -1,0 +1,39 @@
+# Gift：统一语义与生成投影——可运行续作
+
+本包将准确语义、原有全量研究内容和生成投影接在一起。不是新维度清单，不替代生产Gift，也不宣称世界全部语义已形式化。
+
+先读 `docs/主成果.md`。它说明精确构造、保持论证、实际结果和剩余边界。
+
+## 直接复算
+
+```sh
+python tools/build_sources.py
+python tools/check_all.py
+```
+
+仅用Python标准库。实际测试版本为Python 3.13.5。脚本不访问网络、仓库、数据库服务、设备或支付系统。结果写入本目录的 `sources/`、`data/`、`results/`、`docs/`，不修改 `baseline/`。
+
+读取某个主分类的实际成员：
+
+```sh
+python gift_view.py --module sources/corpus/theory.json --root gift.research-corpus --model sources/corpus/model.json --query sources/corpus/group-members.query.json --parameters '{"selected_group":"A01"}' --format markdown
+```
+
+## 主要文件
+
+- `docs/主成果.md`：准确源、组合、投影、修订、新概念与理论映射的共同规则。
+- `docs/全量分类生成正文.md`：从解释后的源重新生成全部1,786项的分类正文。
+- `docs/共同模型的实际投影.md`：实际运行的请求、义务与新定义结果。
+- `sources/corpus/`：原研究资料作为准确记录领域的普通语义模块和完整有限模型，以及实际查询。
+- `sources/world/`：独立于研究目录的共享设施、模型许可、历史与义务模块、假设模型、新概念、改名桥。
+- `semantic_views/`：声明式投影、分类检查、定义性扩展、单射签名转换、纯修改候选与有限资源方法。
+- `gift_core/`：原参考内核，Python文件逐字节保持。
+- `results/verification.json`：全部本轮回执。
+- `results/baseline_regression.json`：在临时复制环境重新运行原包检查的回执。
+- `baseline/`：原包和原分类材料。原包还保存原1,786项、568问题、全关系及历史来源。
+
+## 重要地位区分
+
+旧分类能够准确重建，表示对固定原分类记录的往返保持，不表示自动证明所有自然语言归属正确。领域例子的规范、许可和历史完整性是明示模型输入；真实效力、证据与权限没有被这个包取得。所有原问题接合的直接执行限制原样保留，没有在新内核中按D编号分派。
+
+投影支持完整有限载体。未知解释、无限域枚举和预算不足返回明确缺项；不截断冒充完整。预算不是对恶意输入的安全隔离。Python对象是受信进程内数据，不支持调用者直接篡改已检查模型内部属性并继续主张原摘要有效。

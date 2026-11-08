@@ -1,0 +1,47 @@
+# Gift：通用关系与整体结构优化
+
+这是现有结构的增量重构参照，不是另一个浏览器，不修改原工作台或生产Gift。
+
+## 先读
+
+- `docs/总体结构优化.md`：总体选择、通用关系、生成规则、优化证明、专业边界及迁移。
+- `data/generic_question_interfaces.json`：由原568合同生成的通用接口声明，未冒充全部执行器。
+- `data/port_compatibility.json`：所有1294旧接合的统一接口核对。
+- `baseline/exact_records.json`：原1786项、568合同、旧接合、值类型和分类的完整原字段。
+
+## 实际运行
+
+使用Python 3.10+标准库，在本目录运行：
+
+```sh
+python tools/check_all.py
+python tools/run_demo.py
+```
+
+无网络、无安装、无后台运行和外部动作。旧核心及相交投影代码在`baseline_runtime/`逐字节复用。没有重新生成或修改原UI。
+
+## 实现结构
+
+`gift_relations/algebra.py`：准确有限类型/作用域、具名关系、连接、投影、重命名、备选、来源解释。
+
+`gift_relations/plans.py`：同一表达式DAG、只共享纯计算、按代数律的投影前推；无业务词分派。
+
+`gift_relations/contracts.py`：原子完成步的可靠组合，明确不等同于任意成功路径。
+
+`gift_relations/methods.py`：可信、有型、版本化的纯模型方法注册；源数据不能自安装代码。
+
+`gift_relations/legacy_adapter.py`：从原解释器取得准确有限谓词，进入同一关系组合。
+
+## 运行后可直接检查
+
+- `results/one_structure_many_interpretations.json`：同一来源式的存在性、重数、成本、权重、依赖事件和撤回解释。
+- `results/generic_optimizer.json`：通用规则优化前后答案保持与中间规模。
+- `results/all_original_classifications.json`：1786项、136组、18域的准确重建。
+- `results/existing_core_integration.json`：原语义谓词和原资源方法实际接入结果。
+- `results/test_results.json`：本次真实检查；不代表全语言机械证明或生产测试。
+
+## 范围
+
+有限纯正关系是已经实施的公共片段。一般否定、默认、无限递归、线性资源、因果、规范和现场执行不自动获得支持。原文保全不等于全部专业形式化；代码拒绝不支持的代数、作用和不相容语境。
+
+新专业对象可以通过已有接口表示；新解释仍需准确规则及真实消费者。不要将这个有限片段替换成新一轮的“世界只剩几种东西”。

@@ -1,0 +1,2407 @@
+# Gift：完整值结构定义
+
+Ref[T]固定id、revision、kind；只证明引用结构，解析和资格另核。Option[T]的null表示明确无该可选值，未知必须在回答状态中表达，不可拿null代未知。Set按编码唯一仅是结构检查，语义相等使用相应定义。
+
+## Rational
+
+denominator>0；约分用于值相等，不吞原始表示、单位或发生身份。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "numerator": {
+      "kind": "primitive",
+      "name": "int"
+    },
+    "denominator": {
+      "kind": "primitive",
+      "name": "nat"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## TypedValue
+
+精确值依类型和编码解释。值载荷保存在受解释的对象中；未知编码可以保全但不得进入已解释求值。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "type_ref": {
+      "kind": "reference",
+      "target_kind": "Type"
+    },
+    "encoding": {
+      "kind": "reference",
+      "target_kind": "ValueEncoding"
+    },
+    "exact_value_ref": {
+      "kind": "reference",
+      "target_kind": "EncodedValue"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Formula
+
+有限良构公式根及完整节点存储；节点参照下述FormulaNode变体，其他逻辑须准确扩展画像，不能当普通布尔式解释。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "logic": {
+      "kind": "reference",
+      "target_kind": "LogicProfile"
+    },
+    "signature": {
+      "kind": "reference",
+      "target_kind": "Signature"
+    },
+    "root": {
+      "kind": "reference",
+      "target_kind": "FormulaNode"
+    },
+    "free_variables": {
+      "kind": "list",
+      "item": {
+        "kind": "named",
+        "name": "VariableDecl"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Predicate
+
+按参数位置和身份绑定；谓词的定义与它对某值成立分别判断。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "parameters": {
+      "kind": "list",
+      "item": {
+        "kind": "named",
+        "name": "VariableDecl"
+      }
+    },
+    "body": {
+      "kind": "named",
+      "name": "Formula"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Mapping
+
+保留方向、定义域和值域、具体映射定义和所声称保持的性质；单向映射不冒充等价。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "source": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "target": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "arguments": {
+      "kind": "list",
+      "item": {
+        "kind": "named",
+        "name": "VariableDecl"
+      }
+    },
+    "body": {
+      "kind": "reference",
+      "target_kind": "MappingDefinition"
+    },
+    "conditions": {
+      "kind": "named",
+      "name": "Formula"
+    },
+    "preserved": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Property"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Domain
+
+载体和成员条件给出完整语义；无枚举器不等于空域，有限表示不保证有限域或可判定成员。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "carrier": {
+      "kind": "reference",
+      "target_kind": "Carrier"
+    },
+    "membership": {
+      "kind": "named",
+      "name": "Predicate"
+    },
+    "equality": {
+      "kind": "reference",
+      "target_kind": "EqualityDefinition"
+    },
+    "enumeration": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "EnumerationMethod"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Coverage
+
+complete必须相对于本次范围、解释与可见性具有完整性依据；不得由无返回记录推得完整。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "requested": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "observed": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "excluded": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "denied": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "failed": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "state": {
+      "kind": "enum",
+      "values": [
+        "complete",
+        "partial",
+        "unknown"
+      ]
+    },
+    "basis": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "EvidenceUse"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Bound
+
+上下界的方向、适用域及强度必须相容；概率界附带概率命题，渐近界不代替有限值。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "direction": {
+      "kind": "enum",
+      "values": [
+        "lower",
+        "upper",
+        "two_sided"
+      ]
+    },
+    "value": {
+      "kind": "named",
+      "name": "Quantity"
+    },
+    "scope": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "condition": {
+      "kind": "named",
+      "name": "Formula"
+    },
+    "strength": {
+      "kind": "enum",
+      "values": [
+        "deterministic",
+        "probabilistic",
+        "asymptotic"
+      ]
+    },
+    "basis": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "EvidenceUse"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Range
+
+上下界为空表示明确未设该方向界，不用于填补未知；无序域应使用成员谓词而非虚构上下界。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "domain": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "lower": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "TypedValue"
+      }
+    },
+    "upper": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "TypedValue"
+      }
+    },
+    "lower_closed": {
+      "kind": "primitive",
+      "name": "bool"
+    },
+    "upper_closed": {
+      "kind": "primitive",
+      "name": "bool"
+    },
+    "condition": {
+      "kind": "named",
+      "name": "Formula"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Interval
+
+可比较时间域上的区间；开放端表示明确无界，不表示尚未取得端点。不可比较或不确定时域另有准确模型。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "time_domain": {
+      "kind": "reference",
+      "target_kind": "TimeDomain"
+    },
+    "start": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "TimeValue"
+      }
+    },
+    "end": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "TimeValue"
+      }
+    },
+    "start_closed": {
+      "kind": "primitive",
+      "name": "bool"
+    },
+    "end_closed": {
+      "kind": "primitive",
+      "name": "bool"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## TimeValue
+
+时间值绑定域、单位、参考点与可能误差；模型步、墙钟和单调时钟不可默认相减。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "domain": {
+      "kind": "reference",
+      "target_kind": "TimeDomain"
+    },
+    "coordinate": {
+      "kind": "named",
+      "name": "TypedValue"
+    },
+    "uncertainty": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "TimeUncertainty"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Quantity
+
+数值、量类、单位和参考点共同解释；温差与绝对温度等仿射量需保留不同运算规则。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "magnitude": {
+      "kind": "named",
+      "name": "TypedValue"
+    },
+    "unit": {
+      "kind": "reference",
+      "target_kind": "Unit"
+    },
+    "quantity_kind": {
+      "kind": "reference",
+      "target_kind": "QuantityKind"
+    },
+    "reference": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "ReferenceFrame"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Equation
+
+等式使用明确相等关系及前提；近似相等需另外给容差，不能偷偷替换。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "left": {
+      "kind": "reference",
+      "target_kind": "Term"
+    },
+    "right": {
+      "kind": "reference",
+      "target_kind": "Term"
+    },
+    "equality": {
+      "kind": "reference",
+      "target_kind": "EqualityDefinition"
+    },
+    "conditions": {
+      "kind": "named",
+      "name": "Formula"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Cardinal
+
+有限值可直接给非负整数；无穷基数保留正式对象。位数、条目重数和独立身份数分别约定。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "carrier": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "cardinality_definition": {
+      "kind": "reference",
+      "target_kind": "Cardinality"
+    },
+    "finite_value": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "nat"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Truth
+
+真值域由准确逻辑定义；认识上的未知、未解释及无权读取不伪装为逻辑值。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "logic": {
+      "kind": "reference",
+      "target_kind": "LogicProfile"
+    },
+    "value": {
+      "kind": "reference",
+      "target_kind": "TruthValue"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## VariableDecl
+
+binder身份与显示名称分开；同名变量可不同绑定。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "display_name": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "sort": {
+      "kind": "reference",
+      "target_kind": "Sort"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## BinderRecord
+
+域在何种外环境中形成由逻辑画像决定；作用范围保存为实际节点而非文本位置猜测。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "kind": {
+      "kind": "enum",
+      "values": [
+        "forall",
+        "exists",
+        "lambda",
+        "let",
+        "profile_defined"
+      ]
+    },
+    "sort": {
+      "kind": "reference",
+      "target_kind": "Sort"
+    },
+    "body_node": {
+      "kind": "reference",
+      "target_kind": "FormulaOrTermNode"
+    },
+    "domain_expression": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Term"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## BindingOccurrence
+
+binder与自由变量引用恰有一项；变量出现保留身份，代换需卫生检查。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "occurrence": {
+      "kind": "reference",
+      "target_kind": "VariableOccurrence"
+    },
+    "binder_id": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "text"
+      }
+    },
+    "free_variable_id": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "text"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## FunctionSymbol
+
+参数次序和重复位置保持；偏函数不得直接套总函数经典求值。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "parameters": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Sort"
+      }
+    },
+    "result": {
+      "kind": "reference",
+      "target_kind": "Sort"
+    },
+    "totality": {
+      "kind": "enum",
+      "values": [
+        "total",
+        "partial"
+      ]
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RelationSymbol
+
+各位置有自己的角色和sort；零元关系可以合法，取决于画像。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "roles": {
+      "kind": "list",
+      "item": {
+        "kind": "named",
+        "name": "RoleDomain"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## SortCarrier
+
+每个sort在同一模型中取得准确载体；允许空域与否由逻辑画像决定。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "sort": {
+      "kind": "reference",
+      "target_kind": "Sort"
+    },
+    "carrier": {
+      "kind": "named",
+      "name": "Domain"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## FunctionInterpretation
+
+定义域、值域与符号签名对应；总性与唯一性是解释条件，不因一张函数表存在而取得。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "symbol": {
+      "kind": "reference",
+      "target_kind": "FunctionSymbol"
+    },
+    "mapping": {
+      "kind": "named",
+      "name": "Mapping"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RelationInterpretation
+
+原子关系使用同一模型的解释，不在公式各处任意换定义。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "symbol": {
+      "kind": "reference",
+      "target_kind": "RelationSymbol"
+    },
+    "definition": {
+      "kind": "named",
+      "name": "Predicate"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RoleDomain
+
+角色类型、必需数量、上界和次序分别声明；无上界不代表未知基数。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "role": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "sort": {
+      "kind": "reference",
+      "target_kind": "Sort"
+    },
+    "min": {
+      "kind": "primitive",
+      "name": "nat"
+    },
+    "max": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "nat"
+      }
+    },
+    "ordered": {
+      "kind": "primitive",
+      "name": "bool"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RoleBinding
+
+同一关系使用中的具名实参，不能与另一关系使用的角色拼接。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "role": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "position": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "nat"
+      }
+    },
+    "target": {
+      "kind": "reference",
+      "target_kind": "Entity"
+    },
+    "revision_required": {
+      "kind": "primitive",
+      "name": "bool"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RoleJoin
+
+组合中哪些端点必须同一由规则决定；字符串相同不足以完成接线。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "left_role": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "right_role": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "identity_condition": {
+      "kind": "reference",
+      "target_kind": "IdentityRule"
+    },
+    "shared_context": {
+      "kind": "reference",
+      "target_kind": "Context"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## ParameterBinding
+
+绑定值与求值行为不同；保留求值次数、阶段和先后。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "parameter": {
+      "kind": "reference",
+      "target_kind": "Parameter"
+    },
+    "argument": {
+      "kind": "reference",
+      "target_kind": "Expression"
+    },
+    "evaluation": {
+      "kind": "reference",
+      "target_kind": "EvaluationPolicy"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## FieldDecl
+
+缺席、显式空值和默认分开；结构可见不等于运行修改权。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "name": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "type": {
+      "kind": "reference",
+      "target_kind": "Type"
+    },
+    "presence": {
+      "kind": "enum",
+      "values": [
+        "required",
+        "optional",
+        "defaulted"
+      ]
+    },
+    "default": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Expression"
+      }
+    },
+    "access": {
+      "kind": "reference",
+      "target_kind": "AccessRule"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## LayoutField
+
+具体目标布局；位宽和对齐须满足目标ABI，零宽和重叠按画像解释。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "field": {
+      "kind": "reference",
+      "target_kind": "Field"
+    },
+    "offset_bits": {
+      "kind": "primitive",
+      "name": "nat"
+    },
+    "width_bits": {
+      "kind": "primitive",
+      "name": "nat"
+    },
+    "alignment_bits": {
+      "kind": "primitive",
+      "name": "nat"
+    },
+    "endianness": {
+      "kind": "reference",
+      "target_kind": "Endianness"
+    },
+    "representation": {
+      "kind": "reference",
+      "target_kind": "TypeEncoding"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## NativeParameter
+
+跨边界参数需保留传参布局、所有权及寿命，类型名一致不足以兼容。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "parameter": {
+      "kind": "reference",
+      "target_kind": "Parameter"
+    },
+    "calling_representation": {
+      "kind": "reference",
+      "target_kind": "ABIType"
+    },
+    "ownership": {
+      "kind": "reference",
+      "target_kind": "OwnershipRule"
+    },
+    "lifetime": {
+      "kind": "reference",
+      "target_kind": "Lifetime"
+    },
+    "direction": {
+      "kind": "enum",
+      "values": [
+        "in",
+        "out",
+        "inout"
+      ]
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## OwnershipRule
+
+所有权有对象、权能、寿命和释放规则；引用不等于新分配或持有。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "resource_kind": {
+      "kind": "reference",
+      "target_kind": "ResourceKind"
+    },
+    "holder_role": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "permissions": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Permission"
+      }
+    },
+    "transfer": {
+      "kind": "reference",
+      "target_kind": "TransferPolicy"
+    },
+    "release": {
+      "kind": "reference",
+      "target_kind": "ReleasePolicy"
+    },
+    "aliasing": {
+      "kind": "reference",
+      "target_kind": "AliasPolicy"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RewriteRule
+
+守卫及效果保持是规则使用条件；模式匹配成功不是保义证明。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "match": {
+      "kind": "reference",
+      "target_kind": "Pattern"
+    },
+    "replacement": {
+      "kind": "reference",
+      "target_kind": "Expression"
+    },
+    "guard": {
+      "kind": "named",
+      "name": "Predicate"
+    },
+    "preserved": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Property"
+      }
+    },
+    "proof_basis": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "EvidenceUse"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## CostRule
+
+成本口径与输入尺度固定；不得把模型单位当现场时间。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "metric": {
+      "kind": "reference",
+      "target_kind": "Metric"
+    },
+    "input_size": {
+      "kind": "reference",
+      "target_kind": "SizeModel"
+    },
+    "expression": {
+      "kind": "reference",
+      "target_kind": "Expression"
+    },
+    "scope": {
+      "kind": "named",
+      "name": "Predicate"
+    },
+    "accounting": {
+      "kind": "reference",
+      "target_kind": "AccountingBoundary"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Branch
+
+重叠、未命中、守卫求值和选择者属于实际语义；各分支分别可行不证明任意混用合格。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "guard": {
+      "kind": "named",
+      "name": "Predicate"
+    },
+    "body": {
+      "kind": "reference",
+      "target_kind": "Behavior"
+    },
+    "priority": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    },
+    "overlap_policy": {
+      "kind": "reference",
+      "target_kind": "SelectionPolicy"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## OriginLink
+
+保存共同关系身份和来源种类；多个祖先不虚构为一次直接采集。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "relation_id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "record": {
+      "kind": "reference",
+      "target_kind": "ObservationRecord"
+    },
+    "activity": {
+      "kind": "reference",
+      "target_kind": "Activity"
+    },
+    "kind": {
+      "kind": "enum",
+      "values": [
+        "direct_acquisition",
+        "direct_generation",
+        "ancestral_acquisition"
+      ]
+    },
+    "part": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "RecordPart"
+      }
+    },
+    "basis": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "EvidenceUse"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## OutputOccurrence
+
+输出按发生身份索引；同字节不同输出不因集合去重消失。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "record": {
+      "kind": "reference",
+      "target_kind": "ObservationRecord"
+    },
+    "activity": {
+      "kind": "reference",
+      "target_kind": "Activity"
+    },
+    "role": {
+      "kind": "reference",
+      "target_kind": "OutputRole"
+    },
+    "stage": {
+      "kind": "reference",
+      "target_kind": "OutputStage"
+    },
+    "position": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "nat"
+      }
+    },
+    "time": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "Interval"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## SourceAnchor
+
+锚点固定来源与片段；有链接不证明原字节已经取得或可持续访问。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "source_id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "revision": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "content_digest": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "text"
+      }
+    },
+    "fragment": {
+      "kind": "reference",
+      "target_kind": "FragmentSelector"
+    },
+    "availability": {
+      "kind": "enum",
+      "values": [
+        "available",
+        "partial",
+        "unavailable",
+        "restricted"
+      ]
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## AttributeBinding
+
+属性键必须按准确解释使用；保留类型而非统一字符串。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "key": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "value": {
+      "kind": "named",
+      "name": "TypedValue"
+    },
+    "interpretation": {
+      "kind": "reference",
+      "target_kind": "AttributeDefinition"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## RiskScenario
+
+概率未知不能填零；不同受影响主体的损失不能无授权合成一效用。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "scenario": {
+      "kind": "reference",
+      "target_kind": "Scenario"
+    },
+    "adverse_outcome": {
+      "kind": "reference",
+      "target_kind": "Outcome"
+    },
+    "exposure": {
+      "kind": "named",
+      "name": "Quantity"
+    },
+    "likelihood": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "ProbabilityModel"
+      }
+    },
+    "consequence": {
+      "kind": "reference",
+      "target_kind": "ConsequenceModel"
+    },
+    "affected": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Actor"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## SnapshotBinding
+
+多源快照绑定保留实际一致性；同时间字符串不证明共同瞬间。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "provider": {
+      "kind": "reference",
+      "target_kind": "Provider"
+    },
+    "snapshot": {
+      "kind": "reference",
+      "target_kind": "Snapshot"
+    },
+    "scope": {
+      "kind": "reference",
+      "target_kind": "Domain"
+    },
+    "consistency": {
+      "kind": "reference",
+      "target_kind": "ConsistencyContract"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## MemoryOrderBinding
+
+内存序、原子对象及设备范围一起解释；弱序不随名字被升级为全序。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "operation": {
+      "kind": "reference",
+      "target_kind": "AtomicOperation"
+    },
+    "order": {
+      "kind": "reference",
+      "target_kind": "MemoryOrder"
+    },
+    "scope": {
+      "kind": "reference",
+      "target_kind": "MemoryScope"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## BoundaryEdge
+
+穿越信任边界的实际操作；拓扑邻接不自授准入。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "id": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "source_domain": {
+      "kind": "reference",
+      "target_kind": "TrustDomain"
+    },
+    "target_domain": {
+      "kind": "reference",
+      "target_kind": "TrustDomain"
+    },
+    "operation": {
+      "kind": "reference",
+      "target_kind": "Operation"
+    },
+    "admission": {
+      "kind": "reference",
+      "target_kind": "AdmissionPolicy"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## SupportedUse
+
+保存、读取、解释、回写、生成、运行与验证分别按域取资格；部分合格不推广全域。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "use": {
+      "kind": "reference",
+      "target_kind": "UseKind"
+    },
+    "supported_domain": {
+      "kind": "named",
+      "name": "Domain"
+    },
+    "residual": {
+      "kind": "named",
+      "name": "Domain"
+    },
+    "conditions": {
+      "kind": "named",
+      "name": "Formula"
+    },
+    "evidence": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "EvidenceUse"
+      }
+    },
+    "validity": {
+      "kind": "reference",
+      "target_kind": "ValidityContract"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## MethodPartition
+
+按输入分发需要完整覆盖和守卫自身合法性；候选分别合格不够。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "guard": {
+      "kind": "named",
+      "name": "Predicate"
+    },
+    "method": {
+      "kind": "reference",
+      "target_kind": "Method"
+    },
+    "coverage": {
+      "kind": "reference",
+      "target_kind": "CoverageProof"
+    },
+    "overlap": {
+      "kind": "reference",
+      "target_kind": "SelectionPolicy"
+    },
+    "fallback": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Method"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## ProductionRule
+
+准确槽位和绑定规则是文法的一部分；正文示意不是已实现解析器。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "nonterminal": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "production": {
+      "kind": "reference",
+      "target_kind": "GrammarExpression"
+    },
+    "binding_actions": {
+      "kind": "list",
+      "item": {
+        "kind": "reference",
+        "target_kind": "BindingRule"
+      }
+    },
+    "interpretation": {
+      "kind": "reference",
+      "target_kind": "SyntaxInterpretation"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## EnvironmentBinding
+
+环境值的来源、读取阶段和权限分别保存；宿主值不自动是目标事实。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "key": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "value": {
+      "kind": "named",
+      "name": "TypedValue"
+    },
+    "origin": {
+      "kind": "reference",
+      "target_kind": "Source"
+    },
+    "read_phase": {
+      "kind": "reference",
+      "target_kind": "Phase"
+    },
+    "authority": {
+      "kind": "reference",
+      "target_kind": "AuthorityRule"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## TimeMapSegment
+
+裁剪与变速保留分段映射，无法对齐的区间不能填零偏移。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "source_window": {
+      "kind": "named",
+      "name": "Interval"
+    },
+    "target_window": {
+      "kind": "named",
+      "name": "Interval"
+    },
+    "map": {
+      "kind": "reference",
+      "target_kind": "TimeTransform"
+    },
+    "discontinuity": {
+      "kind": "enum",
+      "values": [
+        "none",
+        "cut",
+        "reset",
+        "unknown"
+      ]
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## ClockMapping
+
+跨时钟对应有有效窗和误差；不允许把不确定映射当精确时间等号。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "source": {
+      "kind": "reference",
+      "target_kind": "TimeDomain"
+    },
+    "target": {
+      "kind": "reference",
+      "target_kind": "TimeDomain"
+    },
+    "map": {
+      "kind": "reference",
+      "target_kind": "TimeTransform"
+    },
+    "error": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "Quantity"
+      }
+    },
+    "validity": {
+      "kind": "named",
+      "name": "Interval"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## AxisDefinition
+
+物理坐标轴与语义查询维面不是同一种轴；参考系变换另有结构。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "name": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "direction": {
+      "kind": "reference",
+      "target_kind": "Direction"
+    },
+    "unit": {
+      "kind": "reference",
+      "target_kind": "Unit"
+    },
+    "orientation": {
+      "kind": "reference",
+      "target_kind": "OrientationRule"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## AssignmentRule
+
+同时赋值先取共同前态，不能擅自改成顺序写入。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "target": {
+      "kind": "reference",
+      "target_kind": "StateLocation"
+    },
+    "expression": {
+      "kind": "reference",
+      "target_kind": "Expression"
+    },
+    "evaluation_phase": {
+      "kind": "reference",
+      "target_kind": "Phase"
+    },
+    "atomic_group": {
+      "kind": "option",
+      "item": {
+        "kind": "primitive",
+        "name": "text"
+      }
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## LatencyComponent
+
+延迟只在相容时域和路径下合成；不可无依据把重叠段相加或用均值代最坏界。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "start_event": {
+      "kind": "reference",
+      "target_kind": "EventKind"
+    },
+    "end_event": {
+      "kind": "reference",
+      "target_kind": "EventKind"
+    },
+    "bound": {
+      "kind": "named",
+      "name": "Bound"
+    },
+    "clock": {
+      "kind": "reference",
+      "target_kind": "TimeDomain"
+    },
+    "overlap": {
+      "kind": "reference",
+      "target_kind": "LatencyCompositionRule"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## MaterialAmount
+
+物料种类、量、谱系和核算边界固定；同物料名称不合并不兼容批次。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "material": {
+      "kind": "reference",
+      "target_kind": "Material"
+    },
+    "amount": {
+      "kind": "named",
+      "name": "Quantity"
+    },
+    "lot": {
+      "kind": "option",
+      "item": {
+        "kind": "reference",
+        "target_kind": "Batch"
+      }
+    },
+    "boundary": {
+      "kind": "reference",
+      "target_kind": "AccountingBoundary"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## DataSplit
+
+数据划分须按实际独立单位与时间，重复测量不能按不同样本号冒充独立。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "role": {
+      "kind": "enum",
+      "values": [
+        "train",
+        "validation",
+        "test",
+        "challenge"
+      ]
+    },
+    "selection": {
+      "kind": "reference",
+      "target_kind": "DataSelection"
+    },
+    "unit": {
+      "kind": "reference",
+      "target_kind": "SamplingUnit"
+    },
+    "time_cut": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "TimeValue"
+      }
+    },
+    "overlap_rule": {
+      "kind": "reference",
+      "target_kind": "OverlapPolicy"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## Diagnostic
+
+诊断显示严重度、方法运行结果、对象业务结果独立。
+
+```json
+{
+  "kind": "record",
+  "fields": {
+    "code": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "severity": {
+      "kind": "reference",
+      "target_kind": "SeverityPolicy"
+    },
+    "message": {
+      "kind": "primitive",
+      "name": "text"
+    },
+    "primary": {
+      "kind": "option",
+      "item": {
+        "kind": "named",
+        "name": "SourceAnchor"
+      }
+    },
+    "related": {
+      "kind": "list",
+      "item": {
+        "kind": "named",
+        "name": "SourceAnchor"
+      }
+    },
+    "target": {
+      "kind": "reference",
+      "target_kind": "Entity"
+    }
+  },
+  "additional_fields": false
+}
+```
+
+## CountBound
+
+次数上界；有限次数、明确无界与符号界分开，未取得界放在外层unknown而非伪装无界。
+
+```json
+{
+  "kind": "tagged_union",
+  "variants": {
+    "finite": {
+      "kind": "record",
+      "fields": {
+        "value": {
+          "kind": "primitive",
+          "name": "nat"
+        }
+      },
+      "additional_fields": false
+    },
+    "unbounded": {
+      "kind": "record",
+      "fields": {
+        "scope": {
+          "kind": "reference",
+          "target_kind": "Domain"
+        }
+      },
+      "additional_fields": false
+    },
+    "symbolic": {
+      "kind": "record",
+      "fields": {
+        "expression": {
+          "kind": "reference",
+          "target_kind": "Expression"
+        },
+        "domain": {
+          "kind": "reference",
+          "target_kind": "Domain"
+        },
+        "evidence": {
+          "kind": "reference",
+          "target_kind": "EvidenceUse"
+        }
+      },
+      "additional_fields": false
+    }
+  }
+}
+```
+
+## EvidenceExistence
+
+证据存在的查询结果；absence只针对已核完整的记录范围；unknown不是false。
+
+```json
+{
+  "kind": "tagged_union",
+  "variants": {
+    "exists": {
+      "kind": "record",
+      "fields": {
+        "witnesses": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "EvidenceUse"
+          }
+        },
+        "use": {
+          "kind": "reference",
+          "target_kind": "ClaimUse"
+        }
+      },
+      "additional_fields": false
+    },
+    "absent_in_complete_scope": {
+      "kind": "record",
+      "fields": {
+        "scope": {
+          "kind": "reference",
+          "target_kind": "Domain"
+        },
+        "certificate": {
+          "kind": "reference",
+          "target_kind": "CompletenessCertificate"
+        },
+        "use": {
+          "kind": "reference",
+          "target_kind": "ClaimUse"
+        }
+      },
+      "additional_fields": false
+    },
+    "unknown": {
+      "kind": "record",
+      "fields": {
+        "missing": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "Requirement"
+          }
+        },
+        "use": {
+          "kind": "reference",
+          "target_kind": "ClaimUse"
+        }
+      },
+      "additional_fields": false
+    }
+  }
+}
+```
+
+## Uncertainty
+
+与准确被测量、估计和模型绑定的不确定度；标准差不是硬上界。
+
+```json
+{
+  "kind": "tagged_union",
+  "variants": {
+    "standard": {
+      "kind": "record",
+      "fields": {
+        "u": {
+          "kind": "named",
+          "name": "Quantity"
+        },
+        "model": {
+          "kind": "reference",
+          "target_kind": "MeasurementModel"
+        },
+        "covariance": {
+          "kind": "option",
+          "item": {
+            "kind": "reference",
+            "target_kind": "Covariance"
+          }
+        }
+      },
+      "additional_fields": false
+    },
+    "expanded": {
+      "kind": "record",
+      "fields": {
+        "U": {
+          "kind": "named",
+          "name": "Quantity"
+        },
+        "k": {
+          "kind": "primitive",
+          "name": "real"
+        },
+        "coverage_interpretation": {
+          "kind": "reference",
+          "target_kind": "CoverageInterpretation"
+        },
+        "model": {
+          "kind": "reference",
+          "target_kind": "MeasurementModel"
+        }
+      },
+      "additional_fields": false
+    },
+    "interval": {
+      "kind": "record",
+      "fields": {
+        "range": {
+          "kind": "named",
+          "name": "Range"
+        },
+        "meaning": {
+          "kind": "reference",
+          "target_kind": "IntervalInterpretation"
+        },
+        "model": {
+          "kind": "reference",
+          "target_kind": "MeasurementModel"
+        }
+      },
+      "additional_fields": false
+    },
+    "distribution": {
+      "kind": "record",
+      "fields": {
+        "distribution": {
+          "kind": "reference",
+          "target_kind": "Distribution"
+        },
+        "model": {
+          "kind": "reference",
+          "target_kind": "MeasurementModel"
+        },
+        "scope": {
+          "kind": "reference",
+          "target_kind": "Domain"
+        }
+      },
+      "additional_fields": false
+    }
+  }
+}
+```
+
+## QueryAST
+
+有限关系查询表达；运算的包/集合/空值/顺序及闭世界规则由准确画像给出。
+
+```json
+{
+  "kind": "tagged_union",
+  "variants": {
+    "source": {
+      "kind": "record",
+      "fields": {
+        "source": {
+          "kind": "reference",
+          "target_kind": "DataSource"
+        },
+        "snapshot": {
+          "kind": "reference",
+          "target_kind": "Snapshot"
+        },
+        "profile": {
+          "kind": "reference",
+          "target_kind": "QueryProfile"
+        }
+      },
+      "additional_fields": false
+    },
+    "select": {
+      "kind": "record",
+      "fields": {
+        "input": {
+          "kind": "reference",
+          "target_kind": "QueryAST"
+        },
+        "predicate": {
+          "kind": "named",
+          "name": "Predicate"
+        }
+      },
+      "additional_fields": false
+    },
+    "project": {
+      "kind": "record",
+      "fields": {
+        "input": {
+          "kind": "reference",
+          "target_kind": "QueryAST"
+        },
+        "fields": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "Field"
+          }
+        },
+        "duplicates": {
+          "kind": "reference",
+          "target_kind": "MultiplicityPolicy"
+        }
+      },
+      "additional_fields": false
+    },
+    "join": {
+      "kind": "record",
+      "fields": {
+        "left": {
+          "kind": "reference",
+          "target_kind": "QueryAST"
+        },
+        "right": {
+          "kind": "reference",
+          "target_kind": "QueryAST"
+        },
+        "predicate": {
+          "kind": "named",
+          "name": "Predicate"
+        },
+        "mode": {
+          "kind": "enum",
+          "values": [
+            "inner",
+            "left_outer",
+            "right_outer",
+            "full_outer",
+            "semi",
+            "anti"
+          ]
+        }
+      },
+      "additional_fields": false
+    },
+    "aggregate": {
+      "kind": "record",
+      "fields": {
+        "input": {
+          "kind": "reference",
+          "target_kind": "QueryAST"
+        },
+        "keys": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "Expression"
+          }
+        },
+        "aggregates": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "Aggregate"
+          }
+        },
+        "empty_policy": {
+          "kind": "reference",
+          "target_kind": "EmptyPolicy"
+        }
+      },
+      "additional_fields": false
+    },
+    "ordered": {
+      "kind": "record",
+      "fields": {
+        "input": {
+          "kind": "reference",
+          "target_kind": "QueryAST"
+        },
+        "ordering": {
+          "kind": "reference",
+          "target_kind": "OrderDefinition"
+        },
+        "tie_policy": {
+          "kind": "reference",
+          "target_kind": "TiePolicy"
+        }
+      },
+      "additional_fields": false
+    },
+    "profile_defined": {
+      "kind": "record",
+      "fields": {
+        "definition": {
+          "kind": "reference",
+          "target_kind": "QueryOperator"
+        },
+        "arguments": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "QueryAST"
+          }
+        },
+        "bindings": {
+          "kind": "list",
+          "item": {
+            "kind": "named",
+            "name": "ParameterBinding"
+          }
+        }
+      },
+      "additional_fields": false
+    }
+  }
+}
+```
+
+## FormulaNode
+
+明确的一阶核心和可命名的画像扩展；引用可循环时须额外符合递归解释，不能按一般公式任意循环。
+
+```json
+{
+  "kind": "tagged_union",
+  "variants": {
+    "atom": {
+      "kind": "record",
+      "fields": {
+        "predicate": {
+          "kind": "reference",
+          "target_kind": "RelationSymbol"
+        },
+        "arguments": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "TermNode"
+          }
+        }
+      },
+      "additional_fields": false
+    },
+    "equal": {
+      "kind": "record",
+      "fields": {
+        "left": {
+          "kind": "reference",
+          "target_kind": "TermNode"
+        },
+        "right": {
+          "kind": "reference",
+          "target_kind": "TermNode"
+        },
+        "equality": {
+          "kind": "reference",
+          "target_kind": "EqualityDefinition"
+        }
+      },
+      "additional_fields": false
+    },
+    "not": {
+      "kind": "record",
+      "fields": {
+        "operand": {
+          "kind": "reference",
+          "target_kind": "FormulaNode"
+        }
+      },
+      "additional_fields": false
+    },
+    "and": {
+      "kind": "record",
+      "fields": {
+        "operands": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "FormulaNode"
+          }
+        }
+      },
+      "additional_fields": false
+    },
+    "or": {
+      "kind": "record",
+      "fields": {
+        "operands": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "FormulaNode"
+          }
+        }
+      },
+      "additional_fields": false
+    },
+    "forall": {
+      "kind": "record",
+      "fields": {
+        "binder": {
+          "kind": "named",
+          "name": "VariableDecl"
+        },
+        "body": {
+          "kind": "reference",
+          "target_kind": "FormulaNode"
+        }
+      },
+      "additional_fields": false
+    },
+    "exists": {
+      "kind": "record",
+      "fields": {
+        "binder": {
+          "kind": "named",
+          "name": "VariableDecl"
+        },
+        "body": {
+          "kind": "reference",
+          "target_kind": "FormulaNode"
+        }
+      },
+      "additional_fields": false
+    },
+    "profile_defined": {
+      "kind": "record",
+      "fields": {
+        "operator": {
+          "kind": "reference",
+          "target_kind": "LogicalOperator"
+        },
+        "arguments": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "FormulaOrTermNode"
+          }
+        },
+        "binding": {
+          "kind": "list",
+          "item": {
+            "kind": "named",
+            "name": "BinderRecord"
+          }
+        }
+      },
+      "additional_fields": false
+    }
+  }
+}
+```
+
+## TermNode
+
+有型变量、常量、应用；自由变量和绑定出现分开，函数解释的总/偏性保持。
+
+```json
+{
+  "kind": "tagged_union",
+  "variants": {
+    "bound": {
+      "kind": "record",
+      "fields": {
+        "binder_id": {
+          "kind": "primitive",
+          "name": "text"
+        },
+        "sort": {
+          "kind": "reference",
+          "target_kind": "Sort"
+        }
+      },
+      "additional_fields": false
+    },
+    "free": {
+      "kind": "record",
+      "fields": {
+        "variable_id": {
+          "kind": "primitive",
+          "name": "text"
+        },
+        "sort": {
+          "kind": "reference",
+          "target_kind": "Sort"
+        }
+      },
+      "additional_fields": false
+    },
+    "constant": {
+      "kind": "record",
+      "fields": {
+        "value": {
+          "kind": "named",
+          "name": "TypedValue"
+        }
+      },
+      "additional_fields": false
+    },
+    "apply": {
+      "kind": "record",
+      "fields": {
+        "function": {
+          "kind": "reference",
+          "target_kind": "FunctionSymbol"
+        },
+        "arguments": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "TermNode"
+          }
+        }
+      },
+      "additional_fields": false
+    },
+    "profile_defined": {
+      "kind": "record",
+      "fields": {
+        "operator": {
+          "kind": "reference",
+          "target_kind": "TermOperator"
+        },
+        "arguments": {
+          "kind": "list",
+          "item": {
+            "kind": "reference",
+            "target_kind": "FormulaOrTermNode"
+          }
+        },
+        "binding": {
+          "kind": "list",
+          "item": {
+            "kind": "named",
+            "name": "BinderRecord"
+          }
+        }
+      },
+      "additional_fields": false
+    }
+  }
+}
+```
+
