@@ -10,8 +10,28 @@ import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
 import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
-test('CLI exposes policy, acceptance, runtime, and verification reports as JSON contracts', async () => {
-  await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
+test('CLI verifies a composed workspace and exposes policy, acceptance, runtime, and verification contracts', async () => {
+  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
+    // Verify the initially composed workspace through both real CLI presentation paths.
+    await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
+
+    const directVerificationReport = await expectCliJson<VerificationReport>(
+      workspaceRoot,
+      ['verify', '--lane', 'fast', '--json'],
+      undefined,
+      { stdoutMarkers: ['\n  "summary"'] }
+    );
+    expect(directVerificationReport).toMatchObject({
+      summary: {
+        status: 'passed',
+        requestedLane: 'fast',
+        failedLanes: []
+      },
+      fast: { status: 'passed', policy: { status: 'passed' } },
+      runtime: { status: 'passed', build: { status: 'skipped' }, unit: { status: 'passed' },
+        acceptance: { status: 'skipped' } }
+    });
+
     const policyReport = await expectCliJson<PolicyReport>(
       workspaceRoot, ['policy', 'report', '--json', '--compact'],
       { status: 'passed' },
@@ -152,32 +172,10 @@ test('CLI exposes policy, acceptance, runtime, and verification reports as JSON 
       },
       runtime: { status: 'passed', acceptance: { status: 'skipped' } }
     });
-  });
-}, 180000);
 
-test('CLI runs verify with JSON output for CI consumers', async () => {
-  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
-
-    const directVerificationReport = await expectCliJson<VerificationReport>(
-      workspaceRoot,
-      ['verify', '--lane', 'fast', '--json'],
-      undefined,
-      { stdoutMarkers: ['\n  "summary"'] }
-    );
-    expect(directVerificationReport).toMatchObject({
-      summary: {
-        status: 'passed',
-        requestedLane: 'fast',
-        failedLanes: []
-      },
-      fast: { status: 'passed', policy: { status: 'passed' } },
-      runtime: { status: 'passed', build: { status: 'skipped' }, unit: { status: 'passed' },
-        acceptance: { status: 'skipped' } }
-    });
     // This root was actually verified above, not cloned from a verified template.
     await expect(lockWorkspace(workspaceRoot)).rejects.toMatchObject({
       code: 'LOCK-BLOCKED-002', message: 'lock requires a passing verify --lane all result'
     });
   });
-}, 180000);
+}, 360000);
