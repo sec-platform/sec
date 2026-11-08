@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
+import {
+  AUTHOR_ANALYSIS_MAXIMUM_REQUEST_BYTES,
+  encodeAuthorAnalysisRequest,
+  type AuthorCaptureObservation
+} from './author-analysis-request.ts';
 import { snapshotByteView } from '../../contracts/byte-snapshot.ts';
 import { CodedFailure } from '../../contracts/failure.ts';
 import { assertNativeAbortSignal, throwIfNativeAborted } from '../../contracts/native-abort.ts';
@@ -18,7 +23,6 @@ import {
 } from '../runtime-state/physical/runtime/retained-file-read.ts';
 
 const MAXIMUM_ROOT_BYTES = 4 * 1024 * 1024;
-const MAXIMUM_TRANSPORT_BYTES = 64 * 1024 * 1024;
 const MAXIMUM_OUTPUT_BYTES = 64 * 1024 * 1024;
 const RUN_MILLISECONDS = 30_000;
 const natural = z.number().int().nonnegative().safe();
@@ -128,11 +132,7 @@ const analysisResult = z.object({
 export type AuthorAnalysisResult = z.infer<typeof analysisResult>;
 
 type CaptureRequest = z.infer<typeof captureRequest>;
-type CaptureOutcome = 'complete' | 'found' | 'partial' | 'absent' | 'denied' | 'unavailable' | 'failed';
-type DirectoryEntry = Readonly<{ name: string; kind: 'file' | 'directory' | 'link' | 'other'; byte_length: number }>;
-type CaptureObservation =
-  | Readonly<{ kind: 'directory'; path: string; outcome: CaptureOutcome; entries: readonly DirectoryEntry[] }>
-  | Readonly<{ kind: 'file'; path: string; outcome: CaptureOutcome; bytes: readonly number[] }>;
+type CaptureObservation = AuthorCaptureObservation;
 
 function protocol(message: string): never {
   throw new CodedFailure('AUTHOR-ANALYSIS-PROTOCOL', message);
@@ -257,12 +257,12 @@ class LocalCapture {
           maximumBytes: this.remainingBytes
         });
         if (bytes === null) {
-          observation = { kind: 'file', path: request.path, outcome: 'absent', bytes: [] };
+          observation = { kind: 'file', path: request.path, outcome: 'absent', bytes: new Uint8Array(0) };
         } else {
           this.remainingBytes -= bytes.length;
           const captured = snapshotByteView(bytes, 'Author captured source');
           this.sources.set(request.path, captured);
-          observation = { kind: 'file', path: request.path, outcome: 'found', bytes: Array.from(captured) };
+          observation = { kind: 'file', path: request.path, outcome: 'found', bytes: captured };
         }
       }
     } catch (error) {
@@ -277,7 +277,7 @@ class LocalCapture {
             || error.nativeFailure?.failureClass === 'access-unavailable' ? 'unavailable' : 'failed';
       observation = request.kind === 'directory'
         ? { kind: 'directory', path: request.path, outcome, entries: [] }
-        : { kind: 'file', path: request.path, outcome, bytes: [] };
+        : { kind: 'file', path: request.path, outcome, bytes: new Uint8Array(0) };
     }
     this.current();
     this.observations.set(key, observation);
@@ -442,24 +442,21 @@ export async function analyzeAuthorModule(
     throw new CodedFailure(error.code === 'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED' ? 'AUTHOR-ANALYSIS-RESOURCE' : 'AUTHOR-ANALYSIS-INPUT',
       'Author analysis root could not be captured within its retained scope', {}, { cause: error });
   }
-  const root = { locator: capture.rootLocator, bytes: Array.from(capture.rootBytes) };
+  const root = { locator: capture.rootLocator, bytes: capture.rootBytes };
   let budget = { work: 8_000_000, allocation_bytes: 48 * 1024 * 1024 };
   let basis: string | undefined;
   let interpretation: string | undefined;
   while (true) {
     capture.current();
-    const serialized = JSON.stringify({
-      schema: 'gift.author-analysis-request/1', purpose: 'analyze', root, context: capture.context,
+    const input = encodeAuthorAnalysisRequest({
+      root, context: capture.context,
       ...(interpretation === undefined ? {} : { interpretation }),
-      observations: [...capture.observations.values()], budget
-    });
-    if (Buffer.byteLength(serialized, 'utf8') > MAXIMUM_TRANSPORT_BYTES) {
-      throw new CodedFailure('AUTHOR-ANALYSIS-RESOURCE', 'Author analysis request exceeds its transport byte budget');
-    }
+      observations: capture.observations, budget
+    }, () => capture.current());
     let outcome: Awaited<ReturnType<typeof runCommandBytes>>;
     try {
       outcome = await runCommandBytes(kernelPath, ['--analyze'], {
-        cwd: workspaceRoot, input: Buffer.from(serialized), maxStdinBytes: MAXIMUM_TRANSPORT_BYTES,
+        cwd: workspaceRoot, input, maxStdinBytes: AUTHOR_ANALYSIS_MAXIMUM_REQUEST_BYTES,
         maxStdoutBytes: MAXIMUM_OUTPUT_BYTES, maxStderrBytes: 64 * 1024,
         timeoutMs: Math.max(1, Math.floor(capture.deadline - performance.now())), signal: options.signal
       });
