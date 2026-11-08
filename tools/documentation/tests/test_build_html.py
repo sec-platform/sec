@@ -151,6 +151,19 @@ class ReadingTests(unittest.TestCase):
         self.run_build();p=Originals();p.feed(self.out.read_text())
         actual={q.relative_to(self.root).as_posix():q.read_bytes() for q in self.root.rglob('*') if q.is_file()}
         self.assertEqual(p.files,actual)
+    def test_lossless_gzip_research_original_is_preserved_in_reading(self):
+        import gzip
+        original=b'{"research":"raw","n":123}\n'
+        archived=gzip.compress(original,mtime=0)
+        p=self.root/'docs/research.original.json.gz'
+        p.write_bytes(archived)
+        self.write('docs/主题.md','# 主题\n\n## 字段\n\n[研究压缩原件](research.original.json.gz)\n')
+        self.run_build()
+        parsed=Originals()
+        parsed.feed(self.out.read_text(encoding='utf-8'))
+        self.assertEqual(parsed.files['docs/research.original.json.gz'],archived)
+        self.assertEqual(gzip.decompress(parsed.files['docs/research.original.json.gz']),original)
+        self.assertIn('application/gzip',b.Book.mime('docs/research.original.json.gz'))
     def reference_book(self,sealed=False,**budgets):
         args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=sealed,
             max_file_bytes=budgets.get('max_file_bytes',16_000_000),max_total_bytes=budgets.get('max_total_bytes',80_000_000))
