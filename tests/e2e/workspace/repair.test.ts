@@ -53,20 +53,3 @@ test('repair reports failed verification as an owner-classified blocker and pers
     expect(await readFile(failurePath, 'utf8')).toBe(failureSource);
   });
 }, 120000);
-
-test('repair reports a skipped terminal observation after passing verification', async () => {
-  await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
-    const result = await expectCliJson<RepairPlan>(
-      workspaceRoot,
-      ['repair', '--json', '--compact'],
-      undefined,
-      { compact: true }
-    );
-    expect(result).toMatchObject({
-      status: 'skipped',
-      sourceVerificationStatus: 'passed',
-      requiresVerification: false,
-      tasks: []
-    });
-  });
-}, 120000);

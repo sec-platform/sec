@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { ExplainSummarySource } from '../../../src/application/explain-summary.ts';
+import type { RepairPlan } from '../../../src/semantics/repair/types.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
@@ -224,5 +225,20 @@ test('CLI emits explain JSON for CI consumers', async () => {
       },
       { compact: true }
     );
+
+    // A successful Repair CLI publication observes the same current all-lane
+    // Verification subject; Explain only adds derived review/navigation artifacts.
+    const repair = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(repair).toMatchObject({
+      status: 'skipped',
+      sourceVerificationStatus: 'passed',
+      requiresVerification: false,
+      tasks: []
+    });
   });
-}, 240000);
+}, 360000);
