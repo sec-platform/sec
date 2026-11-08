@@ -165,22 +165,22 @@ test('deleted and renamed slow paths preserve transition identity without becomi
     headSha: 'b'.repeat(40),
     records: [{
       status: 'renamed',
-      previousPath: 'tests/e2e/old-graph-name.test.ts',
-      path: 'tests/e2e/verification/graph.test.ts'
+      previousPath: 'tests/e2e/old-summary-name.test.ts',
+      path: 'tests/e2e/verification/summary.test.ts'
     }],
     readPathBlob: () => null
   });
   const selection = selectSlowTestClosureWithProvider([
-    'tests/e2e/old-graph-name.test.ts',
-    'tests/e2e/verification/graph.test.ts'
+    'tests/e2e/old-summary-name.test.ts',
+    'tests/e2e/verification/summary.test.ts'
   ], provider, transition);
   expect(selection).toMatchObject({
     resolved: true,
-    suites: ['e2e-graph'],
+    suites: ['e2e-summary'],
     slowTests: [],
     affectedSlowTests: [
-      'tests/e2e/old-graph-name.test.ts',
-      'tests/e2e/verification/graph.test.ts'
+      'tests/e2e/old-summary-name.test.ts',
+      'tests/e2e/verification/summary.test.ts'
     ],
     unresolvedPaths: []
   });

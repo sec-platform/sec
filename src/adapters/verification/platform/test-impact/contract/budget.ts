@@ -280,7 +280,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     parallelSafe: true,
     resourceClass: 'runtime-heavy'
   }),
-  slowFileSuite('e2e-graph', 'verification/graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
   {
     ...slowFileSuite('e2e-import-organizer-staged', 'development/import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
       parallelSafe: true

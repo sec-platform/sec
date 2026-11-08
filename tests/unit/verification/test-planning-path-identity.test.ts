@@ -29,8 +29,8 @@ function source(files: string[], generation = 'a'): Parameters<typeof compileTes
 }
 
 test('slow-suite lookup uses the same spelling key as test recognition', () => {
-  for (const spelling of spellings('tests/e2e/verification/graph.test.ts')) {
-    assert.deepEqual(slowTestSuiteIdsForFile(spelling), ['e2e-graph']);
+  for (const spelling of spellings('tests/e2e/verification/summary.test.ts')) {
+    assert.deepEqual(slowTestSuiteIdsForFile(spelling), ['e2e-summary']);
   }
   assert.deepEqual(slowTestSuiteIdsForFile('tests/unit/unregistered.test.ts'), []);
 });
@@ -40,7 +40,7 @@ test('issued snapshot inventory and budget preserve canonical fast/slow membersh
     'tests/unit/plain.test.ts',
     'tests/unit/tsconfig-excluded.test.ts',
     'src/colocated.test.ts',
-    'tests/e2e/verification/graph.test.ts',
+    'tests/e2e/verification/summary.test.ts',
     'tests/fixtures/runtime-fixture.test.ts',
     'tests/testkit/helper.ts',
     'tests/unit/compile-only.typecheck.ts',
@@ -48,7 +48,7 @@ test('issued snapshot inventory and budget preserve canonical fast/slow membersh
   ]);
   const expectedFiles = [
     'src/colocated.test.ts',
-    'tests/e2e/verification/graph.test.ts',
+    'tests/e2e/verification/summary.test.ts',
     'tests/unit/plain.test.ts',
     'tests/unit/tsconfig-excluded.test.ts'
   ];
@@ -59,9 +59,9 @@ test('issued snapshot inventory and budget preserve canonical fast/slow membersh
   assert.deepEqual(result.fastTestFiles, [
     'src/colocated.test.ts', 'tests/unit/plain.test.ts', 'tests/unit/tsconfig-excluded.test.ts'
   ]);
-  assert.deepEqual(result.slowTestFiles, ['tests/e2e/verification/graph.test.ts']);
-  assert.equal(result.slowSuites[0]!.id, 'e2e-graph');
-  assert.deepEqual(result.slowSuites[0]!.files, ['tests/e2e/verification/graph.test.ts']);
+  assert.deepEqual(result.slowTestFiles, ['tests/e2e/verification/summary.test.ts']);
+  assert.equal(result.slowSuites[0]!.id, 'e2e-summary');
+  assert.deepEqual(result.slowSuites[0]!.files, ['tests/e2e/verification/summary.test.ts']);
 });
 
 test('test budget rejects caller-authored inventory and an unissued workspace snapshot', () => {
