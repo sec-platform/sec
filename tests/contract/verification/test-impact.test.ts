@@ -54,7 +54,10 @@ function emptyGitTestImpactBase(): string {
   }
 }
 
-function sourceProvider(sources: Readonly<Record<string, string>>) {
+function sourceProvider(
+  sources: Readonly<Record<string, string>>,
+  inspectCompilation?: (compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>) => void
+) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
   let primary: ResourceSettlementFailure | undefined;
   try {
@@ -78,7 +81,8 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
       repositoryRoot: root,
       commitSha
     });
-    const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
+    const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot, repositoryRoot: root });
+    inspectCompilation?.(repositoryCompilation);
     return createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot,
@@ -157,8 +161,33 @@ test('non-code source ownership and executable import impact remain independentl
   const alphaFacade = 'src/compiler/virtual-public.ts';
   const alphaTest = 'src/compiler/virtual-alpha.spec.ts';
   const betaTest = 'tests/unit/virtual-beta.test.ts';
-  // The three disjoint positive source worlds share one immutable Git/Source Program input.
+  const observedSources = {
+      'src/value.ts': 'export const value = 1;\n',
+      'src/read-only.ts': 'export const observed = 2;\n',
+      'src/value.json': '{"value":1}\n',
+      'tests/helpers/value-child.ts': "import '../../src/value.ts';\n",
+      'tests/unit/tsconfig-excluded.test.ts': 'test("excluded from type project", () => {});\n',
+      'tests/unit/value.test.ts': [
+        "import { spawnSync } from 'node:child_process';",
+        "import process from 'node:process';",
+        "import { readFileSync } from 'node:fs';",
+        "import { readFileSync as unavailableSyncRead } from 'node:fs/promises';",
+        "readFileSync('src/value.json', 'utf8');",
+        "readFileSync('src/read-only.ts', 'utf8');",
+        "readFileSync('../outside.json', 'utf8');",
+        "readFileSync('src/absent.json', 'utf8');",
+        "unavailableSyncRead('src/value.json');",
+        "function shadowRead(readFileSync: (path: string) => string) { readFileSync('src/value.json'); }",
+        "function shadowBun(Bun: { file(path: string): { text(): string } }) { Bun.file('src/value.json').text(); }",
+        "void shadowRead; void shadowBun;",
+        "spawnSync(process.execPath, ['tests/helpers/value-child.ts']);",
+        ''
+      ].join('\n'),
+      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"include":["src/**/*.ts","tests/**/*.ts"],"exclude":["tests/unit/tsconfig-excluded.test.ts"]}\n'
+  } as const;
+  // Observed runtime reads/invocations join the existing independent source worlds.
   const provider = sourceProvider({
+    ...observedSources,
     '.codex/agents/worker.toml': 'name = "worker"\n',
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
     'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
@@ -190,6 +219,9 @@ test('non-code source ownership and executable import impact remain independentl
     [alphaFacade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
     [alphaTest]: "import { alpha } from './virtual-public.ts'; void alpha;",
     [betaTest]: "import { beta } from '../../src/compiler/virtual-public.ts'; void beta;"
+  }, compilation => {
+    expect(compilation.testObservations.resourceReads.map(({ target }) => target))
+      .toEqual(['src/value.json']);
   });
   expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
     .toEqual(['tests/unit/agent-fixture.test.ts']);
@@ -230,6 +262,20 @@ test('non-code source ownership and executable import impact remain independentl
   expect(selectTestsForSources([alpha], provider).fast).toEqual([alphaTest]);
   expect(selectTestsForSources([beta], provider).fast).toEqual([betaTest]);
   expect(selectTestsForSources([alphaFacade], provider).fast).toEqual([alphaTest, betaTest]);
+  // Runtime reads and child-process observations reach the runnable test
+  // through this same real Git/Source Program projection.
+  expect(provider.testInventory.testFiles).toContain('tests/unit/tsconfig-excluded.test.ts');
+  expect(selectTestsForSources(['src/value.ts'], provider).fast)
+    .toEqual(['tests/unit/value.test.ts']);
+  expect(provider.projection.observedTestConsumers).toEqual([
+    { targetPath: 'src/read-only.ts', testPath: 'tests/unit/value.test.ts' },
+    { targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts' },
+    { targetPath: 'tests/helpers/value-child.ts', testPath: 'tests/unit/value.test.ts' }
+  ]);
+  expect(selectTestsForSources(['src/value.json'], provider).fast)
+    .toEqual(['tests/unit/value.test.ts']);
+  expect(selectTestsForSources(['src/read-only.ts'], provider).fast)
+    .toEqual(['tests/unit/value.test.ts']);
 });
 
 test('repository receipts isolate exact source bytes across equal-length mutations', () => {
