@@ -1,0 +1,719 @@
+{
+  "schema": "gift.research-concept-network/0.4",
+  "status": "RESEARCH_PROJECTION_NOT_CANONICAL_AUTHOR_SOURCE",
+  "created_on": "2026-10-31",
+  "authoritative_document": "Gift_统一生成语义与跨尺度控制理论_v0.4.md",
+  "authoritative_document_sha256": "152a9e262a8a7b30b31ffa09c3ce66cc0f54a5708551a8a46336d9e6c760440c",
+  "upstream_sources": [
+    "Claude_对话全文提取.md",
+    "Gift_抽象生成基础与控制架构研究设计_v0.1.md",
+    "Gift_底层基础竞争与设计复用研究_v0.2.md",
+    "Gift_抽象基础62候选与理论归约核验_v0.3.md",
+    "Gift_62候选可检索清单.json"
+  ],
+  "research_ops": [
+    {
+      "id": "D",
+      "name": "区分",
+      "semantics": "relative to identity/equivalence, interpretation and permitted observations; not unconditional"
+    },
+    {
+      "id": "C",
+      "name": "组合",
+      "semantics": "typed mechanism; depends on binding, resources, effects, temporal and guarantee rules"
+    },
+    {
+      "id": "T",
+      "name": "变化",
+      "semantics": "indexed by computation, runtime, author edit, meaning revision, evidence revision, authorization and target migration"
+    }
+  ],
+  "responsibility_groups": [
+    {
+      "id": "R1",
+      "name": "形成与绑定",
+      "kind": "engineering_responsibility_not_ontological_primitive"
+    },
+    {
+      "id": "R2",
+      "name": "解释与满足",
+      "kind": "engineering_responsibility_not_ontological_primitive"
+    },
+    {
+      "id": "R3",
+      "name": "行为与实现",
+      "kind": "engineering_responsibility_not_ontological_primitive"
+    },
+    {
+      "id": "R4",
+      "name": "现实与演化",
+      "kind": "engineering_responsibility_not_ontological_primitive"
+    }
+  ],
+  "work_roles": [
+    {
+      "name": "形成",
+      "groups": [
+        "R1"
+      ]
+    },
+    {
+      "name": "指称解释",
+      "groups": [
+        "R2"
+      ]
+    },
+    {
+      "name": "要求与决定",
+      "groups": [
+        "R1",
+        "R2",
+        "R4"
+      ]
+    },
+    {
+      "name": "行为",
+      "groups": [
+        "R3"
+      ]
+    },
+    {
+      "name": "实现精化",
+      "groups": [
+        "R3"
+      ]
+    },
+    {
+      "name": "现实接地",
+      "groups": [
+        "R4",
+        "R2"
+      ]
+    },
+    {
+      "name": "评价证明",
+      "groups": [
+        "R2",
+        "R4"
+      ]
+    },
+    {
+      "name": "修订演化",
+      "groups": [
+        "R4",
+        "R1",
+        "R3"
+      ]
+    }
+  ],
+  "concept_families": [
+    {
+      "id": "C01",
+      "name": "存在、身份与界域",
+      "facets": "存在/不存在/未知、实体/值/种类/实例/发生、名义身份/结构同一/字节同一/观察等价、别名/共享/复制、开放域/封闭域",
+      "coupling_and_failure": "值相同不能合并对象或权利；单点观察相同不能合并行为；名称正规化可能冲突",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C02",
+      "name": "结构、空间与组织",
+      "facets": "部分整体、集合/序列/多重集/映射/记录/树/图/超图、排序、嵌套、封装、出口、拓扑、连接接口",
+      "coupling_and_failure": "有序与无序、重数与身份、公开与私有、构造与激活、位置空间与坐标投影独立",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C03",
+      "name": "关系、依赖与信息图",
+      "facets": "谓词/函数/多元角色、等价/蕴含/冲突/排斥、前提/支持/来源、依赖/因果、正负边、可逆/单向转换",
+      "coupling_and_failure": "同形边不自动同义；循环需区分禁止、递归、固定点和环状证据自证",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C04",
+      "name": "形成、抽象与绑定",
+      "facets": "命名、λ/抽象、应用/代入、泛型/类型级参数、自由/受束变量、递归/共递归、定义/使用、局部特化与公共复用",
+      "coupling_and_failure": "捕获、求值次数、发生身份、scope 及能力可见性不能因宏展开丢失",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C05",
+      "name": "数量、值域与度量",
+      "facets": "自然/整数/有理/实数/复数/位向量、单位/量纲/精度/误差、基数/重数/测度、概率核、无限域/有限呈示",
+      "coupling_and_failure": "无穷域可被有限符号指称，不等于可枚举；浮点近似不能冒充精确算术",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C06",
+      "name": "逻辑、证明与判断",
+      "facets": "经典/直觉主义/多值/非单调/时序/模态、量词/否定/存在见证、可满足/不可满足/未证/不合法、证明/抽象/反证",
+      "coupling_and_failure": "排中律不跨逻辑无条件有效；未知不等于否；空前提不应产生假成功",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C07",
+      "name": "状态、过程与事件",
+      "facets": "初态/后态、行为轨迹、事件发生/传输/观察、可达/不变量、持续/阶段/终止/发散、复合过程和恢复",
+      "coupling_and_failure": "终态相同并不保证历史、效果与责任相同；一次成功不能履行持续义务",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C08",
+      "name": "时间、时钟与地理空间",
+      "facets": "先后/同时/偏序、事件时间/处理时间/观察时间、区间、期限、公平、物理坐标/参考系、误差与同步",
+      "coupling_and_failure": "逻辑因果偏序与物理钟不等；迟到事件和更正可能改变旧结论",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C09",
+      "name": "计算、效果与协议",
+      "facets": "纯函数/副作用、异常/取消、流/生成器/续体、对象/封装、通信/异步/并发、分布、协议、进展",
+      "coupling_and_failure": "纯等式不能重排带效果计算；同名接口不是 ABI/资源资格；安全之外有活性",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C10",
+      "name": "因果、控制与反馈",
+      "facets": "相关/干预/反事实、信息/策略可得时点、控制与环境、可控域、模型识别、稳定/振荡、最优化与反弹",
+      "coupling_and_failure": "同观测分布不同干预结论；动态反馈无法一律使用单调固定点",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C11",
+      "name": "意图、规范与主体",
+      "facets": "目标/必须/偏好/允许/禁止/未提出、权利/义务/期限/例外/补救、委派/接受/承诺、多个利益相关方",
+      "coupling_and_failure": "规范禁止非缺省不发生；有许可非有 HostGrant；多主体偏好可能无一致总排名",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C12",
+      "name": "认识、证据与不确定",
+      "facets": "外部事实/假设/主观判断/模型、证据来源/覆盖/独立、未知/矛盾/无证、统计偏差/概率、可信检查、撤回",
+      "coupling_and_failure": "观察不足不推出不存在；证据更正非单调；不能用候选自证候选正确",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C13",
+      "name": "资源、安全与物理",
+      "facets": "所有权/共享借用/独占、容量/配额/预留/租约、原子性/崩溃、热/能耗/物理误差、可信根、泄露、故障恢复",
+      "coupling_and_failure": "有权限与有资源分别成立；独立局部配额不保证全局不超额；物理作用不可由模型回滚",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C14",
+      "name": "工程实现与目标",
+      "facets": "算法/数据结构/Method/Target/ABI/库、版本依赖/原生边界、源码/配置/部署/资产/验证、渐进生成",
+      "coupling_and_failure": "语义可表达不保证存在合格实现；方法已找到不证明已编译、已部署或已验证",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C15",
+      "name": "演化、治理与兼容",
+      "facets": "同源修订、显式固定/继承默认、版本/发布、读写双向变换、可追溯变更、迁移、消费者退役",
+      "coupling_and_failure": "修改默认不应覆盖显式固定；旧实例和旧回执不能由新规则重写",
+      "formal_status": "research_facet_not_primitive"
+    },
+    {
+      "id": "C16",
+      "name": "选择、成本与优化",
+      "facets": "硬条件、软偏好、词典序/偏序/权重、多目标、风险、信息价值、搜索界、作者成本、有限合成、长期失效成本",
+      "coupling_and_failure": "Pareto/lexicographic不等于加权和；缺测不能填零；不存在无范围的普遍最优",
+      "formal_status": "research_facet_not_primitive"
+    }
+  ],
+  "typed_relation_families": [
+    {
+      "id": "REL01",
+      "relation": "`defines / denotes` 定义与指称",
+      "example": "`CanonicalTouch` 定义区间规范化关系；名义变量指实际订单",
+      "invalid_inference": "同名即同义、定义存在即现实成立",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL02",
+      "relation": "`is-a / instance-of` 类型与实例",
+      "example": "某次付款是 Payment 意图实例",
+      "invalid_inference": "类型结构合法即实例已激活",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL03",
+      "relation": "`part-of / contains` 部分整体",
+      "example": "服务包含两个组件、一个索引目录",
+      "invalid_inference": "成员同值即共享实例",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL04",
+      "relation": "`uses / binds` 引用与实参绑定",
+      "example": "两个视图引用一个 Store，使用点各有阈值",
+      "invalid_inference": "两次引用都触发两个Store；导入即执行",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL05",
+      "relation": "`equal / equivalent / distinguishable` 相等和可区分",
+      "example": "当前值相等但升级行为不等",
+      "invalid_inference": "不标观察域就断言全局等价",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL06",
+      "relation": "`derives / macro-expands` 定义性推导",
+      "example": "有前提的逻辑短写、纯计算短写",
+      "invalid_inference": "将逻辑等价应用于效果重排",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL07",
+      "relation": "`implies / contradicts` 逻辑后果和冲突",
+      "example": "同一时域/主体的相反硬要求",
+      "invalid_inference": "不同域/不同主体可任意并列后当冲突",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL08",
+      "relation": "`assumes / guarantees` 前提和保证",
+      "example": "Service承诺响应需Provider实际可用",
+      "invalid_inference": "候选自己保证前提；循环自证",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL09",
+      "relation": "`composes / couples` 构成与耦合",
+      "example": "两独立服务共享同一配额",
+      "invalid_inference": "两项局部通过就等于整体通过",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL10",
+      "relation": "`transitions / happens-before` 转移与顺序",
+      "example": "reserve→commit，真实顺序、发生时刻",
+      "invalid_inference": "先后即因果，时戳相同即事件同一",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL11",
+      "relation": "`causes / intervenes` 因果与干预",
+      "example": "调整发送速率改变延迟分布",
+      "invalid_inference": "统计相关即干预效果",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL12",
+      "relation": "`owns / authorizes / accepts` 所有、授权和接受",
+      "example": "顾客授权一次扣款，Provider签发Grant",
+      "invalid_inference": "Goal期望、permit或昵称即实际Grant",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL13",
+      "relation": "`supports / refutes / qualifies` 证据关系",
+      "example": "支持某Claim的原始日志、证明与覆盖",
+      "invalid_inference": "未观察/未完成检测即命题假",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL14",
+      "relation": "`realizes / refines / lowers` 实现与精化",
+      "example": "某TS函数实现稳定排序合同",
+      "invalid_inference": "编译成功即现实需求完成",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL15",
+      "relation": "`observes / settles` 观察与结算",
+      "example": "网关扣款回执与准确operationId",
+      "invalid_inference": "请求超时就重试且断言没扣款",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL16",
+      "relation": "`depends-on / invalidates` 依赖与失效",
+      "example": "名义类型更改使某编译缓存失效",
+      "invalid_inference": "只记正引用，忽略缺席/候选集/默认变化",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL17",
+      "relation": "`edits / migrates / supersedes` 修改与替换",
+      "example": "源改名、合同升级、旧实例迁移",
+      "invalid_inference": "新源可追溯就等于旧实例已迁移",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL18",
+      "relation": "`equivalent-under / preserved-by` 语义保持",
+      "example": "映射保存错误、历史与终止的哪类观察",
+      "invalid_inference": "仅值相同就声称完全等价",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL19",
+      "relation": "`recommends / prefers / dominates` 偏好与支配",
+      "example": "在合格策略中按真实指标比较",
+      "invalid_inference": "缺测=0、低优先覆盖硬要求",
+      "validation_status": "research_rule_not_runtime_checker"
+    },
+    {
+      "id": "REL20",
+      "relation": "`exposes / hides / discloses` 可见与披露",
+      "example": "公共API、保密Claim、只读视图",
+      "invalid_inference": "内部知道的信息即客户端有权获得",
+      "validation_status": "research_rule_not_runtime_checker"
+    }
+  ],
+  "cross_family_cases": [
+    {
+      "id": "INT01",
+      "domains": "身份 × 集合/序列",
+      "mechanism": "同值条目在两个发生点出现",
+      "required_distinction": "Set去重丢重复次数；保序序列不能只检查元素成员资格",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT02",
+      "domains": "身份 × 版本",
+      "mechanism": "改名、提取、复制/移动声明",
+      "required_distinction": "同名不证明同实体；共享定义不能在移动时复制状态",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT03",
+      "domains": "绑定 × 宏展开",
+      "mechanism": "抽象在使用处被实例化",
+      "required_distinction": "变量捕获、求值次数改变、调用位置不合法",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT04",
+      "domains": "逻辑 × 观察",
+      "mechanism": "当前只有有限分页结果",
+      "required_distinction": "`∀`成功与`不存在`需要合格覆盖；存在见证可先成立",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT05",
+      "domains": "逻辑 × 非单调",
+      "mechanism": "default-not、外部撤证、负查询",
+      "required_distinction": "新增事实可撤销旧结论；不能用单调合取规则",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT06",
+      "domains": "数值 × 目标",
+      "mechanism": "精确整数/有理数进入JS/浮点",
+      "required_distinction": "过界精度、舍入和溢出；不能只看Schema integer",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT07",
+      "domains": "空值 × 未知",
+      "mechanism": "未定义、Optional.None、尚未读取",
+      "required_distinction": "`null`、缺字段、未决、无解不是同一种取值",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT08",
+      "domains": "时间 × 事件流",
+      "mechanism": "水位/窗口关闭、新更正通道",
+      "required_distinction": "输入End非输出End；迟到事实与观测时间分开",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT09",
+      "domains": "时间 × 规范",
+      "mechanism": "义务到期、开放持续、事件晚到",
+      "required_distinction": "事后补救不抹旧违例；政策修订不能自动追溯",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT10",
+      "domains": "时间 × 现实",
+      "mechanism": "编译时锁定与运行时事实变化",
+      "required_distinction": "已编译容量不等于当前真实容量；需运行准入/监测",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT11",
+      "domains": "状态 × 并行",
+      "mechanism": "两调用改共享对象",
+      "required_distinction": "各自满足局部后态不保证全局不变量；需原子/协调依据",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT12",
+      "domains": "并行 × 故障",
+      "mechanism": "多Provider与部分提交",
+      "required_distinction": "超时不证明无效果；恢复/读回/补偿有独立状态",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT13",
+      "domains": "资源 × 复制",
+      "mechanism": "组件复用或handler多次恢复",
+      "required_distinction": "名义引用不复制线性资源；需要所有权/使用次数证明",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT14",
+      "domains": "资源 × 性能",
+      "mechanism": "多个合法方法共享内存/配额",
+      "required_distinction": "单根资源上界不推出多根共同上界，预算不能重复发放",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT15",
+      "domains": "逻辑 × 活性",
+      "mechanism": "只维护“绝不出错”",
+      "required_distinction": "永远拒绝所有输入也可能满足安全；必须考虑正常进展义务",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT16",
+      "domains": "观察 × 权限",
+      "mechanism": "高权Provider处理私密数据",
+      "required_distinction": "内部判断不能直接披露条件/候选数量/秘密",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT17",
+      "domains": "因果 × 优化",
+      "mechanism": "找到与目标相关的变量",
+      "required_distinction": "预测正确≠干预有效；可能优化代理指标导致实际恶化",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT18",
+      "domains": "概率 × 组合",
+      "mechanism": "两随机消费者合并",
+      "required_distinction": "边际相同不保证联合分布、独立性和尾风险",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT19",
+      "domains": "概率 × 观察",
+      "mechanism": "零概率条件、样本选择",
+      "required_distinction": "数学模型条件化可能未定义；真实资料不能凭假设自识别",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT20",
+      "domains": "实现 × 公开协议",
+      "mechanism": "修改Callback输入/返回变体",
+      "required_distinction": "顶层函数名相同仍可能破坏旧消费者；方向依入/出变换",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT21",
+      "domains": "实现 × 原生生态",
+      "mechanism": "外部ABI与具体语言差别",
+      "required_distinction": "中立IR不能自动恢复UB、指针别名、ABI、布局与线程模型",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT22",
+      "domains": "设计 × 派生证据",
+      "mechanism": "生成程序和测试共享一个错误解释",
+      "required_distinction": "二者互相一致不能独立证明原需求满足",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT23",
+      "domains": "默认 × 版本",
+      "mechanism": "继承值和显式值当前相同",
+      "required_distinction": "默认升级必须仅影响真正继承者，不改变明确固定者",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT24",
+      "domains": "控制 × 权威",
+      "mechanism": "作者指定某运行行为",
+      "required_distinction": "作者源声明不生成HostGrant/第三方合同或现实事实",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT25",
+      "domains": "优化 × 多方规范",
+      "mechanism": "不同主体有冲突利益和红线",
+      "required_distinction": "单一权重相加可能抹掉不可补偿义务；策略须被接受",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT26",
+      "domains": "安全 × 可靠性",
+      "mechanism": "攻击、重放、分区、资源枯竭",
+      "required_distinction": "加密/身份不自动证明可用性和恢复；故障/恶意意图不同",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT27",
+      "domains": "递归 × 解释",
+      "mechanism": "自引用定义/环状支持",
+      "required_distinction": "合法递归/固定点和错误自证环必须分开；预算保留剩余",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT28",
+      "domains": "作者视图 × 未知扩展",
+      "mechanism": "不可编辑区域未显示",
+      "required_distinction": "回写不能丢未知字段、原字节或其他独立要求",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT29",
+      "domains": "模型更新 × 旧世界作用",
+      "mechanism": "补账、纠错、合同撤销",
+      "required_distinction": "新结论不抹已经发送/扣款/泄露/制造的事实",
+      "validation_status": "counterexample_or_acceptance_design"
+    },
+    {
+      "id": "INT30",
+      "domains": "质量 × 作者成本",
+      "mechanism": "一个简短高层意图诱导昂贵求解",
+      "required_distinction": "不能把少写字符当成总成本更低；完整失败和修复成本需测",
+      "validation_status": "counterexample_or_acceptance_design"
+    }
+  ],
+  "verification_topics": [
+    {
+      "id": "V1",
+      "topic": "V1 形成/类型/名字",
+      "positive_witness": "定义、带Unicode引用、匿名绑定、递归合法体",
+      "failure_witness": "捕获、错类型、未定义名、假公开",
+      "method": "有界形式规范/严格解码/类型规则",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V2",
+      "topic": "V2 身份/重数/序列",
+      "positive_witness": "两同值发生、一个共享实例、重复元素保留",
+      "failure_witness": "同值合并、重排、复制唯一资源",
+      "method": "结构/小模型对照",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V3",
+      "topic": "V3 逻辑/量词",
+      "positive_witness": "精确绑定下正常真/假",
+      "failure_witness": "`∀∃`交换、空域自证、未知当否",
+      "method": "逻辑片段模型/证明",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V4",
+      "topic": "V4 专业桥",
+      "positive_witness": "明示正反或单向保持、各消费者认定范围",
+      "failure_witness": "只保留refinement却丢composition/conjunction",
+      "method": "对照不同理论/有限模型",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V5",
+      "topic": "V5 递归/反馈",
+      "positive_witness": "有依据的良基递归或合格固定点",
+      "failure_witness": "环状引用自证、无限内联、进展缺失",
+      "method": "结构归纳/固定点/终止性检查",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V6",
+      "topic": "V6 计算与效果",
+      "positive_witness": "正常纯计算、合法错误和指定结束方式",
+      "failure_witness": "重排副作用、丢取消/错误、永拒成功",
+      "method": "参考解释/差分/效果检查",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V7",
+      "topic": "V7 状态/并发/资源",
+      "positive_witness": "单/多实例共享与资源界保持",
+      "failure_witness": "两局部正确合成超配、重复效果",
+      "method": "状态模型/线性化、A/G方法",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V8",
+      "topic": "V8 时间/流",
+      "positive_witness": "精确事件顺序、持续/期限、迟到更正",
+      "failure_witness": "当前窗口前缀当完整、政策追溯变义",
+      "method": "时序模型/事件范本",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V9",
+      "topic": "V9 概率/因果",
+      "positive_witness": "联合分布、干预模型及限定结论",
+      "failure_witness": "相同边际/观察关联当独立/因果",
+      "method": "概率小模型/结构方程",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V10",
+      "topic": "V10 规范/权威",
+      "positive_witness": "有效禁令/义务/许可/接受明确归属",
+      "failure_witness": "无操作即禁、permit=Grant、事后补救抹违例",
+      "method": "Norm模型与实际来源",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V11",
+      "topic": "V11 证据与安全",
+      "positive_witness": "同一Claim有正确覆盖、独立证据",
+      "failure_witness": "误引、假绿、测量偏差、隐私泄露",
+      "method": "独立Oracle/来源图/权限测试",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V12",
+      "topic": "V12 作者控制",
+      "positive_witness": "只写独立差异，合法委派且可展开所有决定",
+      "failure_witness": "默认升级漂移、作者被迫重填Method",
+      "method": "人机任务/变更对照",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V13",
+      "topic": "V13 多表征",
+      "positive_witness": "图表与精确作者源同义，编辑回写保全",
+      "failure_witness": "隐藏信息丢失、未知扩展被覆盖",
+      "method": "Lens法规、前像/回读测试",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V14",
+      "topic": "V14 精化目标",
+      "positive_witness": "TS等目标完整可运行、保留合同",
+      "failure_witness": "只有stub、缩小输入域、ABI变化",
+      "method": "独立构建/目标语义/契约测试",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V15",
+      "topic": "V15 演化/恢复",
+      "positive_witness": "参数/公共定义修改及真实失效传播",
+      "failure_witness": "旧操作改义、晚回调清新任务、损失回退",
+      "method": "版本/迁移/效果回执",
+      "execution_status": "NOT_RUN_in_Gift"
+    },
+    {
+      "id": "V16",
+      "topic": "V16 实际效率",
+      "positive_witness": "同等保证下作者独立决定与整体成本可测",
+      "failure_witness": "只数源码行或忽略修复、校验时间",
+      "method": "同任务对照、成本和失败统计",
+      "execution_status": "NOT_RUN_in_Gift"
+    }
+  ],
+  "legacy_theory_candidates": {
+    "source": "Gift_62候选可检索清单.json",
+    "count": 62,
+    "warning": "representative theories of different logical levels; not 62 competing ultimate foundations"
+  },
+  "claim_boundaries": {
+    "passed_finite_tests_in_prior_artifact": 17,
+    "formal_proof_of_universal_foundation": false,
+    "comprehensive_all_cross_logic_machine_proof": false,
+    "Gift_product_E2E_verification_this_turn": false,
+    "repo_modified_this_turn": false
+  }
+}

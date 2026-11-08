@@ -1,8 +1,8 @@
 {
   "schema": "gift.research-source-custody/1",
-  "source_scope": "Available local Gift semantic research and design-fusion documents selected in this delivery; not a claim to all Library files or all historical versions.",
-  "unique_sources": 58,
-  "total_source_bytes": 44125502,
+  "source_scope": "Available Gift semantic research, design-fusion, and independent compiler learning originals selected and verified through 2026-11-08; not an exhaustive inventory of Library files or all historical versions.",
+  "unique_sources": 66,
+  "total_source_bytes": 44403318,
   "objects": [
     {
       "sha256": "8949993d4a53d475b7e73cc6e09d03b9b66eb494e9ca381e1f8c1b534a8ab7cd",
@@ -721,6 +721,102 @@
       "source_names": [
         "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/reference/docs/实际交付.md",
         "Gift_通用关系_持续维护整合版.zip!Gift_通用关系_持续维护整合版/baseline/previous_delivery.zip!Gift_统一语义与生成投影_续作/docs/实际交付.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "c382bc314f17e9cf717bfe318958e3fc1b657ff4f26c332a18dce3bd0c7248a0",
+      "bytes": 31097,
+      "object": "objects/c3/c382bc314f17e9cf717bfe318958e3fc1b657ff4f26c332a18dce3bd0c7248a0.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/c3/c382bc314f17e9cf717bfe318958e3fc1b657ff4f26c332a18dce3bd0c7248a0.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_抽象生成基础与控制架构研究设计_v0.1.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "d2ec74a9eddafffcbd5424c564bd8263aa93f24afe785d0e1b41d1e72439e152",
+      "bytes": 19728,
+      "object": "objects/d2/d2ec74a9eddafffcbd5424c564bd8263aa93f24afe785d0e1b41d1e72439e152.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/d2/d2ec74a9eddafffcbd5424c564bd8263aa93f24afe785d0e1b41d1e72439e152.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_底层基础竞争与设计复用研究_v0.2.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "ef2a1ac54633e11e94c83cb5688d6b929d0de5346de22ca0173aed2be80dd949",
+      "bytes": 34352,
+      "object": "objects/ef/ef2a1ac54633e11e94c83cb5688d6b929d0de5346de22ca0173aed2be80dd949.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/ef/ef2a1ac54633e11e94c83cb5688d6b929d0de5346de22ca0173aed2be80dd949.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_抽象基础62候选与理论归约核验_v0.3.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "152a9e262a8a7b30b31ffa09c3ce66cc0f54a5708551a8a46336d9e6c760440c",
+      "bytes": 78580,
+      "object": "objects/15/152a9e262a8a7b30b31ffa09c3ce66cc0f54a5708551a8a46336d9e6c760440c.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/15/152a9e262a8a7b30b31ffa09c3ce66cc0f54a5708551a8a46336d9e6c760440c.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_统一生成语义与跨尺度控制理论_v0.4.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "30971e147cc346c3268bbf2f4d32393ba2b6097b6a8e65f26bd75503e28ab967",
+      "bytes": 28997,
+      "object": "objects/30/30971e147cc346c3268bbf2f4d32393ba2b6097b6a8e65f26bd75503e28ab967.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/30/30971e147cc346c3268bbf2f4d32393ba2b6097b6a8e65f26bd75503e28ab967.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_62候选可检索清单.json"
+      ],
+      "original_extension": ".json"
+    },
+    {
+      "sha256": "a7e2cca37707367a39e8768bd62e1155987ff5297db855e0918268756492948e",
+      "bytes": 29486,
+      "object": "objects/a7/a7e2cca37707367a39e8768bd62e1155987ff5297db855e0918268756492948e.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/a7/a7e2cca37707367a39e8768bd62e1155987ff5297db855e0918268756492948e.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "research_data",
+      "source_names": [
+        "Gift_概念分化与理论关系索引_v0.4.json"
+      ],
+      "original_extension": ".json"
+    },
+    {
+      "sha256": "c2107786edecb6e22215e900f47de7067966dee841f29587cb32f04903f2d7dc",
+      "bytes": 45602,
+      "object": "objects/c2/c2107786edecb6e22215e900f47de7067966dee841f29587cb32f04903f2d7dc.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/c2/c2107786edecb6e22215e900f47de7067966dee841f29587cb32f04903f2d7dc.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_编译器精通_知识手册_20261105.md"
+      ],
+      "original_extension": ".md"
+    },
+    {
+      "sha256": "41e5ca46bf1bb4f7f01ee45f5dbea1664501890e069fb4bce6f6da4541b42e01",
+      "bytes": 9974,
+      "object": "objects/41/41e5ca46bf1bb4f7f01ee45f5dbea1664501890e069fb4bce6f6da4541b42e01.txt",
+      "repository_path": "alternatives/本地草稿封存/研究原件/objects/41/41e5ca46bf1bb4f7f01ee45f5dbea1664501890e069fb4bce6f6da4541b42e01.txt",
+      "source_role": "IMMUTABLE_HISTORICAL_SOURCE",
+      "kind": "source_document",
+      "source_names": [
+        "Gift_编译器精通_第二讲_可运行语义和编译正确性.md"
       ],
       "original_extension": ".md"
     }

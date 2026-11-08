@@ -1,0 +1,201 @@
+# Gift 抽象生成基础的全面候选、归约理论、反证和可用架构
+
+> 核验日期：2026-10-31。依据本次实际网页原始资料/权威综述、上传的 Claude 对话与 Gift v0.1/v0.2，及 `sec-platform/sec` 设计分支 `68b8786f70c16bddb14ea357d9d058aa88af68da` 的本轮已核文本。**本报告是研究性候选裁决，不是仓库正式采用、更不是对所有理论的形式化穷尽证明。**
+
+## 0. 这份报告可以证明什么
+
+“所有可能的公理或语义体系”不是一个可通过有限目录枚举完的静态集合。每增加一个公理、语义域、有效观测、构造或组合方式，都可能产生新的非等价体系；同一个名称（集合论、类型论、范畴论）内部也有大量公理不同的变体。因此没有不依赖筛选准则的**唯一候选总数**。
+
+本文件的62条是对**当前任务有关、能找到形式定义或已有学术/工程研究的代表路线**建立的研究覆盖目录，而非62个相互排斥的世界公理系统。源资料被按其支持能力阅读或核查；实测只涉及另外列出的17条有限样本，不能自动证明62条理论都正确或所有两两翻译均存在。62项中部分是数学基础、部分是语言语义、部分是领域补充、部分是研究方法与工具；这些应分类，而不是用总数宣告“需要62层”。
+
+来源级别：本轮已检索、核对的主要文献或权威标准给出理论**存在、定义、已发表的特定结论**；没有重新形式化复核其所有定理。附带的 `gift_foundations_probe.py` 独立检查可具体重现的17个有限区别见证。对于每个候选，表中“保留的区别”属于文献基础+工程机制推导；“推荐作用”是本项目的条件性判断，不是学术界共识或产品实测。
+
+## 1. 真正需要比较的不是单一原语数量
+
+研究至少区分七个独立问题：数学对象/公理的充分性；构造及作用域合法性；表达/观察的保真；计算与效果的正常实现；证明系统能证明什么；现实时点、证据与授权；整个作者-编译-维护过程的成本。若用一套编码把所有对象编号为自然数，“能保存字节”仍未证明上述任何额外资格。
+
+理论之间“收缩”存在严格的层次：①在固定表达语言内宏消去；②定义扩展/双向定义等价；③模型类等价（适用 Morita/范畴等价等条件）；④精化或单向保真翻译；⑤有意丢信息的抽象；⑥仅作数据编码。不能从⑥自动升格到②或③。检验标准、观察类别、假设/公理、翻译方向及消费者必须随每次收缩固定。
+
+### 一个有用但不能外推的事实
+
+已知成熟结果包括：ZFC可以用经典一阶逻辑、相等、一个非逻辑成员关系与公理表达大量数学对象；指定简单类型 λ 演算与相应笛卡儿闭范畴存在语法—语义对应；`Set`上的有限型单子与对应 Lawvere 理论有严格关系；适用签名上的 Institution 满足条件支持跨逻辑翻译；代数与余代数分别有构造和行为理论；TLA+ 对动作及行为作时序解释。这些均是**有条件的对应**，没有证明全部版本、全部资源或真实权限获得了同一语义。
+
+---
+
+## 2. 候选研究目录
+
+共 **62** 条代表路线：数学及逻辑基础14；构造、计算与静态结构12；动态、行为、效果及资源16；异质逻辑与证明/编辑元框架6；领域数学、信息及本体解释14。每一行有形式基础、可保留的 D/C/T 相关能力、不能直接压掉的差别、来源和在 Gift 中的条件性归属。标记“候选”不代表必须在产品内实现；没有实际任务使用的能力不应成为首期必需依赖。
+
+### A：数学及逻辑基础
+
+| 编号与理论 | 基本构造/公理 | 已有可用表达/机制 | 不可无条件合并的差别 | 对 Gift 的用途 | 依据 |
+|---|---|---|---|---|---|
+| A01 ZF/ZFC 物质集合论 | 一阶逻辑、相等、成员关系、公理族 | 有序对、函数、关系与状态转换可集合编码 | 没有自动赋予现实指称；公理体系并非单一规则 | 数学元证明基准 | [源](https://plato.stanford.edu/entries/set-theory/) |
+| A02 NBG/MK 类理论 | 集合、真类及类理解公理 | 在含大型语义域的推理中管理类与集合 | NBG与MK强度不同；类的大小条件不能省 | 规模与元理论备用 | [源](https://seop.illc.uva.nl/entries/settheory-alternative/index.html) |
+| A03 NF/NFU 新基础集合论 | 分层理解；NFU允许原子 | 以不同集合存在公理组织结构 | 不同于ZFC，不应声称无条件等价 | 公理竞争对照 | [源](https://seop.illc.uva.nl/entries/settheory-alternative/index.html) |
+| A04 IZF/CZF 构造性集合论 | 直觉主义逻辑和限制性的集合存在公理 | 区别有构造依据的存在与经典存在 | CZF与IZF强度和公理不同 | 构造性对照 | [源](https://plato.stanford.edu/entries/set-theory-constructive/) |
+| A05 反基础/非良基集合 | 替代基础公理、可解的循环集合方程 | 循环引用与共同递归对象可集合模型化 | 不等于所有循环求值都能终止 | 递归结构专项 | [源](https://plato.stanford.edu/archives/spr2025/entries/nonwellfounded-set-theory/) |
+| A06 二阶算术与逆向数学 | 数、数集、不同理解与归纳强度 | 测定某定理究竟需要多强公理 | 不同子系统严格区别，不能任意统一为全ZF | 证明强度校准 | [源](https://plato.stanford.edu/entries/reverse-mathematics/) |
+| A07 多类一阶逻辑及模型论 | 签名、模型、赋值、量词和满足 | 公开参照域、映射及含义保留的基准 | 单靠FOL没有全部集合存在公理或可执行性 | 核心逻辑接口候选 | [源](https://publish.lfcs.inf.ed.ac.uk/reports/90/ECS-LFCS-90-106/) |
+| A08 简单类型论/高阶逻辑 HOL | 有类型函数、命题及高阶量化 | 以可检查的函数/谓词签名承载数学规格 | 具体HOL的经典性、选择及无限公理须固定 | 核心形式证明候选 | [源](https://plato.stanford.edu/entries/type-theory/) |
+| A09 Martin-Löf 依赖类型论 | 上下文判断、Π/Σ、Id、归纳构造 | 类型依赖值、构造与证明对应 | 不同身份模式和宇宙层级影响可表达域 | 核心类型研究候选 | [源](https://plato.stanford.edu/entries/type-theory/) |
+| A10 构造演算 CIC/归纳构造 | 依赖类型、归纳族、约束规约 | 作为可检查证明项的实现参照 | 术语简短不等于可自动推导实例 | 内核证明候选 | [源](https://lean-lang.org/doc/reference/latest) |
+| A11 HoTT/单价与立方类型 | 路径/同伦、单价、较高归纳构造 | 将等价和身份的高阶结构纳入类型基础 | 不与所有外延性/集合相等自动同义 | 高阶身份专项 | [源](https://homotopytypetheory.org/book/) |
+| A12 ETCS 结构集合论 | 集合与函数的范畴公理 | 集合、函数及数学结构有非成员式基础 | 与ZFC公理强度不同，不能原样替换无限论证 | 范畴基础对照 | [源](https://artscimedia.case.edu/wp-content/uploads/2013/07/14182623/Lawvere-ETCS.pdf) |
+| A13 拓扑斯/内部逻辑 | 有限极限、指数、子对象分类器 | 以范畴内部语言解释逻辑及空间变化 | 一般拓扑斯内部直觉主义，不保证排中律 | 跨模型逻辑候选 | [源](https://plato.stanford.edu/entries/category-theory/) |
+| A14 范畴的范畴/高阶范畴 | 对象、态射、函子、自然变换及高阶对应 | 组织结构间变换和高阶相同性 | 小/大范畴及大小基础仍要处理 | 结构元理论研究 | [源](https://plato.stanford.edu/entries/category-theory/) |
+
+### B：构造、计算与静态结构
+
+| 编号与理论 | 基本构造/公理 | 已有可用表达/机制 | 不可无条件合并的差别 | 对 Gift 的用途 | 依据 |
+|---|---|---|---|---|---|
+| B01 通用代数/等式规格 | 多类运算签名、项及等式 | 数据构造和代换可通过自由代数统一 | 纯等式不覆盖全部外部效果和时序 | 语法形成核心候选 | [源](https://ncatlab.org/spahn/show/Lawvere%2Bet%2Bal%2C%2Balgebraic%2Btheories) |
+| B02 Lawvere 理论 | 有限积结构与代数操作 | 特定域中等价于 Set 上的有限型单子 | 一般无限元数或全部效果不能直接归入 | 构造归约候选 | [源](https://ncatlab.org/spahn/show/Lawvere%2Bet%2Bal%2C%2Balgebraic%2Btheories) |
+| B03 λ演算 | 变量、抽象、应用、β归约 | 一般可计算过程的简洁编码 | 无类型的β等价不能忽略非终止和效果 | 计算充分性基准 | [源](https://www.sciencedirect.com/science/article/pii/0890540191900524) |
+| B04 SK/Iota 极简组合子 | 组合子及应用 | 可编码λ计算，显示少指令不等于少规则 | 原语少但可读性和作者成本可能极高 | 最小原语下界对照 | [源](https://plato.stanford.edu/entries/computability/) |
+| B05 图灵机/元胞自动机 | 符号、局部状态和更新 | 证明可计算函数的通用编码 | 程序语义、规范与原始来源需额外建模 | 计算通用性对照 | [源](https://plato.stanford.edu/entries/computability/) |
+| B06 Codd 关系模型/演算 | 集合元组、关系操作、量化 | 数据查询和约束的强大共同基础 | 重数、开放世界、时序与外部作用另需规则 | 数据/关系专业引擎 | [源](https://research.ibm.com/publications/a-relational-model-of-data-for-large-shared-data-banks) |
+| B07 Tarski 关系代数/Allegory | 二元关系、复合、交并、逆 | 将相当多关系计算放到代数结构 | 不是所有抽象关系代数都具有集合关系表示 | 关系语义反证基准 | [源](https://link.springer.com/article/10.1007/s00233-025-10531-4) |
+| B08 有类型图/超图与发生结构 | 节点、角色、端点、超边、连接 | Definition/Use/共享/发生与编辑可直接表示 | 图编码不自动提供名义含义或执行资格 | 结构承载首选 | [源](https://research.utwente.nl/en/publications/a-tutorial-on-graph-transformation/) |
+| B09 笛卡儿闭范畴/幺半范畴/图线语法 | 态射顺序组合、张量并列及额外公理 | 同类结构的组合图及类型化复合 | 复制/丢弃是否允许取决于具体结构 | 组合理论首选 | [源](https://www.cambridge.org/core/elements/an-introduction-to-string-diagrams-for-computer-scientists/3CDAF8F57D2299F0EACA3354E9757CFD) |
+| B10 Nominal Sets 名义集合 | 原子名称、置换、新鲜性、绑定 | 卫生替换、α等价和局部名字作用域 | 相同拼写不等于同一源身份 | 名称绑定专项 | [源](https://assets.cambridge.org/97811070/17788/excerpt/9781107017788_excerpt.pdf) |
+| B11 Scott 域论/偏序固定点 | 信息偏序、连续映射、最小固定点 | 递归、未知与近似的指称语义 | 证据撤回/现实变化不全是单调细化 | 递归与信息研究 | [源](https://people.cs.nott.ac.uk/pszgmh/domains.html) |
+| B12 模态 μ 演算/固定点逻辑 | 模态与最小/最大固定点 | 表达可达性、递归状态性质和进展 | 具体逻辑的可判定性不能推广到无限真实系统 | 状态性质专项 | [源](https://research.ibm.com/publications/results-on-the-propositional-m-calculus) |
+
+### C：动态、行为、效果及资源
+
+| 编号与理论 | 基本构造/公理 | 已有可用表达/机制 | 不可无条件合并的差别 | 对 Gift 的用途 | 依据 |
+|---|---|---|---|---|---|
+| C01 抽象重写系统 ARS | 关系 →、正规形、汇合、终止性质 | 用二元关系模型化局部计算步骤 | 存在变化不证明终止与唯一正规形 | 基本动态研究 | [源](https://www.sciencedirect.com/science/article/pii/030439759290182F) |
+| C02 重写逻辑/Maude | 条件规则、等式项、并发重写 | 对并发对象和协议给可执行语义 | 独立权威与现实承诺不能由重写规则取得 | 行为候选 | [源](https://www.sciencedirect.com/science/article/pii/030439759290182F) |
+| C03 匹配逻辑/K | 模式、配置结构、重写规则 | 一套描述转移/验证程序的实际框架 | 自身匹配公式不自动证明真实业务含义 | 有工具的语义候选 | [源](https://kframework.org/exports/K.html) |
+| C04 DPO/SPO 图变换 | 图匹配、保留/删除、黏合条件 | 有身份的结构修改、发生合并、图变化 | 删除悬空边与共享资源需严格前提 | 作者结构编辑候选 | [源](https://arxiv.org/abs/2212.11630) |
+| C05 通用代数—余代数 | 构造/观察两个对偶方向及双模拟 | 既能定义数据，也能定义持续系统行为 | 余代数不自动给予现实时间和许可 | 长期行为首选 | [源](https://pages.jh.edu/rrynasi1/NewFoundations4Math/Literature/Coalgebras/Rutten2000UniversalCoalgebra-ATheoryOfSystems.pdf) |
+| C06 标记转移系统与双模拟 | 状态、可观察标签、转移及相互模拟 | 判定有界系统的行为差别与隐藏差别 | 当前输出相同不代表未来等价 | 行为比较核心 | [源](https://pages.jh.edu/rrynasi1/NewFoundations4Math/Literature/Coalgebras/Rutten2000UniversalCoalgebra-ATheoryOfSystems.pdf) |
+| C07 Petri网/事件结构 | 位置、令牌、发生、因果偏序、冲突 | 并发、共享、资源竞争、历史可观察 | 任意网和事件模型的转换有适用条件 | 真实并发专项 | [源](https://www.sciencedirect.com/science/article/pii/0304397587900909) |
+| C08 CCS/CSP 进程代数 | 动作、通信、组合、隐藏、过程代数 | 通信协议和可观察轨迹的形式模型 | 对动态名称移动表达有不同范围 | 静态通信专项 | [源](https://publish.lfcs.inf.ed.ac.uk/reports/89/ECS-LFCS-89-85/) |
+| C09 π 演算 | 移动名称、局部绑定、通信、并行 | 可形式化改变连接拓扑的过程 | 业务权限和原始指称非同名通信自动提供 | 动态通信专项 | [源](https://publish.lfcs.inf.ed.ac.uk/reports/89/ECS-LFCS-89-85/) |
+| C10 TLA+/时序动作逻辑 | 状态动作、允许停顿、时序公式和公平 | 共享状态、安全/活性/精化检查 | 运行时资源界与物理环境需另证 | 状态行为专项 | [源](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/12/The-Specification-Language-TLA.pdf) |
+| C11 Hoare/最弱前提/数据精化 | 前置、命令、后置、精化关系 | 推导目标程序应满足的前后合同 | 仅部分正确不自动证明终止/效果 | 正确性检查候选 | [源](https://doi.org/10.1145/363235.363259) |
+| C12 单子/克莱斯利语义 | T(A)计算效果、bind、组合 | 纯值与有副作用计算分开 | 不同单子的效果顺序和组合并非可任意交换 | 计算效果核心候选 | [源](https://www.sciencedirect.com/science/article/pii/0890540191900524) |
+| C13 代数效果/Handler | 效果操作、续体与处理解释 | 异常、状态、IO、取消等可控处理 | 需准确处理器资格，不能生成真实执行授权 | 效果实现专项 | [源](https://homepages.inf.ed.ac.uk/gdp/publications/handling-algebraic-effects.pdf) |
+| C14 线性逻辑 | 资源敏感逻辑及受限复制/丢弃 | 不让资源被无条件复制或消失 | 普通 Bool 合取不等价资源并置 | 资源与所有权专项 | [源](https://www.sciencedirect.com/science/article/pii/0304397587900454) |
+| C15 分离逻辑 | 分离合取、堆片段与帧规则 | 独占与局部资源写入推理 | 共享并发仍需条件与同步模型 | 存储和并发专项 | [源](https://doi.org/10.1109/LICS.2002.1029817) |
+| C16 博弈语义/策略 | 玩家、合法操作、交互与策略 | 保留环境与系统的选择时点及可见信息 | 一种博弈模型不自动定义多方规范权利 | 策略与交互专项 | [源](https://www.sciencedirect.com/science/article/pii/S0890540100929304) |
+
+### D：异质逻辑与证明/编辑元框架
+
+| 编号与理论 | 基本构造/公理 | 已有可用表达/机制 | 不可无条件合并的差别 | 对 Gift 的用途 | 依据 |
+|---|---|---|---|---|---|
+| D01 Institution 抽象模型论 | 签名、语句、模型、满足关系、翻译 | 跨逻辑重命名、模块与约束保持 | 不能无条件将各逻辑混用或共享求解器 | 异质语义统一首选 | [源](https://publish.lfcs.inf.ed.ac.uk/reports/90/ECS-LFCS-90-106/) |
+| D02 LF/逻辑框架 | 有类型依赖λ及规则/证明编码 | 证明不同推理系统的共同形式输入 | 编码不是特定逻辑自身可靠性的证明 | 共同证明表示 | [源](https://lics.siglog.org/archive/1987/HarperHonsellPlotki-AFrameworkforDefini.html) |
+| D03 Isabelle/Pure 与 Lean 核 | 小核心、对象逻辑/证明项、可靠检查 | 已有数学理论可在同类工具里形式化 | 工具安装不等于已证明Gift全部含义 | 证明工具而非本原 | [源](https://www.isabelle.in.tum.de/documentation.html) |
+| D04 范畴逻辑/Hyperdoctrine | 上下文范畴、谓词纤维及量词伴随 | 在结构化语义中组织一阶逻辑 | 底座的谓词和相等结构有前提 | 逻辑组合元理论 | [源](https://academic.oup.com/logcom/article/32/8/1855/6795172) |
+| D05 OMG DOL/Hets 逻辑网络 | 多逻辑规范、签名映射、翻译、模块 | 已有跨理论规范组织的实际路线 | 并非自动给出每一条桥的保义证明 | 可直接借鉴而非自造 | [源](https://www.omg.org/dol/) |
+| D06 Lenses/双向变换 | get、put、往返法则与补余信息 | 同源文本/结构/图视图读写保持 | 语义不唯一时不能凭双向规则替人决定 | 作者编辑核心候选 | [源](https://www.cis.upenn.edu/~bcpierce/papers/lenses-toplas-final.pdf) |
+
+### E：领域数学、信息及本体解释
+
+| 编号与理论 | 基本构造/公理 | 已有可用表达/机制 | 不可无条件合并的差别 | 对 Gift 的用途 | 依据 |
+|---|---|---|---|---|---|
+| E01 Kolmogorov 测度概率 | 样本空间、事件 σ 代数、概率测度 | 形式表达随机事件与联合分布 | 概率值不自带因果和采样保证 | 概率专业理论 | [源](https://plato.stanford.edu/archives/spr2005/entries/probability-interpret/) |
+| E02 Markov 范畴/核 | 随机核、组合、条件独立及拷贝公理 | 不同概率形式可结构化组合 | 边际相同不推出联合分布相同 | 概率桥专项 | [源](https://www.sciencedirect.com/science/article/pii/S0001870820302656) |
+| E03 结构因果模型 SCM | 结构方程、外生变量、do 干预 | 区分预测、干预和反事实 | 观测资料不足时因果不可识别 | 因果专业理论 | [源](https://proceedings.mlr.press/r0/pearl95a.html) |
+| E04 稳定模型/ASP 非单调逻辑 | 规则、默认否定、最小/稳定模型 | 表达例外、反事实条件及候选约束 | 默认否定不能与经典否定合并 | 非单调规则专业 | [源](https://link.springer.com/book/10.1007/3-540-50701-9) |
+| E05 认识逻辑/可能世界 | 世界、主体可达关系、知识/信念模态 | 解释谁知道什么、哪些信息不可见 | 知识成立不代表现实事实已授权公开 | 多主体信息专项 | [源](https://plato.stanford.edu/entries/logic-epistemic/) |
+| E06 道义逻辑/规范系统 | 义务、许可、禁止及例外、生效规则 | 区分行为事实、责任和权利 | 权限授予需真实权威/宿主通道 | 规范专业理论 | [源](https://plato.stanford.edu/entries/logic-deontic/) |
+| E07 连续/混合动力系统 | 微分方程、连续轨迹、离散守卫/reset | 工程物理状态在连续与离散间演化 | 数值近似、Zeno、硬实时需相应保证 | 物理系统专业 | [源](https://www.sciencedirect.com/science/article/pii/030439759400202T) |
+| E08 量子范畴/算子模型 | Hilbert空间、密度算子、量子信道/范畴 | 建模叠加、纠缠及不可克隆 | 经典复制和布尔逻辑不能直接套用 | 量子专业理论 | [源](https://www.cs.ox.ac.uk/publications/publication25-abstract.html) |
+| E09 拓扑/Locale 无点拓扑 | 开集结构、连续映射、邻域 | 连续和空间性质可在不逐点枚举下解释 | 仅有拓扑不表达容量/付款规范 | 空间与连续性专项 | [源](https://plato.stanford.edu/Entries/mathematics-constructive/supplement2.html) |
+| E10 Mereology 部分整体论 | 部分关系、融合与整体 | 实体部分/整体关系可单独定义 | 集合成员、包含和部分所有权不能偷换 | 物理/组件专项 | [源](https://plato.stanford.edu/entries/mereology/) |
+| E11 Shannon 信息论 | 消息、概率、信道、熵、互信息 | 计量传输不确定性和编码效率 | 数量不自动携带语义与用户意图 | 计量而非完整本原 | [源](https://www.nokia.com/bell-labs/publications-and-media/publications/a-mathematical-theory-of-communication/) |
+| E12 Kolmogorov复杂度/MDL | 描述语言、编码长度、模型选择 | 比较压缩、词典与表达负担 | 依赖编码基准；全局最短描述一般不可计算 | 成本评价非本原 | [源](https://mitpress.mit.edu/9780262072816/the-minimum-description-length-principle/) |
+| E13 符号接地 | 符号、所指对象、感知/学习证据 | 研究抽象表达与真实对象如何对应 | 学说没有替代所有对象级语义与证明 | 现实解释必需接口 | [源](https://www.southampton.ac.uk/~harnad/Papers/Harnad/harnad90.sgproblem.html) |
+| E14 结构实在论/过程本体论 | 结构、关系或事件作为本体中心 | 生成 D/C/T 的哲学竞争解释 | 不存在决定性工程可实现性或唯一真本原定理 | 哲学参照非工程内核 | [源](https://plato.stanford.edu/entries/structural-realism/) |
+
+
+## 3. 实际收缩后的结构：4类不可由“一个术语”代签的接口责任
+
+### 3.1 形式形成与类型系统（Form/Bind）
+
+可以把有类型签名、绑定/新鲜性、参数、引用、构造和纯组合当作统一的**形成与引用检查责任**。集合、有类型项、关系与图之间可做有限/类型受控的编码和解释；外部名称、发生身份、顺序和重数不能隐式丢弃。类型是判合法性的规则，不是把所有业务意义变成一个相同的结构类型。
+
+### 3.2 解释、模型、约束与证明（Meaning/Satisfaction）
+
+每项定义必须明确采用哪种专业逻辑/模型：经典、构造性、稳定模型、概率、规范、认知、因果、时间、混合、量子等。跨域允许局部映射而不强行要求统一否定、合取、复制或时间。此处优先复用 **Institution** 的结构思想，而不是自建所有领域的通用 SMT 算法。
+
+给定一个逻辑 I 的签名Σ，模型M和语句φ，使用 `M ⊨_Σ φ`；对某个签名映射 h:Σ→Σ'，要求 
+`Mod(h)(M') ⊨_Σ φ  ⇔  M' ⊨_Σ' Sen(h)(φ)`，这仅保证在规定的**签名翻译**下的满足保持。跨不同逻辑的 morphism/comorphism 仍须指定方向与性质，不能由此推得所有异质公式均可自由合并。
+
+### 3.3 计算、行为与实际效果（Realize/Behave）
+
+纯项求值、符号重写、交互协议、并发事件、概率运行与物理操作不共享一组无条件定律。可使用代数/余代数、模态/时序、monad/effect handlers、线性/分离逻辑及专业 Method 的**组合式工作**。在固定输入与允许观察下，检查正常成功、失败、资源、进展和策略信息时点。`p` 应为一个共同满足全部条件的真实实现，而非各要求分别找一个实现再拼装。
+
+### 3.4 来源、接受、观察与权威（Ground/Authorize/Validate/Edit）
+
+实际数据、模型资格、对原要求的接受、执行授权、证据资格、源修改后的对应关系拥有不同责任。它们可以使用同一形式基础编码，却不能被形式公理自动签发。构造中的“用户”“支付”“同一资产”若没有精确所指与来源，逻辑操作成立并不表示任何业务保证已兑现。支持来源撤销/新观察/默认升级时，正确失效和恢复旧操作责任。
+
+这四类是**必须保持的接口责任，不是四种不可约数学原语，也不是四个开发者必须填写的文件/层**。实现可按现有 Gift 的十职责分配，普通作者只维护本次必要的独立决定。
+
+## 4. 实际存在的收缩关系（不能扩大结论）
+
+| 收缩候选 | 当前可以成立的严格范围 | 为什么不能直接宣布完全统一 |
+|---|---|---|
+| 多个 k 元关系 → 一个二元边 E | 以类型/位置/发生锚点重新化，有限签名和事实发生可以准确往返；本报告有有限实际见证 | 需要解码公理、角色解释、合法图限制；无类型、无重数、无锚点的图不能恢复原义 |
+| D/C/T → 带签名关系及变换 | 变化在固定状态与动作域可编码为 `T⊆S×A×S`，区分通过相等/等价，组合通过关系及结构形成 | 价值相等、主体同一、行为等价、模型真假、规范有效性需要额外解释 |
+| λ 演算 ↔ CCC | 适用的简单类型λ演算与笛卡儿闭范畴之间有语法、内部语言和模型关系 | 加入状态、控制效应、线性资源或不终止时须改变语义结构 |
+| Lawvere 理论 ↔ 有限型单子 | 在 Set 上对相应有限元数代数理论的既定等价 | 并非任意单子、量子理论、真实权限均是有限代数理论 |
+| 有类型项+模式 ↔ 机器可验证语义 | LF、K、Lean/Isabelle 在各自声明的范围已有实际工具 | 小核检查的是选定理论和证明项，不能证明公理符合现实或编译器已部署 |
+| 代数/余代数组织构造/行为 | 初代数构造、终余代数/双模拟支持广泛递归与持续行为比较 | 并非所有函子满足所需极限/余极限，且观察等价需要具体签名 |
+| Petri网/事件结构/过程模型 | 有安全性、发生/因果与结构条件下建立严谨翻译/对应 | 并发冲突、自动并发、事件身份及某些网络种类使无条件互换失效 |
+| 专业模型 → Institution/DOL 网络 | 保存签名/模型/语句/满足，提供有条件的映射和模块组织 | 不是新的万能推理器，不等于所有专业理论已形成翻译 |
+| 原生源码 ↔ 通用作者内容 | 仅在精确支持的语言区域、声明的观察关系和前像身份下可建立来回映射 | 从普通目标程序一般无法唯一逆推出用户原来的业务政策和委托范围 |
+
+关系代数还有真实反例：**并非所有满足抽象关系代数公理的代数都可表示为某个普通集合上的二元关系代数**。因此即使想把万物都变成二元关系，也需要分清“可以编码特定关系结构”和“任意抽象代数都可获得所要求的具体关系表示”。
+
+## 5. 从有限可执行验证中实际得到的17个见证
+
+与本文件同目录的 `gift_foundations_probe.py` 已运行；输出 `Gift_基础对照有限见证结果.json` 记录 **17/17 PASS**。详见 JSON 中的 witness。检验对象：单边重化的准确往返；同值多发生；序列重数；量词次序；Heyting逻辑的非排中；未来行为非等价；真实作用不交换；联合与边际概率；因果干预的不同；未执行不等于禁止；显式固定与继承默认的不同；Lens隐形信息保持；证据撤回非单调；一次成功与持续义务；形式合法不产生授权；条件保证不自证；观测相关不辨识干预。
+
+**证据边界**：程序是特制有限模型、依据明确规则计算；不是在Lean/Isabelle中机械证明62个研究路线，也没有运行Gift当前编译器，更不能推断所有候选均适于实践。
+
+## 6. 反例决定的硬保留项
+
+- **身份与发生**：记录重复次数需要 occurrence identity；合并值与合并业务操作不同。避免默认按同名字/同哈希/同值合并。
+- **逻辑强度**：在三元素 Heyting 链里，`p=中间`使 `p∨¬p`不等于顶，经典逻辑等价不能无条件迁入构造性逻辑；非单调/稳定模型同样要独立处理否定。
+- **时间和行为**：同状态投影/同当前输出不推出未来可观察等价；安全/活性/时限分别验收，真实效果不必交换。
+- **概率与因果**：相同边际可能有不同联合；相同观测联合可能对干预给出不同答案；效应和证据资格不能从静态关系图自证。
+- **规范与现实**：动作没有发生不是规范禁止，许可不等于HostGrant；外部操作结果未知也不能靠新模型清除。
+- **作者修改**：两个当前值相同的来源，在修订后有不同语义；简短视图只在能保留隐藏约束的条件下可写。
+
+## 7. 对 Gift 当前设计的单一裁决及保留替代
+
+**条件性推荐**：采用一份统一作者含义（不是统一的所有数学理论），使用“有类型结构/发生/引用的形成核”组织语法与可改内容；以“多逻辑模型/满足/条件桥”组织意义；以“合格计算、效果与行为方法”负责实现；以“事实、证据、授权与同源编辑”连接现实。原来定义的 `Definition/Use/Meaning/Requirement/Goal/Control/Method/Observation/Claim/Operation` 可在这个框架中各归其所，不因内部模型收缩就将它们改名成另一套必须维护的Writer。
+
+**可选研究替代**：纯依赖类型/证明助手统一所有已要求的含义；一般集合与关系编码作为独立数学真源；结构图重写统一语法及运行；多逻辑模型网络只作规范核心。这些各自可承担相当部分任务，但要凭共同测试明确证明能覆盖 Gift 的对象、权威、行为、资源、编辑与实际产品闭环，才有理由取代现有组合；目前没有这样一份整体优越性证明。
+
+**不建议作为唯一主核**：单标记逻辑、SK/Iota、通用图灵机或元胞自动机、纯Shannon信息量、仅保存裸边无类型的图、纯自然语言提示，以及把任意payload保存成功冒称专业解释。它们可完成特定编码/计算/传输任务，却没有独立提供完整需求、实现、现实和后继作者修改的等义保持。
+
+**不把研究范围无限外推**：未来出现一个未收录体系，按本报告中已有“构造/满足/变化/现实/作者修改”角色分类和保义规则接入，避免不断重写全部候选目录。发现当前接口不能保留真实新区别时，应修复接口本身，不把某个新理论强塞进旧标签。
+
+## 8. 从研究到实施的最少闭合流程
+
+1. 固定一个独立参照规格族（纯关系、递归、共享状态、时序/资源、规范与事实、概率/因果、作者连续修改）。用户同一承诺不能通过缩小域“被实现”。
+2. 对每个候选基底记录**具体形成/模型/推理规则**和它可保留的独立区别，不因候选名字熟悉就判合格。
+3. 建立有限共同的有型发生关系与模型签名，在纸面或小的参考解释器中给正例、错误例、保持/拒绝条件。若只是编码，不宣称已可组合求解。
+4. 用独立规格检查翻译：等义、精化、保守抽象、或丢信息必须各有不同结果。跨逻辑必须检查满足条件，跨效果必须检查次序、资源及进展。
+5. 选择一个现有完整作者工程（如共享资料/排班），检查一次真正的新定义、共同实现在多条件下有效、后继修改是否保源保义。
+6. 真正实施只改相交的Reader、Method/Target或视图/编辑消费者；不另建第二套作者真源。不执行的环节保留准确Needs，不签发完整成功。
+7. 完成某个有限片段就冻结其明确的保证与反例；以后新基础若能保义，则复用上层，若改变某个前提，则只重新检验相交范围。
+
+## 9. 本轮重要参考与证明边界
+
+- 数学基础综述：[Foundations of Mathematics](https://iep.utm.edu/fomath/)；[Set Theory](https://plato.stanford.edu/entries/set-theory/)；[Type Theory](https://plato.stanford.edu/entries/type-theory/)；[Category Theory](https://plato.stanford.edu/entries/category-theory/)。
+- 实际比较哪种数学基础更简单：[Wiedijk, Is ZF a Hack?](https://www.sciencedirect.com/science/article/pii/S1570868305000765)。该研究用Automath形式化描述长度比较多套基础，结论随复杂性量度变化，不能在本项目偷换为唯一最优公理组。
+- 语言表达比较：[Felleisen 1991](https://www.sciencedirect.com/science/article/pii/016764239190036W)；理论等价层级：[Barrett & Halvorson 2016 Morita Equivalence](https://www.cambridge.org/core/journals/review-of-symbolic-logic/article/abs/morita-equivalence/8DAAEFCE09A73F68E72A8E622D79D6A2)。
+- 类型/逻辑的实际可检查系统：[Isabelle](https://www.isabelle.in.tum.de/documentation.html)、[Lean](https://lean-lang.org/doc/reference/latest)、[LF](https://lics.siglog.org/archive/1987/HarperHonsellPlotki-AFrameworkforDefini.html)。
+- 异质逻辑基础与可用标准：[Goguen/Burstall Institutions](https://publish.lfcs.inf.ed.ac.uk/reports/90/ECS-LFCS-90-106/)、[Coq形式化的Institution片段](https://www.sciencedirect.com/science/article/pii/S0167642323001363)、[OMG DOL](https://www.omg.org/dol/)。
+- 原始语义研究：[Moggi的Effects/Monads](https://www.sciencedirect.com/science/article/pii/0890540191900524)、[Rutten通用余代数](https://pages.jh.edu/rrynasi1/NewFoundations4Math/Literature/Coalgebras/Rutten2000UniversalCoalgebra-ATheoryOfSystems.pdf)、[TLA](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/12/The-Specification-Language-TLA.pdf)、[Reynolds分离逻辑](https://doi.org/10.1109/LICS.2002.1029817)。
+- 不可互换的专业语义：[Girard线性逻辑](https://www.sciencedirect.com/science/article/pii/0304397587900454)、[Fritz Markov Categories](https://www.sciencedirect.com/science/article/pii/S0001870820302656)、[SEP道义逻辑](https://plato.stanford.edu/entries/logic-deontic/)、[Harnad符号接地](https://www.southampton.ac.uk/~harnad/Papers/Harnad/harnad90.sgproblem.html)。
+
+**最终边界**：数学编码可合并到极少基础符号，但本项目所需的类型、解释、模型/观察、执行资格、现实权威及可维护作者区别不随编码自动消失。恰好多少“本原”、哪套宇宙本体为真、任何任务都有限最优生成均未证明。本文件交出的是可核对的候选覆盖、归约边界、当前有限反证和可实施的架构选择。
