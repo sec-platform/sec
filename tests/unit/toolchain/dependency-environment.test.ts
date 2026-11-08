@@ -175,7 +175,24 @@ test('project dependency cleanup stays within the selected workspace owner root'
     const projectNodeModules = path.join(targetWorkspaceRoot, 'node_modules');
     const projectStamp = path.join(targetWorkspaceRoot, '.runtime-deps.stamp.json');
     await fs.mkdir(projectNodeModules, { recursive: true });
+    const sentinel = path.join(projectNodeModules, 'keep');
+    await fs.writeFile(sentinel, 'keep', 'utf8');
     await fs.writeFile(projectStamp, '{}\n', 'utf8');
+
+    // The two cache-owning selectors and empty request have no effects on
+    // this still-unchanged project input; only the last request may delete it.
+    const stampBefore = await fs.readFile(projectStamp);
+    for (const selection of [{ bunCache: true }, { all: true, force: true }] as const) {
+      await expect(cleanDependencyEnvironment(workspaceRoot, selection)).rejects.toMatchObject({
+        code: 'IMPORT-AUTHORITY-004',
+        message: expect.stringContaining('Runtime Cache owner')
+      });
+      expect(await fs.readFile(sentinel, 'utf8')).toBe('keep');
+      expect(await fs.readFile(projectStamp)).toEqual(stampBefore);
+    }
+    expect(await cleanDependencyEnvironment(workspaceRoot, {})).toEqual([]);
+    expect(await fs.readFile(sentinel, 'utf8')).toBe('keep');
+    expect(await fs.readFile(projectStamp)).toEqual(stampBefore);
 
     const targets = await cleanDependencyEnvironment(
       workspaceRoot,
