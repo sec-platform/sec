@@ -12,7 +12,7 @@
 - [Gift_全量多维语义结构_定稿/sources/contracts.psv](../../../docs/信息/研究数据/contracts-103e4996011c.psv) — `103e4996011cfb44e73e9c3dcda06ddf0eff66f428b65d3a556e99b84e8831a3`，182212字节；1处来源记录。
 - [Gift_全量多维语义结构_定稿/sources/profiles.psv](../../../docs/信息/研究数据/profiles-31df7289e53e.psv) — `31df7289e53ef4d129158c53f1d34205280518a06a46345a90d1b203b942e207`，15802字节；1处来源记录。
 - [Gift_IR_仓库设计融合_20261105/data/IR模型设计_具名追溯.json](../../../docs/信息/研究数据/有限IR参考追溯-7d07206b41a1.json) — `7d07206b41a1deb68b7e9edbae208bf9b02558628e11096117afcc38999e57c9`，3199字节；2处来源记录。
-- [Gift_IR_仓库设计融合_20261105/data/research_model.original.json](../../../docs/信息/研究数据/research_model.original-c64d0bc4452a.json) — `c64d0bc4452a24e36f83fbfd27d22fe64dec4259666be7cbdac7b44a806b157e`，36217206字节；3处来源记录。
+- [Gift_IR_仓库设计融合_20261105/data/research_model.original.json](../../../docs/信息/研究数据/research_model.original-c64d0bc4452a.json.gz) — `c64d0bc4452a24e36f83fbfd27d22fe64dec4259666be7cbdac7b44a806b157e`，36217206字节；3处来源记录。
 - [Gift_IR_仓库设计融合_20261105/data/多维到Gift模型_568项逐项追溯.json](../../../docs/信息/研究数据/568项模型责任追溯-735fed9f13fd.json) — `735fed9f13fdd7f865103567bb9555d81676ba8e69792fde234471074cc0fdfd`，907711字节；3处来源记录。
 
 ## 开发面整体设计原稿
