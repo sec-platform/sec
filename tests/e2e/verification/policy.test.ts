@@ -23,37 +23,7 @@ function customerServicePath(workspaceRoot: string): string {
   );
 }
 
-test('tenant flow is proven from validated IR and missing targets fail closed', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({
-    prefix: 'engineering-compiler-policy-assurance-pass-'
-  });
-
-  const report = await runPolicyGate(workspaceRoot);
-  expect(report.status).toBe('passed');
-  expect(report.violations).toEqual([]);
-  expect(report.diagnostics).toEqual([]);
-  expect(report.evaluation).toMatchObject({
-    assurance: 'semantic',
-    requiredSemanticPredicates: [TENANT_FLOW_PREDICATE],
-    unsupportedSemanticPredicates: []
-  });
-  const targetPath = customerServicePath(workspaceRoot);
-  // Evaluation only reads its inputs; absence is checked before source semantics.
-  await fs.rm(targetPath);
-  await expect(runPolicyGate(workspaceRoot)).rejects.toMatchObject({ code: 'VERIFY-POLICY-003' });
-}, 180000);
-
-test('project declarations cannot remove the official tenant policy obligations', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-project-conflict-');
-  const { policiesRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(policiesRoot, { recursive: true });
-  await writeYaml(path.join(policiesRoot, 'tenant.yaml'), { policies: [{
-    id: 'tenant-scope-required', severity: 'blocker', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE
-  }] });
-  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Conflicting policy declarations/);
-});
-
-test('same policy id with different declarations is a conflict, not last-wins input', async () => {
+test('project policy source rejects schema, duplicate and cross-scope conflicts before evaluation', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-conflicting-duplicate-');
   const { policiesRoot } = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(policiesRoot, { recursive: true });
@@ -65,7 +35,11 @@ test('same policy id with different declarations is a conflict, not last-wins in
     ['duplicate.yaml', [
       { id: 'duplicate-policy', severity: 'warn', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE },
       { id: 'duplicate-policy', severity: 'blocker', appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE }
-    ], /Conflicting duplicate policy id/]
+    ], /Conflicting duplicate policy id/],
+    ['official-conflict.yaml', [
+      { id: 'tenant-scope-required', severity: 'blocker',
+        appliesTo: ['entity/customer-basic'], rule: TENANT_FLOW_RULE }
+    ], /Conflicting policy declarations/]
   ] as const) {
     const target = path.join(policiesRoot, file);
     await writeYaml(target, { policies });
@@ -93,6 +67,10 @@ test('equal project policy declarations retain attribution and resolved applicab
   const report = await runPolicyGate(workspaceRoot);
   const tenantScopePolicy = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
 
+  expect(report.status).toBe('passed');
+  expect(report.violations).toEqual([]);
+  expect(report.diagnostics).toEqual([]);
+  expect(report.evaluation?.requiredSemanticPredicates).toContain(TENANT_FLOW_PREDICATE);
   expect(tenantScopePolicy).toMatchObject({
     sourceScope: 'project',
     sourcePath: 'model/policies/tenant.yaml'
@@ -104,4 +82,9 @@ test('equal project policy declarations retain attribution and resolved applicab
     'src/installed/worklog/worklog-service.ts'
   ]);
   expect(report.evaluation?.unsupportedSemanticPredicates).toEqual([]);
+
+  // The existing composed multi-block workspace also exercises the Policy Gate
+  // fail-closed target read, without repeating its full setup in another test.
+  await fs.rm(customerServicePath(workspaceRoot));
+  await expect(runPolicyGate(workspaceRoot)).rejects.toMatchObject({ code: 'VERIFY-POLICY-003' });
 }, 180000);
