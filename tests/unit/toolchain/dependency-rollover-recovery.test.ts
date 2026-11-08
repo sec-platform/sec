@@ -68,6 +68,18 @@ for (let boundary = 1; boundary <= 16; boundary++) {
 test('missing inventory with a surviving record never authorizes deleting that record', async () => using(async f => {
   await stopAtRetirement(f);
   const names = fs.readdirSync(f.prepared.retiredRecordsPath);
+  const inventoryName = names.find(n => n.startsWith('disposal-inventory-'))!;
+  const inventoryBytes = fs.readFileSync(path.join(f.prepared.retiredRecordsPath, inventoryName));
+  const inventory = JSON.parse(inventoryBytes.toString('utf8'));
+  const { generatedStateDigest } = await import('../../../src/execution/generated-state/contract.ts');
+  // The pre-deletion v1 inventory keeps its literal field-order expectation.
+  const expectedDigest = generatedStateDigest({
+    schema: inventory.schema, intentDigest: inventory.intentDigest,
+    archivePhysical: inventory.archivePhysical, ledgerDigest: inventory.ledgerDigest,
+    recordCount: inventory.recordCount, entries: inventory.entries
+  });
+  assert.equal(inventory.inventoryDigest, expectedDigest);
+  assert.deepEqual(Buffer.from(formatJsonFile(canonicalJson(inventory))), inventoryBytes);
   for (const name of names.filter(n => n.startsWith('disposal-inventory'))) fs.unlinkSync(path.join(f.prepared.retiredRecordsPath, name));
   const remaining = fs.readdirSync(f.prepared.retiredRecordsPath);
   await assert.rejects(recoverDependencyTransitionRollover(f.root, f.options), /inventory.*absent/);
@@ -120,12 +132,20 @@ test('recovery captures its relative root and fence before callback mutation', a
   } finally { process.chdir(previous); }
 }));
 
-test('cancellation during an empty census is not returned as successful observation', async () => using(async f => {
+test('empty rollover census remains cancellation-aware and rejects under-threshold publication without effects', async () => using(async f => {
   fs.unlinkSync(f.receiptPath('prepared'));
   const controller = new AbortController(), reason = new Error('cancelled');
   const options = runtimeDependencyOperationControls({ ...f.options, signal: controller.signal });
   const pending = inspectActiveDependencyTransitionRollover(f.root, options); controller.abort(reason);
   await assert.rejects(pending, e => e === reason);
+
+  fs.mkdirSync(f.paths.backupRoot, { recursive: true });
+  const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
+    ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
+  await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,
+    { ...f.options, beforeCommit() { assert.fail('premature namespace effect'); } }), /predecessor receipt/);
+  assert.deepEqual(fs.readdirSync(f.paths.rolloversRoot), []);
+  assert.equal(fs.readdirSync(f.paths.recordsRoot).length, f.records.size);
 }));
 
 test('canonical JSON bytes cannot admit malformed UTF-8 through replacement-character decoding', async () => using(async f => {
@@ -140,22 +160,6 @@ test('canonical JSON bytes cannot admit malformed UTF-8 through replacement-char
   const corrupted = Buffer.concat([canonical.subarray(0, at), Buffer.from([0xff]), canonical.subarray(at + 3)]);
   fs.writeFileSync(f.receiptPath('retiring'), corrupted);
   await assert.rejects(inspectActiveDependencyTransitionRollover(f.root, f.options), /canonical/);
-}));
-
-test('a disposal inventory digest round-trips the existing v1 decoded projection exactly', async () => using(async f => {
-  await stopAtRetirement(f);
-  const name = fs.readdirSync(f.prepared.retiredRecordsPath).find(n => n.startsWith('disposal-inventory-'))!;
-  const source = fs.readFileSync(path.join(f.prepared.retiredRecordsPath, name));
-  const inventory = JSON.parse(source.toString('utf8'));
-  const { generatedStateDigest } = await import("../../../src/execution/generated-state/contract.ts");
-  // Historical valid v1 bytes are hashed using this fixed outer field order
-  // and the already-canonical nested object order. No second schema is needed.
-  const expectedDigest = generatedStateDigest({ schema: inventory.schema, intentDigest: inventory.intentDigest,
-    archivePhysical: inventory.archivePhysical, ledgerDigest: inventory.ledgerDigest,
-    recordCount: inventory.recordCount, entries: inventory.entries });
-  assert.equal(inventory.inventoryDigest, expectedDigest);
-  assert.deepEqual(Buffer.from(formatJsonFile(canonicalJson(inventory))), source);
-  await recoverDependencyTransitionRollover(f.root, f.options); await assertComplete(f);
 }));
 
 test('phase-specific physical identity substitution is rejected before recovery effects', async () => using(async f => {
@@ -175,15 +179,4 @@ test('a complete historical epoch cannot silently have its physical checkpoint c
   receipt.publishedRecordsRootPhysical.objectId = 'other';
   fs.writeFileSync(f.receiptPath('complete'), formatJsonFile(canonicalJson(receipt)));
   await assert.rejects(inspectActiveDependencyTransitionRollover(f.root, f.options), /continuity/);
-}));
-
-test('a ledger below the canonical rollover threshold performs no namespace or publication effects', async () => using(async f => {
-  fs.unlinkSync(f.receiptPath('prepared'));
-  fs.mkdirSync(f.paths.backupRoot, { recursive: true });
-  const ledger = { namespace: inspectDependencyTransitionNamespace(f.root)!, records: f.records,
-    ledgerDigest: dependencyTransitionLedgerDigest(f.records), tip: f.terminal };
-  await assert.rejects(rolloverDependencyTransitionLedger(f.root, ledger, f.terminal,
-    { ...f.options, beforeCommit() { assert.fail('premature namespace effect'); } }), /predecessor receipt/);
-  assert.deepEqual(fs.readdirSync(f.paths.rolloversRoot), []);
-  assert.equal(fs.readdirSync(f.paths.recordsRoot).length, f.records.size);
 }));
