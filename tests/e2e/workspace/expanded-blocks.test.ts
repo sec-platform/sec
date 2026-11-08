@@ -99,4 +99,15 @@ test('expanded official block set composes and verifies as one project', async (
       /^(?:app|components)(?:\/|$)|^next(?:-env\.d\.ts|\.config\.mjs)$|^tests\/runtime\/acceptance\//u.test(entry)
     )
   ).toBe(false);
-}, 180000);
+
+  // Runtime-only selection still runs generated service units, without
+  // including the unrelated fast or runtime build/acceptance lanes.
+  const runtimeOnly = await verifyWorkspace(workspaceRoot, { lane: 'runtime' });
+  expect(runtimeOnly.report.summary.status).toBe('passed');
+  expect(runtimeOnly.report.summary.requestedLane).toBe('runtime');
+  expect(runtimeOnly.report.fast.status).toBe('skipped');
+  expect(runtimeOnly.report.runtime.status).toBe('passed');
+  expect(runtimeOnly.report.runtime.build.status).toBe('skipped');
+  expect(runtimeOnly.report.runtime.unit.status).toBe('passed');
+  expect(runtimeOnly.report.runtime.acceptance.status).toBe('skipped');
+}, 360000);
