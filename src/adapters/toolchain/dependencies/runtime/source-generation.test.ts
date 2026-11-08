@@ -5,6 +5,7 @@ import path from 'node:path';
 import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../../../../../tests/testkit/workspace-cleanup.ts';
 
 import { parseRepositoryModuleDescriptor } from '../../../repository/architecture/contract.ts';
+import { generatedStateDigest } from '../../../../execution/generated-state/contract.ts';
 import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalRuntimeDependencySourceGeneration } from './dependency-transition/codec.ts';
 import {
@@ -81,7 +82,20 @@ test('source generation binds content identity to one exact physical owner topol
     await fs.writeFile(path.join(sourcePath, 'package.json'), '{"name":"fixture"}\n');
     const options = operationOptions();
     const input = { binding: { packageManager: 'bun' }, options, ownerRoot, sourcePath };
-    const first = await runtimeDependencySourceGeneration(input);
+    // Same-owner readers join one scan; a narrower caller must not borrow
+    // the wider in-flight deadline or silently weaken its own admission.
+    const firstPending = runtimeDependencySourceGeneration(input);
+    const joinedPending = runtimeDependencySourceGeneration(input);
+    await expect(runtimeDependencySourceGeneration({
+      ...input,
+      options: { ...options, lockTimeoutMs: 2_500 }
+    })).rejects.toMatchObject({
+      code: 'RUNTIME-DEPS-003',
+      message: expect.stringContaining('in-flight')
+    });
+    const [first, joined] = await Promise.all([firstPending, joinedPending]);
+    expect(joined).toBe(first);
+    expect(first.bindingDigest).toBe(generatedStateDigest({ packageManager: 'bun' }));
     const repeated = await runtimeDependencySourceGeneration(input);
     expect(() => assertRuntimeDependencySourceGenerationIssued(first)).not.toThrow();
     expect(() => assertRuntimeDependencySourceGenerationIssued({ ...first }))
@@ -172,5 +186,17 @@ test('source generation enforces caller deadline abort byte and entry bounds', a
       ownerRoot,
       sourcePath
     })).rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
+
+    // The missing physical source fails without poisoning the operation key:
+    // the exact same request must succeed after the source is restored.
+    const recoveryPath = path.join(ownerRoot, 'later');
+    const recoveryRequest = {
+      binding, options: operationOptions(), ownerRoot, sourcePath: recoveryPath
+    };
+    await expect(runtimeDependencySourceGeneration(recoveryRequest)).rejects.toBeInstanceOf(PhysicalNoFollowError);
+    await fs.mkdir(recoveryPath);
+    const recovered = await runtimeDependencySourceGeneration(recoveryRequest);
+    expect(recovered.sourcePath).toBe(recoveryPath);
+    expect(() => assertRuntimeDependencySourceGenerationIssued(recovered)).not.toThrow();
   });
 });
