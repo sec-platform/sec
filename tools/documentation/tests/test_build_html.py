@@ -164,6 +164,31 @@ class ReadingTests(unittest.TestCase):
         self.assertEqual(parsed.files['docs/research.original.json.gz'],archived)
         self.assertEqual(gzip.decompress(parsed.files['docs/research.original.json.gz']),original)
         self.assertIn('application/gzip',b.Book.mime('docs/research.original.json.gz'))
+    def test_research_and_native_text_files_are_inert_lossless_sources(self):
+        originals={
+            'docs/research.psv':'key|value\nunsafe|<script>\n',
+            'examples/native/module.rs':'pub fn f() {}\n',
+            'examples/native/changes.patch':'--- a/file\n+++ b/file\n',
+            'examples/native/template.in':'name = $NAME\n',
+            'examples/native/usage.help':'usage: -h\n',
+            'examples/native/shell.fish':'function complete_rg\nend\n',
+            'examples/native/rg.zsh':'#compdef rg\n',
+            'examples/native/manual.roff':'.TH RG 1\n',
+            'examples/native/rg.1':'.TH RG 1\n',
+            'examples/native/COPYING':'Copy terms\n',
+            'examples/native/LICENSE-MIT':'MIT license\n',
+            'examples/native/UNLICENSE':'Public-domain grant\n',
+        }
+        for name,content in originals.items():self.write(name,content)
+        self.run_build()
+        output=self.out.read_text(encoding='utf-8')
+        parsed=Originals();parsed.feed(output)
+        for name,content in originals.items():
+            self.assertEqual(parsed.files[name],content.encode('utf-8'),name)
+        self.assertIn('&lt;script&gt;',output)
+    def test_invalid_utf8_research_table_rejects_without_replacing_output(self):
+        (self.root/'docs/bad.psv').write_bytes(b'\xff')
+        self.assert_publication_preserves_previous()
     def reference_book(self,sealed=False,**budgets):
         args=argparse.Namespace(diagrams='source',diagram_cache=None,sealed=sealed,
             max_file_bytes=budgets.get('max_file_bytes',16_000_000),max_total_bytes=budgets.get('max_total_bytes',80_000_000))

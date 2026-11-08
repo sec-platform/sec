@@ -18,8 +18,8 @@ import check_docs
 from source_inventory import (documentation_files, source_identity_from_capture,
     EXCLUDED_FROM_SOURCE_HASH, CACHE_PATH, baseline, local_path, read_ordinary, MAX_MEMBERS)
 
-TEXT_SUFFIXES = {'.md','.json','.gift','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff','.sql'}
-TEXT_BASENAMES = {'LICENSE','NOTICE'}
+TEXT_SUFFIXES = {'.md','.json','.gift','.ts','.tsx','.py','.txt','.toml','.yaml','.yml','.js','.mjs','.cjs','.css','.sh','.ps1','.cff','.sql','.psv','.roff','.patch','.in','.rs','.help','.fish','.zsh','.1'}
+TEXT_BASENAMES = {'LICENSE','NOTICE','COPYING','LICENSE-MIT','UNLICENSE'}
 BINARY_SUFFIXES = {'.png','.jpg','.jpeg','.webp','.gif','.svg','.pdf','.zip','.gz'}
 VERSION = 'sec-reading/3'
 CSS = r'''
