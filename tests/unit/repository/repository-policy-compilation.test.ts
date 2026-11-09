@@ -1,6 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { compileOperationDemandGraph } from '../../../src/adapters/self-hosting/control/operation/demand.ts';
+import { admitImportCompilerCapability } from '../../../src/adapters/self-hosting/development/runner/cli.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../../../src/adapters/repository/architecture/contract.ts';
 import {
   compileSourceProgramFindingDelta,
@@ -39,7 +41,9 @@ function snapshot(label: string) {
 }
 const review = 'src/example/target.ts::function-declaration:run::spawn#1';
 
-test('actual source-path finding suppression remains distinguishable from a source fix', () => {
+test('actual source-path finding suppression remains distinguishable from a source fix', async () => {
+  // Preserve the former standalone fast admission check without another file process.
+  await admitImportCompilerCapability(compileOperationDemandGraph({ operation: 'imports-check', terminalWorkIds: [] }));
   const workspaceSnapshot = snapshot('comparison');
   const before = compile({ workspaceSnapshot });
   const after = compile({ workspaceSnapshot, reviewedProcessDispatchers: [review] });
