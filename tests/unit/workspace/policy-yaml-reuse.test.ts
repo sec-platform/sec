@@ -72,14 +72,6 @@ test('policy merge coalesces equal sources and preserves distinct IDs and determ
   assert.deepEqual(official[0]!.spec.policies, [row()]);
 });
 
-test('policy source selects the shared string-key YAML profile and preserves its failure cause', () => {
-  fixture(f => {
-    f.write('fixture.yaml', '? [policies]\n: []\n');
-    assert.throws(() => loadPolicyDeclarations(f.root), error =>
-      error instanceof Error && error.cause instanceof YamlSyntaxError);
-  });
-});
-
 test('aliased project declarations coalesce, isolate callers and retain every source report', () => {
   fixture(f => {
     f.write('a.yaml', `policies:\n  - &p\n    id: policy-reuse-fixture\n    severity: warn\n    appliesTo: [block/a]\n    rule: ${POLICY_RULE_IDS[0]}\n  - *p\n`);
@@ -107,38 +99,36 @@ test('aliased project declarations coalesce, isolate callers and retain every so
   });
 });
 
-test('different project files cannot choose a conflicting definition by lexical order', () => {
+test('physical policy loading rejects malformed, conflicting and unbounded sources across successive reads', () => {
   fixture(f => {
-    for (const [first, second] of [[row(), { ...row(), severity: 'error' }], [{ ...row(), severity: 'error' }, row()]]) {
+    // Each next input overwrites the previous failure before the retained reader
+    // runs again. Later checks cannot pass from an earlier YAML or decoding error.
+    f.write('a.yaml', '? [policies]\n: []\n');
+    assert.throws(() => loadPolicyDeclarations(f.root), error =>
+      error instanceof Error && error.cause instanceof YamlSyntaxError);
+
+    f.write('a.yaml', ' '.repeat(POLICY_YAML_MAX_INPUT_BYTES + 1));
+    assert.throws(() => loadPolicyDeclarations(f.root), error =>
+      error instanceof Error && error.cause instanceof YamlInputLimitError);
+
+    f.write('a.yaml', Uint8Array.of(0xff));
+    assert.throws(() => loadPolicyDeclarations(f.root), error =>
+      error instanceof Error && /\bUTF-8\b/u.test(error.message)
+      && error.message.includes('a.yaml') && error.cause instanceof TypeError);
+
+    for (const [first, second] of [
+      [row(), { ...row(), severity: 'error' }],
+      [{ ...row(), severity: 'error' }, row()]
+    ]) {
       f.write('a.yaml', JSON.stringify({ policies: [first] }));
       f.write('z.yml', JSON.stringify({ policies: [second] }));
       assert.throws(() => loadPolicyDeclarations(f.root), /Conflicting policy declarations/);
     }
-  });
-});
 
-test('a higher precedence source cannot hide invalid lower precedence declarations', () => {
-  fixture(f => {
+    // Both files are valid before the next distinct invalid lower-precedence input.
     f.write('a.yaml', JSON.stringify({ policies: [{ ...row(), severity: 'invalid' }] }));
-    f.write('z.yaml', JSON.stringify({ policies: [row()] }));
+    f.write('z.yml', JSON.stringify({ policies: [row()] }));
     assert.throws(() => loadPolicyDeclarations(f.root), error =>
       error instanceof Error && /exact schema/.test(error.message) && error.cause !== undefined);
-  });
-});
-
-test('per-source parsing budget rejects oversized text without changing inventory capacity', () => {
-  fixture(f => {
-    f.write('fixture.yaml', ' '.repeat(POLICY_YAML_MAX_INPUT_BYTES + 1));
-    assert.throws(() => loadPolicyDeclarations(f.root), error =>
-      error instanceof Error && error.cause instanceof YamlInputLimitError);
-  });
-});
-
-test('invalid byte encoding remains a retained decoding failure rather than an empty policy set', () => {
-  fixture(f => {
-    f.write('fixture.yaml', Uint8Array.of(0xff));
-    assert.throws(() => loadPolicyDeclarations(f.root), error =>
-      error instanceof Error && /\bUTF-8\b/u.test(error.message)
-      && error.message.includes('fixture.yaml') && error.cause instanceof TypeError);
   });
 });
