@@ -6,6 +6,7 @@ import path from 'node:path';
 import YAML, { type Document } from 'yaml';
 import { loadAllManifests, loadManifestById } from '../../../src/adapters/workspace/sources/load-manifest.ts';
 import { manifestCache } from '../../../src/adapters/workspace/sources/manifest-cache.ts';
+import { YamlSyntaxError } from '../../../src/adapters/formats/yaml.ts';
 import type { PlanRegistrySource } from '../../../src/compiler/contract.ts';
 
 // Native runs use the actual YAML parser, semantic validator and retained reads.
@@ -57,6 +58,22 @@ test('effective version overlays participate in collision checks after merging r
   assert.ok(parses() > beforeRootRead);
   writeFileSync(second.file, JSON.stringify({ ...second.manifest, provides: ['different/service'] }));
   assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
+
+  // The already prepared root and version directory also exercise the YAML
+  // overlay decoder, independent root cache and defensive result ownership.
+  const overlayFile = path.join(first.folder, 'versions', '0.5.0', 'block.manifest.yaml');
+  writeFileSync(overlayFile, 'version: 0.5.0\nprovides: [new]\n');
+  const selectedVersion = { ...f.options, version: '0.5.0' };
+  const overlay = loadManifestById('block/a', selectedVersion);
+  assert.equal(overlay.manifest.version, '0.5.0');
+  assert.deepEqual(overlay.manifest.provides, ['new']);
+  Reflect.set(overlay.manifest, 'version', 'forged');
+  Reflect.set(overlay.manifest.provides, '0', 'forged');
+  const reloaded = loadManifestById('block/a', selectedVersion);
+  assert.equal(reloaded.manifest.version, '0.5.0');
+  assert.deepEqual(reloaded.manifest.provides, ['new']);
+  assert.equal(loadManifestById('block/a', f.options).manifest.version, '1.0.0');
+  assert.deepEqual(loadManifestById('block/a', f.options).manifest.provides, ['block/a']);
 }));
 
 test('cold catalog and logical reads share parsed validation without sharing mutable catalog results', () => using(async (f, parses) => {
@@ -113,6 +130,15 @@ test('deleted or invalid current sources cannot reuse a previous valid result', 
   // Otherwise the earlier identity rejection could falsely satisfy this boundary.
   writeFileSync(a.file, JSON.stringify(a.manifest));
   assert.equal((await loadAllManifests(f.options))[0]!.manifest.id, 'block/a');
+
+  // A malformed YAML source must be rejected by the parser, not a stale index.
+  writeFileSync(a.file, 'id: block/a\nid: block/other\n');
+  assert.throws(() => loadManifestById('block/a', f.options), (error: unknown) => {
+    const value = error as { code?: unknown; cause?: unknown };
+    return value.code === 'MANIFEST-SCHEMA-001' && value.cause instanceof YamlSyntaxError;
+  });
+  writeFileSync(a.file, JSON.stringify(a.manifest));
+  assert.equal(loadManifestById('block/a', f.options).manifest.id, 'block/a');
   const wrong = path.join(f.root, 'registry', 'legacy.wrong'); mkdirSync(wrong);
   writeFileSync(path.join(wrong, 'block.manifest.yaml'), JSON.stringify({ ...f.write('block/z').manifest, id: 'block/z' }));
   await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-012');

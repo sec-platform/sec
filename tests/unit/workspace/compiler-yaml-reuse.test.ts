@@ -57,21 +57,18 @@ test('UTF-8 byte budget is checked before parsing, not character count or alias 
   assert.throws(() => parseYamlValue('a: &x [one]\nb: *x\n', { ...admission, maximumAliasCount: 0 }), YamlSyntaxError);
 });
 
-function fixture(consumer: 'plan' | 'manifest' | 'override' | 'all') {
+function fixture(consumer: 'plan' | 'override' | 'all') {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-yaml-reuse-'));
   try {
     const planPath = path.join(root, 'plan.yaml');
     const registry = path.join(root, 'registry', 'block.example');
-    if (consumer === 'manifest' || consumer === 'all') mkdirSync(registry, { recursive: true });
+    if (consumer === 'all') mkdirSync(registry, { recursive: true });
     const manifestPath = path.join(registry, 'block.manifest.yaml');
     const overrides = getWorkspacePaths(root).overridesRoot;
     if (consumer === 'override' || consumer === 'all') mkdirSync(overrides, { recursive: true });
     const overridePath = path.join(overrides, 'override-manifest.yaml');
     const options = { workspaceRoot: root, registrySources: [{ id: 'test', kind: 'private' as const, location: 'workspace' as const, path: 'registry' }] };
-    const manifest = { id: 'block/example', version: '1.0.0', kind: 'capability', stackProfiles: [SUPPORTED_STACK],
-      requires: [], provides: ['example'], conflicts: [], installs: [{ kind: 'copy', from: 'source.ts', to: 'src/example.ts' }],
-      pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] };
-    return { root, planPath, manifestPath, overridePath, options, manifest,
+    return { root, planPath, manifestPath, overridePath, options,
       cleanup() { manifestCache.clearWorkspace(root); rmSync(root, { recursive: true, force: true }); } };
   } catch (error) {
     settleResources({ primary: { label: 'workspace fixture construction', error },
@@ -93,31 +90,21 @@ test('Plan loader admits ordinary YAML aliases and preserves existing defaults',
     const plan = loadPlan(f.planPath);
     assert.deepEqual(plan.app, { id: 'app', name: 'app', stack: SUPPORTED_STACK, packageManager: 'pnpm', mode: 'single-tenant' });
     assert.deepEqual(plan.blocks, []); assert.deepEqual(plan.acceptance, []);
+
+    // Each boundary retains its independent expected result on this read-only fixture.
+    writeFileSync(f.planPath, 'app: {}\napp: {}\n');
+    assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022'));
+    const bomSource = JSON.stringify({ app: { id: 'app', name: 'App', stack: SUPPORTED_STACK } });
+    writeFileSync(f.planPath, bomSource);
+    const ordinary = loadPlan(f.planPath);
+    writeFileSync(f.planPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(bomSource)]));
+    assert.deepEqual(loadPlan(f.planPath), ordinary);
+    writeFileSync(f.planPath, Buffer.from([0xff]));
+    assert.throws(() => loadPlan(f.planPath), error => {
+      const value = error as { code?: unknown; cause?: unknown };
+      return value.code === 'PLAN-VALIDATION-023' && value.cause instanceof Error;
+    });
   });
-});
-
-test('Plan syntax rejection keeps its domain error and original library cause', async () => {
-  await withFixture('plan', async f => { writeFileSync(f.planPath, 'app: {}\napp: {}\n'); assert.throws(() => loadPlan(f.planPath), typedYamlFailure('PLAN-VALIDATION-022')); });
-});
-
-test('Manifest root and version overlay preserve resolved values without cache pollution', async () => {
-  await withFixture('manifest', async f => {
-    writeFileSync(f.manifestPath, JSON.stringify(f.manifest));
-    const base = loadManifestById('block/example', f.options); assert.equal(base.manifest.version, '1.0.0');
-    const overlay = path.join(path.dirname(f.manifestPath), 'versions', '2.0.0'); mkdirSync(overlay, { recursive: true });
-    writeFileSync(path.join(overlay, 'block.manifest.yaml'), 'version: 2.0.0\nprovides: [new]\n');
-    const next = loadManifestById('block/example', { ...f.options, version: '2.0.0' });
-    assert.equal(next.manifest.version, '2.0.0'); assert.deepEqual(next.manifest.provides, ['new']);
-    Reflect.set(next.manifest, 'version', 'forged');
-    Reflect.set(next.manifest.provides, '0', 'forged');
-    const reloaded = loadManifestById('block/example', { ...f.options, version: '2.0.0' });
-    assert.equal(reloaded.manifest.version, '2.0.0'); assert.deepEqual(reloaded.manifest.provides, ['new']);
-    assert.equal(base.manifest.version, '1.0.0');
-  });
-});
-
-test('Manifest syntax rejection is a typed boundary failure', async () => {
-  await withFixture('manifest', async f => { writeFileSync(f.manifestPath, 'id: block/example\nid: block/other\n'); assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001')); });
 });
 
 test('Override file and direct structural contract preserve defaults and reject duplicate YAML keys', async () => {
@@ -138,25 +125,5 @@ test('each loader enforces its own explicit parser byte policy before syntax rec
     assert.throws(() => loadManifestById('block/example', f.options), typedYamlFailure('MANIFEST-SCHEMA-001'));
     writeFileSync(f.overridePath, ' '.repeat(OVERRIDE_YAML_MAX_INPUT_BYTES + 1));
     await assert.rejects(loadOverrideManifest(f.root), typedYamlFailure('OVERRIDE-SCHEMA-001'));
-  });
-});
-
-
-test('Plan UTF-8 BOM handling retains the existing decoded-input contract', async () => {
-  await withFixture('plan', async f => {
-    const source = JSON.stringify({ app: { id: 'app', name: 'App', stack: SUPPORTED_STACK } });
-    writeFileSync(f.planPath, source); const ordinary = loadPlan(f.planPath);
-    writeFileSync(f.planPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(source)]));
-    assert.deepEqual(loadPlan(f.planPath), ordinary);
-  });
-});
-
-test('invalid Plan UTF-8 remains a decoding failure with its original cause, not a YAML default', async () => {
-  await withFixture('plan', async f => {
-    writeFileSync(f.planPath, Buffer.from([0xff]));
-    assert.throws(() => loadPlan(f.planPath), error => {
-      const value = error as { code?: unknown; cause?: unknown };
-      return value.code === 'PLAN-VALIDATION-023' && value.cause instanceof Error;
-    });
   });
 });
