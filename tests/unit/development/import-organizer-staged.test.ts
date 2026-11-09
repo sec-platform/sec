@@ -7,6 +7,7 @@ import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { afterAll, expect, test } from 'bun:test';
 
 import {
+  runStagedImportCheck,
   runStagedIndexOnlyImportOrganizer,
   runSynchronizedStagedImportOrganizer
 } from '../../../src/adapters/self-hosting/development/runner/import-organizer.ts';
@@ -160,6 +161,28 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
     await writeFile(fixturePath, stagedBytes);
     git(repoRoot, ['add', 'fixture.ts']);
     await writeFile(fixturePath, workingBytes);
+
+    // A retained foreign Git index lock must not turn a read-only staged
+    // check into an index refresh or publication. The still-unmodified
+    // staged and working bytes also feed the subsequent publication witness.
+    const indexBeforeCheck = git(repoRoot, ['ls-files', '--stage', '-z'], true);
+    const rawIndexPath = String(git(repoRoot, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'index'
+    ])).trim();
+    const rawIndexBeforeCheck = await readFile(rawIndexPath);
+    const lockPath = `${rawIndexPath}.lock`;
+    await writeFile(lockPath, 'retained-by-git-owner', { flag: 'wx' });
+    await settleWorkspaceCallback(async () => {
+      expect(await runStagedImportCheck(repoRoot)).toEqual({
+        schema: 'sec-import-check-outcome-v1',
+        status: 'needs-import-transform',
+        files: ['fixture.ts']
+      });
+      expect(git(repoRoot, ['ls-files', '--stage', '-z'], true)).toEqual(indexBeforeCheck);
+      expect(await readFile(rawIndexPath)).toEqual(rawIndexBeforeCheck);
+      expect(await readFile(fixturePath)).toEqual(workingBytes);
+      expect(await readFile(lockPath, 'utf8')).toBe('retained-by-git-owner');
+    }, async () => { await rm(lockPath, { force: true }); });
 
     const lifecycle: string[] = [];
     const lifecycleOwner = generatedStateProducerHooks({ repositoryRoot: repoRoot });
