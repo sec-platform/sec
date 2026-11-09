@@ -56,14 +56,14 @@ test.serial('capture rejects changed source bytes with an unchanged manifest', a
   });
 });
 
-for (const invalid of [
-  { name: 'non-regular opened object', isFile: false, size: 0 },
-  { name: 'oversized opened object', isFile: true, size: DOCUMENTATION_LIMITS.fileBytes + 1 }
-]) {
-  test.serial(`capture rejects ${invalid.name} before reading and settles its handle`, async () => {
-    await withSource(async root => {
-      const target = path.join(root, DOCUMENTATION_BASELINE);
-      const nativeOpen = fs.open.bind(fs);
+test.serial('opened source objects reject invalid handles and same-byte pathname substitution', async () => {
+  await withSource(async root => {
+    const target = path.join(root, DOCUMENTATION_BASELINE);
+    const nativeOpen = fs.open.bind(fs);
+    for (const invalid of [
+      { name: 'non-regular opened object', isFile: false, size: 0 },
+      { name: 'oversized opened object', isFile: true, size: DOCUMENTATION_LIMITS.fileBytes + 1 }
+    ]) {
       let reads = 0;
       let closes = 0;
       const open = spyOn(fs, 'open').mockImplementation(async (...args: Parameters<typeof fs.open>) => {
@@ -81,23 +81,16 @@ for (const invalid of [
       } finally {
         open.mockRestore();
       }
-    });
-  });
-}
-
-test.serial('a same-byte replacement handle is not the checked pathname object', async () => {
-  await withSource(async root => {
-    const target = path.join(root, DOCUMENTATION_BASELINE);
+    }
     const replacement = path.join(root, 'replacement.json');
     await fs.writeFile(replacement, await fs.readFile(target));
-    const nativeOpen = fs.open.bind(fs);
-    const open = spyOn(fs, 'open').mockImplementation(async (...args: Parameters<typeof fs.open>) => {
-      return args[0] === target ? nativeOpen(replacement, args[1], args[2]) : nativeOpen(...args);
-    });
+    const substituted = spyOn(fs, 'open').mockImplementation(async (...args: Parameters<typeof fs.open>) =>
+      args[0] === target ? nativeOpen(replacement, args[1], args[2]) : nativeOpen(...args)
+    );
     try {
       await expect(readDocumentationSource(root)).rejects.toThrow('changed before capture');
     } finally {
-      open.mockRestore();
+      substituted.mockRestore();
     }
   });
 });
@@ -117,10 +110,10 @@ test.serial('capture preserves declared byte identity while streaming source and
   });
 });
 
-for (const failClose of [false, true]) {
-  test.serial(`directory read failure preserves its cause and closes (close failure: ${failClose})`, async () => {
-    await withSource(async root => {
-      const nativeOpen = fs.opendir.bind(fs);
+test.serial('directory read, close and fan-out failures settle their independent handles', async () => {
+  await withSource(async root => {
+    const nativeOpen = fs.opendir.bind(fs);
+    for (const failClose of [false, true]) {
       const readFailure = new Error('directory read failed');
       const closeFailure = new Error('directory close failed');
       let closes = 0;
@@ -148,16 +141,10 @@ for (const failClose of [false, true]) {
       } finally {
         open.mockRestore();
       }
-    });
-  });
-}
-
-test.serial('directory fan-out is rejected while enqueuing, not after an unbounded read', async () => {
-  await withSource(async root => {
-    const nativeOpen = fs.opendir.bind(fs);
+    }
     let reads = 0;
     let closes = 0;
-    const open = spyOn(fs, 'opendir').mockImplementation(async (...args: Parameters<typeof fs.opendir>) => {
+    const bounded = spyOn(fs, 'opendir').mockImplementation(async (...args: Parameters<typeof fs.opendir>) => {
       if (args[0] !== path.join(root, 'docs')) return nativeOpen(...args);
       return {
         read: async () => {
@@ -172,7 +159,7 @@ test.serial('directory fan-out is rejected while enqueuing, not after an unbound
       expect(reads).toBeLessThanOrEqual(DOCUMENTATION_LIMITS.members);
       expect(closes).toBe(1);
     } finally {
-      open.mockRestore();
+      bounded.mockRestore();
     }
   });
 });
