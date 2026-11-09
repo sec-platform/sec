@@ -17,7 +17,7 @@ import { formatArtifactUploadPaths } from '../../../src/entry/cli/artifact-uploa
 import { buildReviewLock } from '../../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
-async function prepareManifestWorkspace(workspaceRoot: string, generatedPaths = ['package.json']): Promise<void> {
+async function prepareManifestWorkspace(workspaceRoot: string, generatedPaths: string[]): Promise<void> {
   const paths = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(paths.secRoot, { recursive: true });
   await saveLock(workspaceRoot, buildReviewLock({ generatedPaths }));
@@ -27,11 +27,12 @@ async function prepareManifestWorkspace(workspaceRoot: string, generatedPaths = 
   );
 }
 
-test('CI artifact publication owns an absent manifest parent below the retained artifacts root', async () => {
+test('CI artifact publication rejects a foreign parent and preserves declared missing outputs on canonical publish', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const contractPath = '.sec/artifacts/generated/customer-contract.json';
     const testPath = '.sec/artifacts/test-results/unit.xml';
-    await prepareManifestWorkspace(workspaceRoot, ['package.json', contractPath]);
+    const missingContractPath = '.sec/artifacts/generated/missing-contract.json';
+    await prepareManifestWorkspace(workspaceRoot, ['package.json', contractPath, missingContractPath]);
     for (const artifact of [contractPath, testPath]) {
       const target = resolveWorkspaceArtifactPath(workspaceRoot, artifact);
       await fs.mkdir(path.dirname(target), { recursive: true });
@@ -41,12 +42,31 @@ test('CI artifact publication owns an absent manifest parent below the retained 
       workspaceRoot,
       CI_ARTIFACT_FILES.artifactManifest
     );
-    await expect(fs.lstat(path.dirname(manifestPath))).rejects.toMatchObject({ code: 'ENOENT' });
+    const manifestParent = path.dirname(manifestPath);
+    await expect(fs.lstat(manifestParent)).rejects.toMatchObject({ code: 'ENOENT' });
+    await fs.writeFile(manifestParent, 'foreign-parent', 'utf8');
+    let failure: unknown;
+    try {
+      await writeCiArtifactManifest(workspaceRoot);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(PhysicalNoFollowError);
+    expect((failure as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+    expect(await fs.readFile(manifestParent, 'utf8')).toBe('foreign-parent');
+    await fs.rm(manifestParent);
+    await expect(fs.lstat(manifestParent)).rejects.toMatchObject({ code: 'ENOENT' });
 
     const manifest = await writeCiArtifactManifest(workspaceRoot);
     const readback = readOptionalCiArtifactManifest(manifestPath);
 
     expect(readback).toEqual(manifest);
+    await expect(fs.access(resolveWorkspaceArtifactPath(workspaceRoot, missingContractPath)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    expect(manifest.missing).toContainEqual({
+      path: missingContractPath, reason: 'declared-generated-missing', declaredBy: 'graph.lock.json'
+    });
+    expect(manifest.artifacts.some((entry) => entry.path === missingContractPath)).toBe(false);
     expect(manifest.artifacts.map((entry) => entry.path)).toContain(CI_ARTIFACT_FILES.artifactManifest);
     expect(manifest.artifacts.every((entry) => isCanonicalCiArtifactPath(entry.path))).toBe(true);
     expect(manifest.artifacts.some((entry) => entry.path === 'package.json')).toBe(false);
@@ -61,8 +81,8 @@ test('CI artifact publication owns an absent manifest parent below the retained 
     expect(uploads).toMatchObject({
       formatVersion: '2', root: 'workspace', kind: 'all', artifactStatus: 'attention',
       count: 4, byKind: { governance: 2, test: 1, contract: 1 }, uploadGroupCount: 3,
-      missingCount: 10, missingReasonTypeCount: 2,
-      missingReasonCounts: { 'fixed-governance-missing': 5, 'stale-semantic-projection': 5, 'declared-generated-missing': 0 }
+      missingCount: 11, missingReasonTypeCount: 3,
+      missingReasonCounts: { 'fixed-governance-missing': 5, 'stale-semantic-projection': 5, 'declared-generated-missing': 1 }
     });
     expect(uploads.uploadGroups).toEqual([
       { kind: 'governance', count: 2, paths: [CI_ARTIFACT_FILES.artifactManifest, CI_ARTIFACT_FILES.graphLock] },
@@ -74,7 +94,7 @@ test('CI artifact publication owns an absent manifest parent below the retained 
     expect(contract.paths).toEqual([contractPath]);
     expect(contract.byKind).toEqual({ contract: 1 });
     expect(contract.uploadGroups).toEqual([{ kind: 'contract', count: 1, paths: [contractPath] }]);
-    expect(contract.missingCount).toBe(10);
+    expect(contract.missingCount).toBe(11);
     expect(contract.missing).toContainEqual({
       path: CI_ARTIFACT_FILES.policyReport, reason: 'fixed-governance-missing', declaredBy: 'artifact-manifest'
     });
@@ -90,27 +110,5 @@ test('CI artifact publication owns an absent manifest parent below the retained 
     const empty = emptyCiArtifactManifest();
     expect(formatArtifactUploadPaths(buildArtifactUploadPathContract(empty, 'test'))).toBe('');
     expect(buildArtifactUploadPathContract(empty).paths).toEqual([CI_ARTIFACT_FILES.artifactManifest]);
-  });
-});
-
-test('CI artifact publication rejects a foreign manifest parent before manifest effect', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await prepareManifestWorkspace(workspaceRoot);
-    const manifestPath = resolveWorkspaceArtifactPath(
-      workspaceRoot,
-      CI_ARTIFACT_FILES.artifactManifest
-    );
-    const manifestParent = path.dirname(manifestPath);
-    await fs.writeFile(manifestParent, 'foreign-parent', 'utf8');
-
-    let failure: unknown;
-    try {
-      await writeCiArtifactManifest(workspaceRoot);
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(PhysicalNoFollowError);
-    expect((failure as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
-    expect(await fs.readFile(manifestParent, 'utf8')).toBe('foreign-parent');
   });
 });
