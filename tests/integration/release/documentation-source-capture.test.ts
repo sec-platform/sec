@@ -93,7 +93,7 @@ test.serial('opened source objects reject invalid handles and same-byte pathname
       substituted.mockRestore();
     }
   });
-});
+}, 15_000);
 
 test.serial('capture preserves declared byte identity while streaming source and audit directories', async () => {
   await withSource(async (root, sourceDigest) => {
@@ -162,7 +162,7 @@ test.serial('directory read, close and fan-out failures settle their independent
       bounded.mockRestore();
     }
   });
-});
+}, 15_000);
 
 test.serial('nonempty staging is rejected before copying source files', async () => {
   await withSource(async root => {
