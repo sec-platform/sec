@@ -12,35 +12,25 @@ async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   await settleWorkspaceCallback(() => run(root), () => rm(root, { recursive: true, force: true }));
 }
 
-test('required JSON reads valid null without truthiness-based absence', async () => {
+test('required JSON reads preserve values and distinguish absent, malformed and native path failures', async () => {
   await fixture(async root => {
     const file = path.join(root, 'value.json');
     for (const value of [null, false, 0, '', [], { value: 7 }]) {
       await writeFile(file, JSON.stringify(value));
       assert.deepEqual(await readRequiredJson(file, 'missing fixture'), value);
     }
-  });
-});
 
-test('only an actual absent file is translated to the selected missing diagnostic', async () => {
-  await fixture(async root => {
     await assert.rejects(readRequiredJson(path.join(root, 'missing.json'), 'selected missing message'),
       (error: unknown) => error instanceof Error && error.message === 'selected missing message'
         && (error.cause as {code?: string})?.code === 'ENOENT');
-  });
-});
 
-test('malformed JSON remains its original parse failure, not a missing-file error', async () => {
-  await fixture(async root => {
-    const file = path.join(root, 'malformed.json'); await writeFile(file, '{');
-    await assert.rejects(readRequiredJson(file, 'must not replace parse error'), SyntaxError);
-  });
-});
+    const malformed = path.join(root, 'malformed.json');
+    await writeFile(malformed, '{');
+    await assert.rejects(readRequiredJson(malformed, 'must not replace parse error'), SyntaxError);
 
-test('native path errors retain their platform code and only ENOENT is translated', async () => {
-  await fixture(async root => {
-    const file = path.join(root, 'ordinary'); await writeFile(file, '{}');
-    const child = path.join(file, 'child.json');
+    const ordinary = path.join(root, 'ordinary');
+    await writeFile(ordinary, '{}');
+    const child = path.join(ordinary, 'child.json');
     let nativeCode: string | undefined;
     try { await readFile(child); assert.fail('ordinary file cannot contain a child'); }
     catch (error) { nativeCode = (error as NodeJS.ErrnoException).code; }
