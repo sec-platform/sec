@@ -17,7 +17,7 @@ import { formatArtifactUploadPaths } from '../../../src/entry/cli/artifact-uploa
 import { buildReviewLock } from '../../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
-async function prepareManifestWorkspace(workspaceRoot: string, generatedPaths: string[]): Promise<void> {
+async function prepareManifestWorkspace(workspaceRoot: string, generatedPaths = ['package.json']): Promise<void> {
   const paths = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(paths.secRoot, { recursive: true });
   await saveLock(workspaceRoot, buildReviewLock({ generatedPaths }));
@@ -27,7 +27,7 @@ async function prepareManifestWorkspace(workspaceRoot: string, generatedPaths: s
   );
 }
 
-test('CI artifact publication rejects a foreign parent and preserves declared missing outputs on canonical publish', async () => {
+test('CI artifact publication owns an absent manifest parent below the retained artifacts root', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const contractPath = '.sec/artifacts/generated/customer-contract.json';
     const testPath = '.sec/artifacts/test-results/unit.xml';
@@ -42,20 +42,7 @@ test('CI artifact publication rejects a foreign parent and preserves declared mi
       workspaceRoot,
       CI_ARTIFACT_FILES.artifactManifest
     );
-    const manifestParent = path.dirname(manifestPath);
-    await expect(fs.lstat(manifestParent)).rejects.toMatchObject({ code: 'ENOENT' });
-    await fs.writeFile(manifestParent, 'foreign-parent', 'utf8');
-    let failure: unknown;
-    try {
-      await writeCiArtifactManifest(workspaceRoot);
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(PhysicalNoFollowError);
-    expect((failure as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
-    expect(await fs.readFile(manifestParent, 'utf8')).toBe('foreign-parent');
-    await fs.rm(manifestParent);
-    await expect(fs.lstat(manifestParent)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(path.dirname(manifestPath))).rejects.toMatchObject({ code: 'ENOENT' });
 
     const manifest = await writeCiArtifactManifest(workspaceRoot);
     const readback = readOptionalCiArtifactManifest(manifestPath);
@@ -110,5 +97,27 @@ test('CI artifact publication rejects a foreign parent and preserves declared mi
     const empty = emptyCiArtifactManifest();
     expect(formatArtifactUploadPaths(buildArtifactUploadPathContract(empty, 'test'))).toBe('');
     expect(buildArtifactUploadPathContract(empty).paths).toEqual([CI_ARTIFACT_FILES.artifactManifest]);
+  });
+});
+
+test('CI artifact publication rejects a foreign manifest parent before manifest effect', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await prepareManifestWorkspace(workspaceRoot);
+    const manifestPath = resolveWorkspaceArtifactPath(
+      workspaceRoot,
+      CI_ARTIFACT_FILES.artifactManifest
+    );
+    const manifestParent = path.dirname(manifestPath);
+    await fs.writeFile(manifestParent, 'foreign-parent', 'utf8');
+
+    let failure: unknown;
+    try {
+      await writeCiArtifactManifest(workspaceRoot);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(PhysicalNoFollowError);
+    expect((failure as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+    expect(await fs.readFile(manifestParent, 'utf8')).toBe('foreign-parent');
   });
 });
