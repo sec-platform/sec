@@ -5,7 +5,7 @@
 <a id="research-document-custody"></a>
 ## 语义研究与融合审查原件
 
-本节保存本地语义研究及后续融合审查的准确来源，不拥有语言或产品规范。选定的47份历史原件由[研究原件目录](研究原件/INDEX.md)和同目录机器清单定位；11份研究输入由[只读研究数据](../../docs/信息/研究数据/README.md)定位。历史文件以完整SHA-256去重，多来源和旧名称保留在来源记录。36MB原模型以无损gzip保存、可按原摘要逐字节复原；历史报告不是当前实现验收。这58份是本次已识别资料的保全范围，不声称覆盖一切历史文件。没有递归装入历轮ZIP，没有把原参考程序、测试、私人会话或运行缓存作为本次文档变更发布。
+本节保存本地语义研究及后续融合审查的准确来源，不拥有语言或产品规范。选定的55份历史原件由[研究原件目录](研究原件/INDEX.md)和同目录机器清单定位；11份研究输入由[只读研究数据](../../docs/信息/研究数据/README.md)定位。历史文件以完整SHA-256去重，多来源和旧名称保留在来源记录。36MB原模型以无损gzip保存、可按原摘要逐字节复原；历史报告不是当前实现验收。这66份是本次已识别资料的保全范围，不声称覆盖一切历史文件。没有递归装入历轮ZIP，没有把原参考程序、测试、私人会话或运行缓存作为本次文档变更发布。
 
 当前解释与稳定机制分别进入原[信息结构](../../docs/信息/全体系信息结构.md#typed-research-query-consumption)、[专业桥](../../docs/作者/组合/语义扩展与领域接合.md#qualified-professional-bridge-constructions)、[组合与选择](../../docs/编译/组合前提与进展闭合.md#composable-choice-and-progress-witnesses)、[开发动作](../../docs/作者/成品/工作台交互与共同状态.md#developer-action-semantic-transaction)、[编译继续](../../docs/编译/内核/输入与阶段总览.md#analysis-continuation-and-qualified-lowering)、[关系画像](../../docs/领域/状态关系与流/关系查询与维护.md#qualified-annotated-relation-profile)及相交运行/迁移/验收正文。阅读现行规范不以通读历轮原件为前置。
 
