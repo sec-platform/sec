@@ -7,6 +7,8 @@ import path from 'node:path';
 import { settleResourcesAsync } from '../../../src/execution/resource-settlement.ts';
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { inspectionValue, registerInspectionQuery, type InspectionContext } from '../../../src/entry/cli/inspection-query.ts';
+import { commandValue } from '../../../src/entry/cli/command-value.ts';
+import { registerNamedInspectionQuery } from '../../../src/entry/cli/named-inspection-query.ts';
 
 function program() {
   return new Command().name('sec').exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} });
@@ -28,6 +30,22 @@ test('registering or requesting help does not read data or execute a view', asyn
   await assert.rejects(root.parseAsync(['sample', '--help'], { from: 'user' }),
     (error: unknown) => (error as { code: string }).code === 'commander.helpDisplayed');
   assert.equal(calls, 0);
+  // The required-selector wrapper owns native choice/help rejection before domain reads.
+  for (const [args, expectedCode] of [
+    [[], 'commander.missingArgument'],
+    [['constructor'], 'commander.invalidArgument'],
+    [['--help'], 'commander.helpDisplayed'],
+    [['freeze', '--compact'], 'CLI-USAGE-001']
+  ] as const) {
+    const namedRoot = program();
+    let namedReads = 0;
+    registerNamedInspectionQuery(namedRoot.command('contract'), {
+      freeze: () => { namedReads += 1; return commandValue(1, String); }
+    });
+    await assert.rejects(namedRoot.parseAsync(['contract', ...args], { from: 'user' }),
+      (error: unknown) => (error as { code?: string }).code === expectedCode);
+    assert.equal(namedReads, 0, JSON.stringify(args));
+  }
 });
 
 test('only the selected view runs and each query reads exactly once', async () => {
@@ -41,6 +59,20 @@ test('only the selected view runs and each query reads exactly once', async () =
     const printed = await capture(() => root.parseAsync(['other', ...(mode ? [mode] : [])], { from: 'user' }));
     assert.deepEqual(events, ['read', mode === 'detail' ? 'detail' : 'default']);
     assert.deepEqual(printed, [[mode === 'detail' ? 'detail:7' : 'default:7']]);
+  }
+  // Required selectors read different sources; optional modes project one source.
+  for (const kind of ['errors', 'ci'] as const) {
+    const namedRoot = program();
+    const calls: string[] = [];
+    const readers = Object.fromEntries(['errors', 'ci'].map((name) => [
+      name, () => { calls.push(name); return commandValue({ name }, () => assert.fail('JSON text')); }
+    ]));
+    registerNamedInspectionQuery(namedRoot.command('contract'), readers);
+    assert.deepEqual(
+      await capture(() => namedRoot.parseAsync(['contract', kind, '--json', '--compact'], { from: 'user' })),
+      [[JSON.stringify({ name: kind })]]
+    );
+    assert.deepEqual(calls, [kind]);
   }
 });
 
@@ -77,10 +109,43 @@ for (const phase of ['read-async', 'view-async', 'format'] as const) {
     const lines = await capture(() => assert.rejects(root.parseAsync(['sample'], { from: 'user' }), (error: unknown) => error === reason));
     assert.deepEqual(lines, []);
     assert.equal(projected, !phase.startsWith('read'));
+    if (phase !== 'view-async') {
+      const namedRoot = program();
+      const namedReason = Object.freeze({ phase: phase === 'read-async' ? 'async-read' : 'format' });
+      let reads = 0;
+      registerNamedInspectionQuery(namedRoot.command('contract'), { freeze: () => {
+        reads += 1;
+        if (phase === 'read-async') return Promise.reject(namedReason);
+        return commandValue(7, () => { throw namedReason; });
+      } });
+      const namedLines = await capture(() => assert.rejects(
+        namedRoot.parseAsync(['contract', 'freeze'], { from: 'user' }),
+        (error: unknown) => error === namedReason
+      ));
+      assert.deepEqual(namedLines, []);
+      assert.equal(reads, 1);
+    }
   });
 }
 
 test('data selection receives the same captured context as presentation after an await', async () => {
+  // The required-selector entry must freeze JSON selection before its domain await.
+  const namedRoot = program();
+  let finish!: () => void;
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  const namedCommand = registerNamedInspectionQuery(namedRoot.command('contract'), {
+    freeze: async () => {
+      await held;
+      return commandValue({ status: 'captured' }, () => assert.fail('text renderer ran after JSON was captured'));
+    }
+  });
+  const namedLines = await capture(async () => {
+    const run = namedRoot.parseAsync(['contract', 'freeze', '--json'], { from: 'user' });
+    namedCommand.setOptionValue('json', false);
+    finish();
+    await run;
+  });
+  assert.deepEqual(namedLines, [[JSON.stringify({ status: 'captured' }, null, 2)]]);
   const initial = process.cwd();
   const other = await mkdtemp(path.join(tmpdir(), 'sec-query-context-'));
   await settleWorkspaceCallback(async () => {
