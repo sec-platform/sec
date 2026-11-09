@@ -1,8 +1,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
-import { failureMessage, getErrorCode, inspectFailureValue } from '../../../src/contracts/failure-inspection.ts';
+import { boundedFailureCode, failureMessage, getErrorCode, inspectFailureValue } from '../../../src/contracts/failure-inspection.ts';
 import { CodedFailure } from '../../../src/contracts/failure.ts';
+import { PhysicalNoFollowError } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow-contract.ts';
+
+const allowedCodes = new Set(['RUNTIME-DEPS-001', 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'ENOENT', 'EACCES']);
+const sentinel = 'private-dependency-stage-secret-7da130';
 
 test('all primitive failures preserve diagnostics without inventing codes', () => {
   for (const reason of [undefined, null, false, 0, 7n, Symbol('failure'), 'text']) {
@@ -94,6 +98,24 @@ test('error codes read once, reject nonstrings, and do not throw through the pro
   assert.equal(getErrorCode(error), 'OWNER-INSPECTION-001');
   Object.defineProperty(error, 'code', { get() { throw undefined; } });
   assert.equal(getErrorCode(error), undefined);
+  // The allowlisted diagnostic-code projection is intentionally stricter than getErrorCode.
+  {
+   const inputs = [
+      [new CodedFailure('RUNTIME-DEPS-001', sentinel, { environment: sentinel }), 'RUNTIME-DEPS-001'],
+      [new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', sentinel,
+        { cause: new Error(sentinel) }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'],
+      [Object.assign(new Error(sentinel), { code: 'EACCES' }), 'EACCES']
+    ] as const;
+    for (const [error, expected] of inputs) assert.equal(boundedFailureCode(error, allowedCodes), expected);
+  }
+  {
+   for (const error of [undefined, null, new Error(sentinel),
+      { code: `EACCES${sentinel}` }, Object.assign(() => undefined, { code: 'ENOENT' }),
+      Object.create({ code: 'ENOENT' })]) {
+      assert.equal(boundedFailureCode(error, allowedCodes), 'UNKNOWN');
+    }
+    assert.equal(boundedFailureCode(Object.assign(Object.create(null), { code: 'ENOENT' }), allowedCodes), 'ENOENT');
+  }
 });
 
 test('live and revoked proxies reach no traps or renderer', () => {
@@ -112,6 +134,27 @@ test('live and revoked proxies reach no traps or renderer', () => {
     assert.match(failureMessage(value), /Proxy not inspected/u);
   }
   assert.equal(traps, 0);
+  // Hostile failures must not execute accessors, conversions or Proxy traps.
+  {
+   let calls = 0;
+    const malicious = () => { calls++; throw new Error(sentinel); };
+    const error = Object.create(Object.defineProperty({}, 'code', { get: malicious }));
+    for (const field of ['message', 'details', 'cause', 'name', 'stack', 'path']) {
+      Object.defineProperty(error, field, { get: malicious });
+    }
+    error.toString = malicious;
+    error[inspect.custom] = malicious;
+    assert.equal(boundedFailureCode(error, allowedCodes), 'UNKNOWN');
+    Object.defineProperty(error, 'code', { get: malicious });
+    assert.equal(boundedFailureCode(error, allowedCodes), 'UNKNOWN');
+    const proxy = new Proxy({}, { get: malicious, getPrototypeOf: malicious,
+      getOwnPropertyDescriptor: malicious, ownKeys: malicious });
+    assert.equal(boundedFailureCode(proxy, allowedCodes), 'UNKNOWN');
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    assert.equal(boundedFailureCode(revoked.proxy, allowedCodes), 'UNKNOWN');
+    assert.equal(calls, 0);
+  }
 });
 
 test('nested native Error inspection never materializes its lazy stack', () => {
