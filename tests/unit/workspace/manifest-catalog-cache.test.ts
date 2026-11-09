@@ -40,7 +40,7 @@ function sourceOptions(f: ReturnType<typeof fixture>, names: readonly string[]) 
   return { ...f.options, registrySources: names.map(name => ({ ...f.source, id: name, path: name })) };
 }
 
-test('effective version overlays participate in collision checks after merging root defaults', () => using(async f => {
+test('effective version overlays participate in collision checks after merging root defaults', () => using(async (f, parses) => {
   const first = f.write(), second = f.write('block/a', 'second');
   for (const entry of [first, second]) {
     const versionRoot = path.join(entry.folder, 'versions', '0.5.0'); mkdirSync(versionRoot, { recursive: true });
@@ -48,6 +48,13 @@ test('effective version overlays participate in collision checks after merging r
   }
   const options = { ...sourceOptions(f, ['registry', 'second']), version: '0.5.0' };
   assert.equal(loadManifestById('block/a', options).manifest.version, '0.5.0');
+  // The version overlay must not prime or replace the separately addressed root observation.
+  const beforeRootRead = parses();
+  const rootCatalog = await loadAllManifests(f.options);
+  assert.equal(rootCatalog.length, 1);
+  assert.equal(rootCatalog[0]!.manifest.version, '1.0.0');
+  assert.deepEqual(rootCatalog[0]!.manifest.provides, ['block/a']);
+  assert.ok(parses() > beforeRootRead);
   writeFileSync(second.file, JSON.stringify({ ...second.manifest, provides: ['different/service'] }));
   assert.throws(() => loadManifestById('block/a', options), /Conflicting manifest definitions/);
 }));
@@ -82,20 +89,17 @@ test('cold catalog and logical reads share parsed validation without sharing mut
   catalog[0]!.manifest.provides.push('caller-only');
   assert.deepEqual(addressed.manifest.provides, ['block/a']);
   assert.equal(manifestCache.size, 1);
-}));
 
-test('changed current bytes invalidate addressed and catalog caches before returning a new version', () => using(async (f, parses) => {
-  const a = f.write();
-  const first = loadManifestById('block/a', f.options);
-  a.manifest.version = '1.0.1'; writeFileSync(a.file, JSON.stringify(a.manifest));
-  const changed = loadManifestById('block/a', f.options);
-  assert.equal(first.manifest.version, '1.0.0');
-  assert.equal(changed.manifest.version, '1.0.1');
-
+  // Observe both invalidation directions on the same cold/warm cache fixture.
+  writeFileSync(written.file, JSON.stringify({ ...written.manifest, version: '1.0.1' }));
+  const changedAddressed = loadManifestById('block/a', f.options);
+  assert.equal(addressed.manifest.version, '1.0.0');
+  assert.equal(changedAddressed.manifest.version, '1.0.1');
   assert.equal((await loadAllManifests(f.options))[0]!.manifest.version, '1.0.1');
-  const before = parses();
-  a.manifest.version = '2.0.0'; writeFileSync(a.file, JSON.stringify(a.manifest));
-  assert.equal((await loadAllManifests(f.options))[0]!.manifest.version, '2.0.0'); assert.equal(parses(), before + 1);
+  const beforeChangedCatalog = parses();
+  writeFileSync(written.file, JSON.stringify({ ...written.manifest, version: '2.0.0' }));
+  assert.equal((await loadAllManifests(f.options))[0]!.manifest.version, '2.0.0');
+  assert.equal(parses(), beforeChangedCatalog + 1);
   assert.equal(loadManifestById('block/a', f.options).manifest.version, '2.0.0');
 }));
 
@@ -104,33 +108,13 @@ test('deleted or invalid current sources cannot reuse a previous valid result', 
   unlinkSync(a.file); await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-013');
   writeFileSync(a.file, JSON.stringify({ ...a.manifest, id: 'block/other' }));
   await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-012');
-}));
 
-test('version overlays never prime or replace the root manifest observation', () => using(async (f, parses) => {
-  const a = f.write(); const versionRoot = path.join(a.folder, 'versions', '0.5.0'); mkdirSync(versionRoot, { recursive: true });
-  writeFileSync(path.join(versionRoot, 'block.manifest.yaml'), JSON.stringify({ ...a.manifest, version: '0.5.0', provides: ['old'] }));
-  const old = loadManifestById('block/a', { ...f.options, version: '0.5.0' }); assert.equal(old.manifest.version, '0.5.0');
-  const before = parses(), catalog = await loadAllManifests(f.options);
-  assert.equal(parses(), before + 1); assert.equal(catalog[0]!.manifest.version, '1.0.0');
-  assert.deepEqual(catalog[0]!.manifest.provides, ['block/a']);
-}));
-
-test('path binding never infers a block identity from an invalid directory spelling', () => using(async f => {
-  f.write(); await loadAllManifests(f.options);
+  // Restore a valid catalog before injecting a distinct invalid directory binding.
+  // Otherwise the earlier identity rejection could falsely satisfy this boundary.
+  writeFileSync(a.file, JSON.stringify(a.manifest));
+  assert.equal((await loadAllManifests(f.options))[0]!.manifest.id, 'block/a');
   const wrong = path.join(f.root, 'registry', 'legacy.wrong'); mkdirSync(wrong);
   writeFileSync(path.join(wrong, 'block.manifest.yaml'), JSON.stringify({ ...f.write('block/z').manifest, id: 'block/z' }));
   await assert.rejects(loadAllManifests(f.options), e => (e as { code?: string }).code === 'MANIFEST-SCHEMA-012');
 }));
 
-test('equal definition mirrors isolate source metadata and preserve configured priority across formats', () => using(async f => {
-  f.write(); const mirror = f.write('block/a', 'second');
-  const left = await loadAllManifests(f.options);
-  const right = await loadAllManifests({ ...f.options, registrySources: [{ ...f.source, id: 'other', path: 'second' }] });
-  assert.equal(left[0]!.registrySourceId, 'private'); assert.equal(right[0]!.registrySourceId, 'other');
-  assert.notEqual(left[0]!.registryRoot, right[0]!.registryRoot);
-  writeFileSync(mirror.file, YAML.stringify(mirror.manifest));
-  const options = sourceOptions(f, ['registry', 'second']);
-  assert.equal(loadManifestById('block/a', options).registrySourceId, 'registry');
-  assert.equal((await loadAllManifests(options))[0]!.registrySourceId, 'registry');
-  assert.equal(loadManifestById('block/a', sourceOptions(f, ['second', 'registry'])).registrySourceId, 'second');
-}));

@@ -1,9 +1,10 @@
 import { settleResources } from '../../../src/execution/resource-settlement.ts';
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { Command } from 'commander';
-import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 import { captureManifestSelection, resolveCapturedManifestSelection, resolveGraph } from '../../../src/adapters/workspace/resolve-graph.ts';
 import { loadAllManifests, loadManifestById, loadManifestForResolvedBlock } from '../../../src/adapters/workspace/sources/load-manifest.ts';
 import { manifestCache } from '../../../src/adapters/workspace/sources/manifest-cache.ts';
@@ -66,6 +67,26 @@ test('source order explicitly chooses the same winner and ordered shadows for ad
     expect(catalog).toEqual([addressed]);
     expect(Object.isFrozen(addressed.registryResolution!.shadowed[0])).toBe(true);
     expect(Object.isFrozen(catalog[0]!.registryResolution!.shadowed)).toBe(false);
+  }
+
+  // Mirrored definitions in different source formats retain their own registry identities.
+  const originalPath = path.join(f.workspaceRoot, 'registry-first', 'cache.probe', 'block.manifest.yaml');
+  const mirrorPath = f.write(1, '1.0.0');
+  writeFileSync(mirrorPath, YAML.stringify(JSON.parse(readFileSync(originalPath, 'utf8'))));
+  const firstOnly = { workspaceRoot: f.workspaceRoot, registrySources: [f.registrySources[0]!] };
+  const secondOnly = { workspaceRoot: f.workspaceRoot, registrySources: [f.registrySources[1]!] };
+  const first = loadManifestById('cache/probe', firstOnly);
+  const second = loadManifestById('cache/probe', secondOnly);
+  expect(first.manifest).toEqual(second.manifest);
+  expect(first.registrySourceId).toBe('first');
+  expect(second.registrySourceId).toBe('second');
+  expect(first.registryRoot).not.toBe(second.registryRoot);
+  for (const registrySources of [[f.registrySources[0]!, f.registrySources[1]!],
+    [f.registrySources[1]!, f.registrySources[0]!]]) {
+    const options = { workspaceRoot: f.workspaceRoot, registrySources };
+    const expectedSource = registrySources[0]!.id;
+    expect(loadManifestById('cache/probe', options).registrySourceId).toBe(expectedSource);
+    expect((await loadAllManifests(options))[0]!.registrySourceId).toBe(expectedSource);
   }
 });
 
