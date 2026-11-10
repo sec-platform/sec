@@ -2007,22 +2007,7 @@ describe('qualified exact-repository Session consumers', () => {
 
   test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
   await withReducerFixture(undefined, async (fixture) => {
-    expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE',
-      operationId: fixture.result.authorization.consumptionOperationId });
-    // Models process loss after the remote merge but before any local journal
-    // transition. The reducer adopts the exact remote marker and never owns a
-    // raw merge capability that could repeat the effect.
-    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
-      fixture.artifact.session.sessionRevision);
-    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED', completedStage: 'closeout-terminal' });
-    const observed = fixture.counters.closeoutObserve;
-    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED' });
-    expect(fixture.counters.closeoutObserve).toBeGreaterThanOrEqual(observed);
-  });
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
-
-  test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
-  await withReducerFixture(undefined, async (fixture) => {
+    // One fresh OPEN fixture covers durable projection and stable intent replay.
     const publication = durablePublication(fixture);
     const exactOpen = classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
@@ -2033,9 +2018,17 @@ describe('qualified exact-repository Session consumers', () => {
       repository: 'sec-platform/sec', request: fixture.request,
       candidate: fixture.transport.candidate(), publications: [publication]
     })).toMatchObject({ status: 'BLOCKED_AMBIGUOUS_SIDE_EFFECT' });
-
+    const first = (await runReducer(fixture));
+    const replay = (await runReducer(fixture));
+    expect(first).toMatchObject({ status: 'READY_TO_INTEGRATE',
+      operationId: fixture.result.authorization.consumptionOperationId });
+    expect(replay).toMatchObject({ status: 'READY_TO_INTEGRATE', operationId: first.operationId });
+    // Models process loss after the remote merge but before any local journal
+    // transition. The reducer adopts the exact remote marker and never owns a
+    // raw merge capability that could repeat the effect.
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
       fixture.artifact.session.sessionRevision);
+    // These projection reads do not consume or mutate the reducer journal.
     const ready = classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
       candidate: fixture.transport.candidate(), publications: [publication]
@@ -2049,6 +2042,10 @@ describe('qualified exact-repository Session consumers', () => {
       closeout: { closeoutOperationId: closeoutOperationId as `sha256:${string}`,
         commentId: 700, status: 'completed' }
     })).toMatchObject({ status: 'COMPLETED', closeoutCommentId: 700 });
+    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED', completedStage: 'closeout-terminal' });
+    const observed = fixture.counters.closeoutObserve;
+    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED' });
+    expect(fixture.counters.closeoutObserve).toBeGreaterThanOrEqual(observed);
   });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -2059,6 +2056,24 @@ describe('qualified exact-repository Session consumers', () => {
     reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
       reachable.artifact.session.sessionRevision);
     expect((await runReducer(reachable))).toMatchObject({ status: 'COMPLETED' });
+    // The same merged observation also carries independent old-base reachability checks.
+    const candidate = reachable.transport.candidate();
+    const proof = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: advancedMain,
+      remoteDefaultSha: advancedMain, workingTreeClean: true,
+      runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+    const input = { proof, repository: reachable.artifact.session.repository,
+      prNumber: reachable.artifact.session.prNumber, baseSha: reachable.artifact.session.baseSha,
+      headSha: reachable.artifact.session.headSha, headTreeSha: reachable.artifact.session.headTreeSha,
+      candidate, github: reachable.github };
+    await expect(assertTrustedMergedRequestRuntimeReachability(input)).resolves.toBeUndefined();
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })))()).rejects.toThrow(/synchronized local\/live default/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, currentBranch: 'feature/foreign' } })))()).rejects.toThrow(/old-base trusted TCB/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
   });
 
   for (const comparison of [
@@ -2075,32 +2090,6 @@ describe('qualified exact-repository Session consumers', () => {
     invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
       invalidBase.artifact.session.sessionRevision);
     await expect((async () => (await runReducer(invalidBase)))()).rejects.toThrow(/old base ancestry/i);
-  });
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
-
-  test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
-  const advancedMain = '8'.repeat(40);
-  await withReducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } }, async (fixture) => {
-    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
-      fixture.artifact.session.sessionRevision);
-    const candidate = fixture.transport.candidate();
-    const proof = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: advancedMain,
-      remoteDefaultSha: advancedMain, workingTreeClean: true,
-      runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-    const input = { proof, repository: fixture.artifact.session.repository,
-      prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
-      headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
-      candidate, github: fixture.github };
-    await expect(assertTrustedMergedRequestRuntimeReachability(input)).resolves.toBeUndefined();
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })))()).rejects.toThrow(/synchronized local\/live default/i);
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, currentBranch: 'feature/foreign' } })))()).rejects.toThrow(/old-base trusted TCB/i);
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
   });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -2169,16 +2158,6 @@ describe('qualified exact-repository Session consumers', () => {
       expect((await runReducer(fixture))).toMatchObject({ status: 'BLOCKED', reason: `branch closeout terminal ${terminal}` });
     });
   }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
-
-  test('reducer emits one stable integration intent and never executes a physical merge', async () => {
-  await withReducerFixture(undefined, async (fixture) => {
-    const first = (await runReducer(fixture));
-    const replay = (await runReducer(fixture));
-    expect(first).toMatchObject({ status: 'READY_TO_INTEGRATE',
-      operationId: fixture.result.authorization.consumptionOperationId });
-    expect(replay).toMatchObject({ status: 'READY_TO_INTEGRATE', operationId: first.operationId });
-  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', async () => {
