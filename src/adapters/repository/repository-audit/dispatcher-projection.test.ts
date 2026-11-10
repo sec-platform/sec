@@ -146,6 +146,16 @@ test('unread candidate compiler, registry and unrelated edits cannot replace ado
       JSON.parse(JSON.stringify(projection)))).toEqual([dispatcher]);
     expect(Object.isFrozen(projection)).toBe(true);
     expect(Object.isFrozen(projection.sourceInputDigests)).toBe(true);
+    // Check both rejected census claims against this same pristine read-only source.
+    // Neither probe may write a candidate file or grant a dispatcher identity.
+    const relabeled = subject.files.map(input => input.path === runtimePath
+      ? file(runtimePath, 'export {};\n') : input);
+    await expect(compileReviewedProcessDispatcherProjection(subject.root, relabeled, compilerInputDigest))
+      .rejects.toThrow('read set does not match the exact candidate census');
+    await expect(compileReviewedProcessDispatcherProjection(subject.root,
+      subject.files.filter(input => input.path !== leafPath), compilerInputDigest))
+      .rejects.toThrow('read set does not match the exact candidate census');
+
     const changed = subject.files.map(input => [unrelatedPath, SEC_TCB_CLOSURE_RUNTIME_PATH,
       SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH].includes(input.path)
       ? file(input.path, 'throw new Error("candidate data is not the adopted compiler");\n') : input);
@@ -156,18 +166,6 @@ test('unread candidate compiler, registry and unrelated edits cannot replace ado
     expect(recomputed.compilerInputDigest).toBe(changedCompiler);
     expect(reviewedProcessDispatchersFromExactProjection(changed, changedCompiler, recomputed)).toEqual([dispatcher]);
     expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, recomputed)).toBeNull();
-  });
-});
-
-test('producer rejects cross-root relabeling and absent census inputs instead of stamping caller digests', async () => {
-  return usingFixture(async subject => {
-    const relabeled = subject.files.map(input => input.path === runtimePath
-      ? file(runtimePath, 'export {};\n') : input);
-    await expect(compileReviewedProcessDispatcherProjection(subject.root, relabeled, compilerInputDigest))
-      .rejects.toThrow('read set does not match the exact candidate census');
-    await expect(compileReviewedProcessDispatcherProjection(subject.root,
-      subject.files.filter(input => input.path !== leafPath), compilerInputDigest))
-      .rejects.toThrow('read set does not match the exact candidate census');
   });
 });
 
