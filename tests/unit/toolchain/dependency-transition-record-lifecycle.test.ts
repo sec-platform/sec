@@ -61,7 +61,15 @@ test('begin, successor and durable readback retain one exact canonical immutable
   assert.equal(hasExactObjectKeys(packed, ['a', 'b']), false);
   assert.equal(hasExactObjectKeys(null, ['a']), false);
   assert.equal(hasExactObjectKeys([], []), false);
-  const first = await beginDependencyTransition(request(f));
+  // Capture the owner-issued fence without admitting unrelated lifecycle/test inputs.
+  let calls = 0;
+  const rawOptions = new Proxy({ ...f.options, beforeCommit: async () => { calls++; },
+    get generatedStateLifecycle() { assert.fail('unrelated lifecycle'); throw new Error('unreachable'); }, get testMaterialization() { assert.fail('test capability'); throw new Error('unreachable'); }
+  }, { ownKeys() { assert.fail('whole options enumeration'); } });
+  const input = { ...request(f), options: rawOptions };
+  const pending = beginDependencyTransition(input);
+  rawOptions.beforeCommit = async () => assert.fail('late replacement');
+  const first = await pending; assert.ok(calls > 0);
   assert.equal(first.phase, 'prepared'); assert.equal(first.sequence, 1);
   assert.deepEqual(await readDependencyTransition(f.root, f.options), first);
   assertDeepFrozen(first);
@@ -97,16 +105,6 @@ test('absent transition namespace rejects forged sources, read effects and cance
   assert.equal(existsSync(path.join(f.root, '.tmp')), false);
 }));
 
-test('begin captures only known request fields and narrows effect options before callbacks', async () => using(async f => {
-  let calls = 0;
-  const rawOptions = new Proxy({ ...f.options, beforeCommit: async () => { calls++; },
-    get generatedStateLifecycle() { assert.fail('unrelated lifecycle'); throw new Error('unreachable'); }, get testMaterialization() { assert.fail('test capability'); throw new Error('unreachable'); }
-  }, { ownKeys() { assert.fail('whole options enumeration'); } });
-  const input = { ...request(f), options: rawOptions };
-  const pending = beginDependencyTransition(input);
-  rawOptions.beforeCommit = async () => assert.fail('late replacement');
-  await pending; assert.ok(calls > 0);
-}));
 
 test('project runtime bridge records bind a project locator to an external issued source generation', async () => using(async f => {
   const projectRoot = path.join(f.root, 'project');
@@ -121,8 +119,6 @@ test('project runtime bridge records bind a project locator to an external issue
   assert.equal(record.sourceGeneration.ownerRoot, f.root);
   assert.deepEqual(parseDependencyTransitionRecord(dependencyTransitionRecordBytes(record)), record);
 }));
-
-
 
 
 test('falsy failure projections stay nonempty and reach the durable writer unchanged', async () => {

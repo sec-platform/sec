@@ -54,7 +54,6 @@ test('direct enumeration is sorted, bounded, and ignores unrelated effect capabi
 }));
 
 
-
 test('missing namespace and damaged present namespace are different states', async () => fixture(async root => {
   assert.equal(inspectDependencyTransitionNamespace(root), null);
   {
@@ -108,7 +107,6 @@ test('namespace writer rejects an owner replacement before creating anything in 
 }));
 
 
-
 test('empty and nonempty ledger projections cannot be altered through a Map mutator', async () => fixture(async root => {
   const directory = inspectNoFollowDirectoryChain(root).target, operation = runtimeDependencyOperationContext(controls());
   const empty = readDependencyTransitionRecordSet(directory, root, operation, 'empty');
@@ -119,21 +117,20 @@ test('empty and nonempty ledger projections cannot be altered through a Map muta
   assert.throws(() => Map.prototype.clear.call(value.records), TypeError);
   value.records.forEach((_entry, _key, view) => { assert.equal(view, value.records); assert.throws(() => Map.prototype.clear.call(view), TypeError); });
   assert.equal(value.records.size, 2); assert.ok(Object.isFrozen(value.records));
-}));
-
-test('ledger cancellation is enforced even if the public signal properties lie', async () => fixture(async root => {
-  const controller = new AbortController(), reason = Object.freeze({ scan: 'cancelled' });
-  const input = runtimeDependencyOperationControls({ signal: controller.signal });
-  Object.defineProperty(controller.signal, 'aborted', { value: false }); controller.abort(reason);
-  assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
-    runtimeDependencyOperationContext(input), 'cancelled'), error => error === reason);
+  // The issued reader also rejects cancelled and copied control contexts.
   {
-    const context = runtimeDependencyOperationContext(controls());
+    const controller = new AbortController(), reason = Object.freeze({ scan: 'cancelled' });
+    const input = runtimeDependencyOperationControls({ signal: controller.signal });
+    Object.defineProperty(controller.signal, 'aborted', { value: false }); controller.abort(reason);
     assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
-      { ...context }, 'copied'), /not owner-issued/);
+      runtimeDependencyOperationContext(input), 'cancelled'), error => error === reason);
+    {
+      const context = runtimeDependencyOperationContext(controls());
+      assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
+        { ...context }, 'copied'), /not owner-issued/);
+    }
   }
 }));
-
 
 
 for (const shape of ['unknown-entry', 'fork', 'missing-predecessor', 'two-roots']) {

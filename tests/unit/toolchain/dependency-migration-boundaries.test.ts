@@ -38,6 +38,17 @@ function legacy(root: string, phase: 'complete' | 'prepared' = 'complete') {
 }
 
 test('legacy migration captures root and fence and preserves source bytes across an idempotent retry', async () => fixture(async root => {
+  // Check the absent source and cancellation against this still-empty owner first.
+  {
+    const controller = new AbortController(), reason = Object.freeze({ stopped: true });
+    const options = runtimeDependencyOperationControls({ signal: controller.signal }); controller.abort(reason);
+    await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, options), error => error === reason);
+    assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
+    {
+      await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('unnecessary effect'); } });
+      assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
+    }
+  }
   const source = legacy(root), cwd = process.cwd(); let calls = 0;
   const options = { ...control(), async beforeCommit() {
     calls++; process.chdir(tmpdir()); options.beforeCommit = async () => assert.fail('replacement callback');
@@ -68,18 +79,6 @@ test('legacy migration captures root and fence and preserves source bytes across
   }
 }));
 
-test('cancelled migration without any source refuses before namespace effects', async () => fixture(async root => {
-  const controller = new AbortController(), reason = Object.freeze({ stopped: true });
-  const options = runtimeDependencyOperationControls({ signal: controller.signal }); controller.abort(reason);
-  await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, options), error => error === reason);
-  assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
-  {
-    await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('unnecessary effect'); } });
-    assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
-  }
-}));
-
-
 
 test('interrupted prepared migration resumes from its existing receipt without altering v1', async () => fixture(async root => {
   const source = legacy(root), failure = new Error('interrupted'); let injected = false;
@@ -93,7 +92,5 @@ test('interrupted prepared migration resumes from its existing receipt without a
   const intents = await readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, control());
   assert.equal(intents.complete!.phase, 'complete'); assert.deepEqual(readFileSync(source.filename), source.bytes);
 }));
-
-
 
 
