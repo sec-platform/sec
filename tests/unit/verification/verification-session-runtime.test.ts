@@ -45,6 +45,7 @@ import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from "../../../src/adapters/ve
 
 import { parseVerificationSessionHostedRequest } from "../../../src/adapters/verification/platform/ci/contract/session-request.ts";
 import { assertGitHubReviewAuthorityObservation, createReviewProviderRevalidationCommentBody, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import { readVerificationSessionJournal } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
 import { assertTrustedMergedRequestRuntimeReachability, classifyVerificationSessionArtifactReuse, createVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, reconstructVerificationSessionHostedFacts } from '../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
   assertHostedCompilerDispatchPayload,
@@ -2055,6 +2056,36 @@ describe('qualified exact-repository Session consumers', () => {
     mergeToDefault: { status: 'ahead', behindBy: 0 } }, async (reachable) => {
     reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
       reachable.artifact.session.sessionRevision);
+    // These negative comparisons reject before the first durable journal
+    // transition. Independent read-only GitHub views share the unchanged setup.
+    const mergedSha = reachable.transport.candidate().mergeCommitSha;
+    if (mergedSha === null) throw new Error('Fixture merge commit identity is absent.');
+    const withComparison = (fromSha: string, toSha: string, comparison: GitHubComparisonObservation) => ({
+      ...reachable,
+      github: { ...reachable.github,
+        observeComparison: async (repo: string, baseSha: string, headSha: string) =>
+          baseSha === fromSha && headSha === toSha
+            ? comparison : reachable.github.observeComparison(repo, baseSha, headSha)
+      }
+    });
+    const originalJournal = readVerificationSessionJournal({
+      fs: reachable.journalFs, sessionRevision: reachable.artifact.session.sessionRevision
+    });
+    for (const comparison of [
+      { status: 'diverged', behindBy: 1 },
+      { status: 'behind', behindBy: 1 }
+    ] satisfies GitHubComparisonObservation[]) {
+      await expect(runReducer(withComparison(mergedSha, advancedMain, comparison)))
+        .rejects.toThrow(/ancestor|reachability/i);
+      expect(readVerificationSessionJournal({
+        fs: reachable.journalFs, sessionRevision: reachable.artifact.session.sessionRevision
+      })).toEqual(originalJournal);
+    }
+    await expect(runReducer(withComparison(BASE, mergedSha, { status: 'diverged', behindBy: 1 })))
+      .rejects.toThrow(/old base ancestry/i);
+    expect(readVerificationSessionJournal({
+      fs: reachable.journalFs, sessionRevision: reachable.artifact.session.sessionRevision
+    })).toEqual(originalJournal);
     expect((await runReducer(reachable))).toMatchObject({ status: 'COMPLETED' });
     // The same merged observation also carries independent old-base reachability checks.
     const candidate = reachable.transport.candidate();
@@ -2076,33 +2107,27 @@ describe('qualified exact-repository Session consumers', () => {
       proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
   });
 
-  for (const comparison of [
-    { status: 'diverged', behindBy: 1 },
-    { status: 'behind', behindBy: 1 }
-  ] satisfies GitHubComparisonObservation[]) {
-    await withReducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison }, async (blocked) => {
-      blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
-        blocked.artifact.session.sessionRevision);
-      await expect((async () => (await runReducer(blocked)))()).rejects.toThrow(/ancestor|reachability/i);
-    });
-  }
-  await withReducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } }, async (invalidBase) => {
-    invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
-      invalidBase.artifact.session.sessionRevision);
-    await expect((async () => (await runReducer(invalidBase)))()).rejects.toThrow(/old base ancestry/i);
-  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
-  for (const [field, value] of [
-    ['baseSha', 'f'.repeat(40)],
-    ['headSha', 'e'.repeat(40)]
-  ] as const) {
-    await withReducerFixture(undefined, async (fixture) => {
-      fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
-      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/live .* drifted/i);
+  await withReducerFixture(undefined, async (fixture) => {
+    const candidate = fixture.transport.candidate();
+    const originalJournal = readVerificationSessionJournal({
+      fs: fixture.journalFs, sessionRevision: fixture.artifact.session.sessionRevision
     });
-  }
+    for (const [field, value] of [
+      ['baseSha', 'f'.repeat(40)],
+      ['headSha', 'e'.repeat(40)]
+    ] as const) {
+      const isolated = { ...fixture, github: { ...fixture.github,
+        observeCandidate: async () => ({ ...candidate, [field]: value })
+      } };
+      await expect(runReducer(isolated)).rejects.toThrow(/live .* drifted/i);
+      expect(readVerificationSessionJournal({
+        fs: fixture.journalFs, sessionRevision: fixture.artifact.session.sessionRevision
+      })).toEqual(originalJournal);
+    }
+  });
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
