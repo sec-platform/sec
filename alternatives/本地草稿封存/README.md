@@ -54,3 +54,26 @@
 本次采用的整理原则是：有完整同字节承接且无独立消费者的重复内容可退出；失败或未采用的独立研究保留可恢复原件并退出活动源；真实来源、私密审计和未结恢复责任继续保留。物理清点、静态结构检查、语义审查与运行事实分别报告，不用清空工作区冒充产品完成。
 
 本次发布时还发现受管Git钩子引用已不存在的Bun绝对路径。使用仓库唯一hooks安装入口，在准确main基线上重新绑定当前锁定1.4.4运行时，再返回原分支；没有关闭钩子、修改main提交或安装全局工具。返回分支时workspace-transition另报`workspace-transition-provider-integration-unavailable`（没有兼容的retained compiler dependency generation）；实际Git分支切换已完成，后续路径恢复和推送钩子正常。这个依赖代次资格仍未取得，本次文档静态核验和源码发布不代签完整开发环境或运行资格，既有依赖locator与状态继续交原owner，不以复制依赖或删锁绕过。
+
+
+<a id="frozen-12-document-disposition"></a>
+## 固定封存分支十二份独有文档逐项处置
+
+以下十二份Markdown在固定封存提交`161bc44b45b34d6b6a62578579787a85b6b34b54`中保留完整原文，未作为额外现行规范文件恢复到活动树。共同当前Owner由本页此前的作者、编译、原生接入及验收入口分责，链接用于原始内容追溯而不是自动续接旧的产品能力。
+
+| 固定原件 | 独立内容 | 当前处置与尚未闭合的消费者 |
+| --- | --- | --- |
+| [LOCAL-DRAFT-ARCHIVE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/LOCAL-DRAFT-ARCHIVE.md) | 原132项草稿差额总说明 | 本页所述封存处置；记录归属，不是当前规范 |
+| [DEFS-SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/flags/DEFS-SOURCE.md) | Flag声明、上游版本与差异 | 原生导入与语义/Target消费者待审；不采纳作者候选 |
+| [PARSING-SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/flags/PARSING-SOURCE.md) | flags解析原始对应与未闭合接口 | 原生源码事实待取得对应Method，不冒称完整解析 |
+| [IMPORTS.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/foundation/IMPORTS.md) | memchr等真实依赖、实例与公开导入 | 原生来源/锁/模块接口仅作设计证据 |
+| [GLOBSET-SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/globset/GLOBSET-SOURCE.md) | globset候选与上游P/Q差分 | 正则/借用/目标资格尚未闭合 |
+| [SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/ignore-pathutil/SOURCE.md) | pathutil五入口、平台分支与源变化 | 跨平台路径字节与原生调用消费者待审 |
+| [IGNORE-SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/ignore-rules/IGNORE-SOURCE.md) | ignore/gitignore/override行为与未决 | 专业规则、作用序与原生依赖须独立验证 |
+| [MATCHER-SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/matcher/MATCHER-SOURCE.md) | trait、HRTB FnMut、关联类型与借用转发 | 开放名义/借用/效果与Rust目标尚无全资格 |
+| [SOURCE.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/author/printer-core/SOURCE.md) | printer七模块、67函数及顺序/借用 | 仅是固定版本部分迁移与P/Q证据，不是全部程序 |
+| [README.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E5%AE%8C%E6%95%B4%E5%B7%A5%E7%A8%8B/ripgrep/native-support/README.md) | 手写native包装、类型/平台路径与退役理由 | 已撤销生产供给资格；未来改原生导入和Target lowering |
+| [纯结果目标设计.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E7%AC%AC%E4%B8%80%E5%B1%82%E4%BD%9C%E8%80%85/language-v1/%E7%BA%AF%E7%BB%93%E6%9E%9C%E7%9B%AE%E6%A0%87%E8%AE%BE%E8%AE%A1.md) | 区间非法位置、覆盖、相接/重叠区分 | 独立见证已进当前作者与组合验收；旧Profile不采用 |
+| [状态目标设计.md](https://github.com/sec-platform/sec/blob/161bc44b45b34d6b6a62578579787a85b6b34b54/examples/%E7%AC%AC%E4%B8%80%E5%B1%82%E4%BD%9C%E8%80%85/language-v1/%E7%8A%B6%E6%80%81%E7%9B%AE%E6%A0%87%E8%AE%BE%E8%AE%A1.md) | 同一ledger共享、状态更新、政策更改与重试 | 独立见证已进当前作者与组合验收；旧Profile不采用 |
+
+这十二份的存在属于**可恢复历史原文**；上表并非全文段落级语义承接证明。其中两个独立目标行为见证已接入[作者与组合验收](../../docs/运行/验收/作者与组合案例.md#frozen-first-layer-independent-witnesses)，但相应TypeScript代码、旧输入结构和目标Profile没有被宣布为当前实现。九份ripgrep/原生接口的专有细节尚未取得统一Reader/Target与真实消费者全量验证；它们不因进入索引而被删除，也不能整树复制成新的活动文法。若未来要正式采用，逐项按源身份、专业Meaning、类型/借用/作用、目标能力和可运行回归另行接纳。这样活动入口只有现行Owner，历史保留独立反例和恢复所需的准确原件。
