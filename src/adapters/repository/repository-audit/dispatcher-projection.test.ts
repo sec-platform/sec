@@ -169,46 +169,44 @@ test('unread candidate compiler, registry and unrelated edits cannot replace ado
   });
 });
 
-test('changed candidate runtime bytes invalidate baseline reuse and cold compilation observes the changed dispatchers', async () => {
-  return usingFixture(async subject => {
-    const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
-    const changed = subject.files.map(input => input.path === runtimePath
-      ? file(runtimePath, "import './fixture-leaf.ts';\nexport {};\n") : input);
-    for (const input of changed) subject.write(input);
-    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toBeNull();
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
-    expect(recomputed.reviewedProcessDispatchers).toEqual([]);
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, recomputed)).toBeNull();
-    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, recomputed)).toEqual([]);
-  });
-});
-
-test('a cold formal transition obtains baseline A from its actual root while current B has different dispatchers', async () => {
+test('a cold formal transition rechecks same-root candidate drift and obtains baseline A from its actual root', async () => {
   return usingFixture(async baseline => {
     return usingFixture(async candidate => {
+      // Observe A in this exact candidate root before editing it to B.
+      // The same-root transition must not authorize a stale A projection.
+      const pristineProjection = await compileReviewedProcessDispatcherProjection(
+        candidate.root, candidate.files, compilerInputDigest
+      );
       const candidateFiles = candidate.files.map(input => input.path === runtimePath
         ? file(runtimePath, "import './fixture-leaf.ts';\nexport {};\n") : input);
       for (const input of candidateFiles) candidate.write(input);
-      const baselineProjection = await compileReviewedProcessDispatcherProjection(
-        baseline.root, baseline.files, compilerInputDigest
-      );
+      expect(reviewedProcessDispatchersFromExactProjection(
+        candidateFiles, compilerInputDigest, pristineProjection
+      )).toBeNull();
       const currentProjection = await compileReviewedProcessDispatcherProjection(
         candidate.root, candidateFiles, compilerInputDigest
       );
-      expect(baselineProjection.reviewedProcessDispatchers).toEqual([dispatcher]);
+      expect(pristineProjection.reviewedProcessDispatchers).toEqual([dispatcher]);
       expect(currentProjection.reviewedProcessDispatchers).toEqual([]);
-      expect(baselineProjection.sourceInputDigests[runtimePath]).toBe(rawSha256(runtimeSource));
+      expect(pristineProjection.sourceInputDigests[runtimePath]).toBe(rawSha256(runtimeSource));
       expect(currentProjection.sourceInputDigests[runtimePath])
         .toBe(rawSha256("import './fixture-leaf.ts';\nexport {};\n"));
-      expect(reviewedProcessDispatchersFromExactProjection(candidateFiles, compilerInputDigest, baselineProjection)).toBeNull();
-      expect(reviewedProcessDispatchersFromExactProjection(baseline.files, compilerInputDigest, currentProjection)).toBeNull();
+      expect(reviewedProcessDispatchersFromExactProjection(
+        baseline.files, compilerInputDigest, pristineProjection
+      )).toEqual([dispatcher]);
+      expect(reviewedProcessDispatchersFromExactProjection(
+        baseline.files, compilerInputDigest, currentProjection
+      )).toBeNull();
+      expect(reviewedProcessDispatchersFromExactProjection(
+        candidateFiles, compilerInputDigest, currentProjection
+      )).toEqual([]);
+      // A's live root remains independent of the edited B root: fallback must
+      // compile actual A, not relabel candidate B or reuse stale projection A.
       expect(await resolveImmutableRevisionProcessDispatchers(
         baseline.files, currentProjection, baseline.root
       )).toEqual([dispatcher]);
       await expect(resolveImmutableRevisionProcessDispatchers(baseline.files, currentProjection))
         .rejects.toThrow('require an exact cached trusted-runtime projection');
-      // Matching current/baseline input reuses the same observation without
-      // attempting to read the optional, deliberately unavailable fallback root.
       expect(await resolveImmutableRevisionProcessDispatchers(
         candidateFiles, currentProjection, path.join(candidate.root, 'unread-root')
       )).toEqual([]);
