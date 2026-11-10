@@ -79,11 +79,7 @@ test('cancelled migration without any source refuses before namespace effects', 
   }
 }));
 
-test('a nonterminal legacy source cannot create a new v2 namespace', async () => fixture(async root => {
-  const source = legacy(root, 'prepared');
-  await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, control()), /terminal/);
-  assert.equal(existsSync(source.paths.journalRoot), false); assert.deepEqual(readFileSync(source.filename), source.bytes);
-}));
+
 
 test('interrupted prepared migration resumes from its existing receipt without altering v1', async () => fixture(async root => {
   const source = legacy(root), failure = new Error('interrupted'); let injected = false;

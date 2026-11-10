@@ -882,9 +882,11 @@ test('rejects a well-formed legacy chain whose final phase is not terminal', asy
       recordDigest: generatedStateDigest(terminalUnsigned)
     }) as LegacyRecord;
     await writeLegacyRecords(root, [records[0]!, nonterminal]);
+    const sourceBytes = await readRegularFiles(legacyRecordsRoot(root));
     await expectBlockedMigration(root, 'requires every chain to be terminal', 'RUNTIME-DEPS-004');
     expect(await readdir(path.join(root, '.tmp', 'dependency-installs', 'compiler-backups')))
       .not.toContain(TARGET_NAMESPACE);
+    expectSameFileSet(await readRegularFiles(legacyRecordsRoot(root)), sourceBytes);
   });
 });
 
