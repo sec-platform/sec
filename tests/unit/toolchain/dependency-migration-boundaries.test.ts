@@ -60,6 +60,12 @@ test('legacy migration captures root and fence and preserves source bytes across
     get installMode() { assert.fail('reader observed install mode'); throw new Error('unreachable'); } }, { ownKeys() { assert.fail('reader enumerated facade'); } });
   const repeated = await readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, readOptions);
   assert.equal(repeated.complete!.phase, 'complete');
+  {
+    const controller = new AbortController(), reason = new Error('cancelled');
+    const options = runtimeDependencyOperationControls({ signal: controller.signal });
+    const pending = readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, options);
+    controller.abort(reason); await assert.rejects(pending, error => error === reason);
+  }
 }));
 
 test('cancelled migration without any source refuses before namespace effects', async () => fixture(async root => {
@@ -67,6 +73,10 @@ test('cancelled migration without any source refuses before namespace effects', 
   const options = runtimeDependencyOperationControls({ signal: controller.signal }); controller.abort(reason);
   await assert.rejects(migrateLegacyDependencyTransitionUnderLease(root, options), error => error === reason);
   assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
+  {
+    await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('unnecessary effect'); } });
+    assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
+  }
 }));
 
 test('a nonterminal legacy source cannot create a new v2 namespace', async () => fixture(async root => {
@@ -88,15 +98,6 @@ test('interrupted prepared migration resumes from its existing receipt without a
   assert.equal(intents.complete!.phase, 'complete'); assert.deepEqual(readFileSync(source.filename), source.bytes);
 }));
 
-test('cancellation after intent enumeration starts cannot produce a successful result', async () => fixture(async root => {
-  legacy(root); await migrateLegacyDependencyTransitionUnderLease(root, control());
-  const controller = new AbortController(), reason = new Error('cancelled');
-  const options = runtimeDependencyOperationControls({ signal: controller.signal });
-  const pending = readDependencyTransitionMigrationIntents(inspectDependencyTransitionNamespace(root)!, options);
-  controller.abort(reason); await assert.rejects(pending, error => error === reason);
-}));
 
-test('migration is a true no-effect operation when both source and target are absent', async () => fixture(async root => {
-  await migrateLegacyDependencyTransitionUnderLease(root, { ...control(), async beforeCommit() { assert.fail('unnecessary effect'); } });
-  assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
-}));
+
+

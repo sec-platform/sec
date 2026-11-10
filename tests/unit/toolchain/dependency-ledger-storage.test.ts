@@ -44,18 +44,25 @@ test('direct enumeration is sorted, bounded, and ignores unrelated effect capabi
   const names = await readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'names', 3, input);
   assert.deepEqual(names, ['a', 'middle', 'z']); assert.ok(Object.isFrozen(names));
   await assert.rejects(readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'names', 2, controls()), /capacity/);
+  {
+    writeFileSync(path.join(root, 'one'), 'x');
+    const controller = new AbortController(), reason = Object.freeze({ stopped: true });
+    const input = runtimeDependencyOperationControls({ lockTimeoutMs: 20_000, signal: controller.signal });
+    const pending = readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'cancel', 10, input);
+    controller.abort(reason); await assert.rejects(pending, error => error === reason);
+  }
 }));
 
-test('name enumeration notices parent cancellation and preserves the exact reason', async () => fixture(async root => {
-  writeFileSync(path.join(root, 'one'), 'x');
-  const controller = new AbortController(), reason = Object.freeze({ stopped: true });
-  const input = runtimeDependencyOperationControls({ lockTimeoutMs: 20_000, signal: controller.signal });
-  const pending = readNoFollowDirectNames(inspectNoFollowDirectoryChain(root).target, 'cancel', 10, input);
-  controller.abort(reason); await assert.rejects(pending, error => error === reason);
-}));
+
 
 test('missing namespace and damaged present namespace are different states', async () => fixture(async root => {
   assert.equal(inspectDependencyTransitionNamespace(root), null);
+  {
+    const controller = new AbortController(), reason = new Error('cancelled');
+    const input = runtimeDependencyOperationControls({ signal: controller.signal }); controller.abort(reason);
+    await assert.rejects(ensureDependencyTransitionNamespace(root, input), error => error === reason);
+    assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
+  }
   const paths = dependencyTransitionNamespacePaths(root);
   mkdirSync(paths.backupRoot, { recursive: true });
   mkdirSync(paths.journalRoot, { recursive: true });
@@ -100,12 +107,7 @@ test('namespace writer rejects an owner replacement before creating anything in 
   }
 }));
 
-test('cancelled namespace admission performs no directory creation', async () => fixture(async root => {
-  const controller = new AbortController(), reason = new Error('cancelled');
-  const input = runtimeDependencyOperationControls({ signal: controller.signal }); controller.abort(reason);
-  await assert.rejects(ensureDependencyTransitionNamespace(root, input), error => error === reason);
-  assert.equal(existsSync(dependencyTransitionNamespacePaths(root).backupRoot), false);
-}));
+
 
 test('empty and nonempty ledger projections cannot be altered through a Map mutator', async () => fixture(async root => {
   const directory = inspectNoFollowDirectoryChain(root).target, operation = runtimeDependencyOperationContext(controls());
@@ -125,13 +127,14 @@ test('ledger cancellation is enforced even if the public signal properties lie',
   Object.defineProperty(controller.signal, 'aborted', { value: false }); controller.abort(reason);
   assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
     runtimeDependencyOperationContext(input), 'cancelled'), error => error === reason);
+  {
+    const context = runtimeDependencyOperationContext(controls());
+    assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
+      { ...context }, 'copied'), /not owner-issued/);
+  }
 }));
 
-test('a fabricated ledger context is refused rather than accepted by its clock fields', async () => fixture(async root => {
-  const context = runtimeDependencyOperationContext(controls());
-  assert.throws(() => readDependencyTransitionRecordSet(inspectNoFollowDirectoryChain(root).target, root,
-    { ...context }, 'copied'), /not owner-issued/);
-}));
+
 
 for (const shape of ['unknown-entry', 'fork', 'missing-predecessor', 'two-roots']) {
   test(`existing ledger graph rejection remains effective: ${shape}`, async () => fixture(async root => {
