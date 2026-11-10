@@ -170,7 +170,7 @@ describe('compiler dependency installation', () => {
     }));
 
   effectfulTest(test,
-    'retained dependency content is requalified through the public owner without an installer',
+    'retained dependency content rejects invalid inputs before public requalification',
     { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
       cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
     effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-content-target-', async (consumerRoot, operation) => {
@@ -179,6 +179,17 @@ describe('compiler dependency installation', () => {
       const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
         signal: operation.signal, installMode: 'prebound-only' as const };
       await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
+        // Rejected pre-admission inputs must not create a target namespace or consume content.
+        await expect(Promise.resolve().then(() => target.ensureCompilerDepsReadyFromRetainedContent(content,
+          { ...request, deadlineAtUnixMs: Date.now() - 1 }))).rejects.toThrow();
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request, contentRoot))
+          .rejects.toThrow('physically disjoint');
+        await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'different-transport-lock\n');
+        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request))
+          .rejects.toThrow('content input differs: bun.lock');
+        await writeCompilerDependencyRoot(consumerRoot);
+        await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
         const ready = await target.ensureCompilerDepsReadyFromRetainedContent(content, request);
         expect(ready.source).toBe('existing');
         expect(ready.requiresFreshProcess).toBeTrue();
@@ -199,29 +210,6 @@ describe('compiler dependency installation', () => {
         await content.assertAuthorityCurrent();
         await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request))
           .rejects.toThrow('absent consumer locator');
-      });
-    }));
-
-  effectfulTest(test,
-    'retained dependency content rejects expired incompatible and overlapping inputs before effects',
-    { operationTimeoutMs: EFFECTFUL_COMPILER_OPERATION_TIMEOUT_MS,
-      cleanupSettlementMarginMs: EFFECTFUL_COMPILER_CLEANUP_MARGIN_MS },
-    effectful => withCompilerTestWorkspace(effectful, 'sec-cdep-content-reject-', async (consumerRoot, operation) => {
-      await writeCompilerDependencyRoot(consumerRoot);
-      const target = createCompilerFixtureDependencyOperation(consumerRoot, operation.generatedStateLifecycle);
-      const request = { deadlineAtUnixMs: operation.deadlineAtUnixMs,
-        signal: operation.signal, installMode: 'prebound-only' as const };
-      await withRetainedCompilerContentFixture(operation.deadlineAtUnixMs, async (content, contentRoot) => {
-        await expect(Promise.resolve().then(() => target.ensureCompilerDepsReadyFromRetainedContent(content,
-          { ...request, deadlineAtUnixMs: Date.now() - 1 }))).rejects.toThrow();
-        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request, contentRoot))
-          .rejects.toThrow('physically disjoint');
-        await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'different-transport-lock\n');
-        await expect(target.ensureCompilerDepsReadyFromRetainedContent(content, request))
-          .rejects.toThrow('content input differs: bun.lock');
-        await writeCompilerDependencyRoot(consumerRoot);
-        await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
-        await expect(fs.lstat(path.join(consumerRoot, '.tmp'))).rejects.toMatchObject({ code: 'ENOENT' });
       });
     }));
 
