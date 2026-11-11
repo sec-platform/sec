@@ -343,6 +343,8 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
   let left: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
   let right: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
   let third: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
+  let leftCleanupAttempted = false;
+  let leftCleanupSettled = false;
   let admissionSettled = true;
   await settleWorkspaceCallback(async () => {
     for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
@@ -368,7 +370,11 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
     admissionSettled = false;
     const [thirdStart, leftClose] = await Promise.allSettled([
       prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment: thirdEnvironment }),
-      left.cleanup()
+      (async () => {
+        leftCleanupAttempted = true;
+        await left!.cleanup();
+        leftCleanupSettled = true;
+      })()
     ]);
     if (thirdStart.status === 'fulfilled') { third = thirdStart.value; admissionSettled = true; }
     const failures = [leftClose, thirdStart].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
@@ -382,7 +388,12 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
   }, async () => {
     await settleResourcesAsync({ cleanup: [
       { label: 'third invocation', settle: async () => { await third?.cleanup(); } },
-      { label: 'left invocation', settle: async () => { await left?.cleanup(); } },
+      { label: 'left invocation', settle: async () => {
+        if (leftCleanupAttempted && !leftCleanupSettled) {
+          throw new Error(`Left invocation retirement remains unresolved; fixture root retained: ${root}`);
+        }
+        await left?.cleanup();
+      } },
       { label: 'right invocation', settle: async () => { await right?.cleanup(); } }
     ] });
     if (!admissionSettled) throw new Error(`Invocation admission remains unresolved; fixture root retained: ${root}`);
