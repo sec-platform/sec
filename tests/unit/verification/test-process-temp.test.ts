@@ -642,76 +642,6 @@ test('failed temp retirement blocks unguarded successor takeover until original-
   });
 });
 
-test('unguarded successor remains blocked after generation restoration until original-owner settlement', async () => {
-  const root = generation('sec-temp-failed-successor-reclaim-');
-  let abandoned: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
-  let successor: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
-  let admissionSettled = true;
-  await settleWorkspaceCallback(async () => {
-    const repositoryRoot = path.join(root, 'repository');
-    const hostTempRoot = path.join(root, 'host-temp');
-    mkdirSync(repositoryRoot);
-    mkdirSync(hostTempRoot);
-    const input = {
-      repositoryRoot,
-      hostTempRoot,
-      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') },
-      invocationKey: '10000000-0000-4000-8000-000000000003'
-    };
-    admissionSettled = false;
-    abandoned = await createTestInvocationRuntimeRoots({
-      ...input,
-      testOnlyOwnerPid: 41_005,
-      testOnlyProcessAlive: () => 'alive',
-      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000005'
-    });
-    admissionSettled = true;
-    const owned = abandoned.prepareProcessTemp({});
-    const displaced = `${owned.processRoot}.displaced`;
-    renameSync(owned.processRoot, displaced);
-    mkdirSync(owned.processRoot);
-    const preserved = observeUnguardedFixturePreservation(input,
-      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot, displaced]);
-
-    admissionSettled = false;
-    await expect(createTestInvocationRuntimeRoots({
-      ...input,
-      testOnlyOwnerPid: 41_006,
-      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
-      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000006'
-    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
-    admissionSettled = true;
-    preserved();
-
-    rmSync(owned.processRoot, { recursive: true });
-    renameSync(displaced, owned.processRoot);
-    const restored = observeUnguardedFixturePreservation(input,
-      [abandoned.stateRoot, abandoned.cacheRoot, owned.processRoot]);
-    admissionSettled = false;
-    await expect(createTestInvocationRuntimeRoots({
-      ...input,
-      testOnlyOwnerPid: 41_007,
-      testOnlyProcessAlive: pid => pid === 41_005 ? 'dead' : 'alive',
-      testOnlyProcessNonce: '20000000-0000-4000-8000-000000000007'
-    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
-    admissionSettled = true;
-    restored();
-    await abandoned.cleanup();
-    admissionSettled = false;
-    successor = await createTestInvocationRuntimeRoots(input);
-    admissionSettled = true;
-    expect(existsSync(owned.processRoot)).toBe(false);
-    await successor.cleanup();
-  }, async () => {
-    if (!admissionSettled) throw new Error(`Shared invocation admission remains unresolved; fixture root retained: ${root}`);
-    await settleResourcesAsync({ cleanup: [
-      { label: 'successor invocation', settle: async () => { await successor?.cleanup(); } },
-      { label: 'original invocation', settle: async () => { await abandoned?.cleanup(); } }
-    ] });
-    rmSync(root, { recursive: true, force: true });
-  });
-});
-
 test.each(['missing-state', 'changed-binding'] as const)(
   'new invocation preserves unguarded original binding and native identities after %s', async (fault) => {
     const root = generation('sec-runtime-recovery-binding-');
@@ -845,6 +775,7 @@ test('test process temp lease and generations are isolated by exact workspace id
 test('unguarded successor preserves live and PID-dead owners across generation ABA', async () => {
   const root = generation('sec-process-temp-aba-');
   let owner: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
+  let successor: Awaited<ReturnType<typeof createTestInvocationRuntimeRoots>> | undefined;
   let processRoot: string | undefined;
   let displaced: string | undefined;
   let admissionSettled = true;
@@ -912,6 +843,35 @@ test('unguarded successor preserves live and PID-dead owners across generation A
     expect(existsSync(displaced)).toBe(true);
     rmSync(processGeneration.processRoot, { recursive: true });
     renameSync(displaced, processGeneration.processRoot);
+    // Restoring the original generation does not authorize takeover; only
+    // settlement by its retained owner releases the original lease.
+    const restored = observeUnguardedFixturePreservation({ repositoryRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
+    }, [owner.stateRoot, owner.cacheRoot, processGeneration.processRoot]);
+    admissionSettled = false;
+    await expect(createTestInvocationRuntimeRoots({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
+      invocationKey,
+      testOnlyOwnerPid: 42_004,
+      testOnlyProcessAlive: (pid) => pid === ownerPid ? 'dead' : 'alive',
+      testOnlyProcessNonce: '50000000-0000-4000-8000-000000000004'
+    })).rejects.toMatchObject({ code: 'TEST_PROCESS_TEMP_OWNED' });
+    admissionSettled = true;
+    restored();
+
+    await owner.cleanup();
+    admissionSettled = false;
+    successor = await createTestInvocationRuntimeRoots({
+      repositoryRoot,
+      hostTempRoot,
+      environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot },
+      invocationKey
+    });
+    admissionSettled = true;
+    expect(existsSync(processGeneration.processRoot)).toBe(false);
+    await successor.cleanup();
   }, async () => {
     if (!admissionSettled) throw new Error(`Invocation admission remains unresolved; fixture root retained: ${root}`);
     // Restoration and owner retirement must both succeed before deleting their parent.
@@ -919,7 +879,10 @@ test('unguarded successor preserves live and PID-dead owners across generation A
       rmSync(processRoot, { recursive: true, force: true });
       renameSync(displaced, processRoot);
     }
-    await owner?.cleanup();
+    await settleResourcesAsync({ cleanup: [
+      { label: 'successor invocation', settle: async () => { await successor?.cleanup(); } },
+      { label: 'original invocation', settle: async () => { await owner?.cleanup(); } }
+    ] });
     rmSync(root, { recursive: true, force: true });
   });
 });
