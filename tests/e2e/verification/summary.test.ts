@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -20,8 +20,8 @@ import type { ProvenanceFile } from '../../../src/semantics/provenance/types.ts'
 import {
   buildReviewInputs
 } from '../../helpers/review-fixtures.ts';
-import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess } from '../../testkit/cli.ts';
-import { createWorkspace, prepareComposedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
+import { runCliInProcess } from '../../testkit/cli.ts';
+import { createWorkspace, prepareComposedWorkspace } from '../../testkit/workspace.ts';
 
 const TENANT_FLOW_RULE = TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE;
 const TENANT_FLOW_PREDICATE = policySemanticRule(TENANT_FLOW_RULE).requiredPredicate;
@@ -220,56 +220,3 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
     ])
   );
 }, 360000);
-// CLI overview presentation keeps the existing runtime-heavy suite and shared locked workspace.
-// 只有 overview acceptance 被选中时才创建一次 locked + explained Workspace。
-// 文件内其他 lightweight summary sentinel 不为未选择的完整 Pipeline 付费。
-let sharedOverviewWorkspace: Promise<string> | null = null;
-
-async function getSharedOverviewWorkspace(): Promise<string> {
-  sharedOverviewWorkspace ??= (async () => {
-    const workspaceRoot = await prepareLockedWorkspace({
-      prefix: 'engineering-compiler-overview-shared-'
-    });
-    await expectCliSuccess(workspaceRoot, ['explain']);
-    return workspaceRoot;
-  })();
-  return await sharedOverviewWorkspace;
-}
-
-afterAll(async () => {
-  if (!sharedOverviewWorkspace) return;
-  const workspaceRoot = await sharedOverviewWorkspace.catch(() => null);
-  if (workspaceRoot) await fs.rm(workspaceRoot, { recursive: true, force: true });
-});
-
-test('CLI exposes project overview as text summary and reports missing governance artifacts', async () => {
-  const workspaceRoot = await getSharedOverviewWorkspace();
-  await expectCliText(workspaceRoot, ['overview'], ['Project overview', 'Workspace:', 'Verification:', 'Graph:', 'Views:', 'Next:']);
-
-  // Only lock and graph are consumed before the missing provenance error.
-  await withTempWorkspace(async (tempRoot) => {
-    for (const artifact of [CI_ARTIFACT_FILES.graphLock, CI_ARTIFACT_FILES.explainGraph]) {
-      const target = resolveWorkspaceArtifactPath(tempRoot, artifact);
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.copyFile(resolveWorkspaceArtifactPath(workspaceRoot, artifact), target);
-    }
-    const missingArtifactResult = await runCliInProcess(tempRoot, ['overview']);
-    expect(missingArtifactResult.code).toBe(1);
-    expect(missingArtifactResult.stdout).toBe('');
-    expect(missingArtifactResult.stderr).toContain('Provenance report is missing');
-    expect(missingArtifactResult.stderr).toContain('run the refresh chain, then bun run sec -- explain');
-  });
-}, 120000);
-
-test('CLI exposes project overview as compact JSON contract', async () => {
-  const workspaceRoot = await getSharedOverviewWorkspace();
-  const payload = await expectCliJson<{
-    formatVersion: string;
-    navigation: { machineArtifacts: Array<{ id: string; path?: string }> };
-  }>(workspaceRoot, ['overview', '--json', '--compact'], { formatVersion: '1' }, { compact: true });
-
-  expect(payload.navigation.machineArtifacts).toEqual(expect.arrayContaining([
-    expect.objectContaining({ id: 'graph' }),
-    expect.objectContaining({ id: 'verification' })
-  ]));
-}, 120000);

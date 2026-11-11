@@ -1,10 +1,13 @@
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import type { ExplainSummarySource } from '../../../src/application/explain-summary.ts';
 import type { RepairPlan } from '../../../src/semantics/repair/types.ts';
+import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
-import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
-import { withWorkspaceScenario } from '../../testkit/workspace.ts';
+import { expectCliJson, expectCliText, runCliInProcess } from '../../testkit/cli.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 const expectedDemoChecklistItemCount = [
   'verification-report',
@@ -47,6 +50,34 @@ test('CLI emits explain JSON for CI consumers', async () => {
       'Impacted: 3 blocks,',
       'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
     ]);
+
+    // The existing explained all-lane workspace is also the real Overview consumer.
+    // Preserve its positive CLI forms and fail-closed missing-Provenance input.
+    await expectCliText(workspaceRoot, ['overview'], [
+      'Project overview', 'Workspace:', 'Verification:', 'Graph:', 'Views:', 'Next:'
+    ]);
+    const overview = await expectCliJson<{
+      formatVersion: string;
+      navigation: { machineArtifacts: Array<{ id: string; path?: string }> };
+    }>(workspaceRoot, ['overview', '--json', '--compact'], { formatVersion: '1' }, { compact: true });
+    expect(overview.navigation.machineArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'graph' }),
+      expect.objectContaining({ id: 'verification' })
+    ]));
+
+    await withTempWorkspace(async (tempRoot) => {
+      for (const artifact of [CI_ARTIFACT_FILES.graphLock, CI_ARTIFACT_FILES.explainGraph]) {
+        const target = resolveWorkspaceArtifactPath(tempRoot, artifact);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.copyFile(resolveWorkspaceArtifactPath(workspaceRoot, artifact), target);
+      }
+      const missingArtifactResult = await runCliInProcess(tempRoot, ['overview']);
+      expect(missingArtifactResult.code).toBe(1);
+      expect(missingArtifactResult.stdout).toBe('');
+      expect(missingArtifactResult.stderr).toContain('Provenance report is missing');
+      expect(missingArtifactResult.stderr).toContain('run the refresh chain, then bun run sec -- explain');
+    });
+
     const payload = await expectCliJson<ExplainSummarySource>(workspaceRoot, ['explain', '--json', '--compact'], undefined, { compact: true });
     expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
