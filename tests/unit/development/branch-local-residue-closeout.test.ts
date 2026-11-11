@@ -892,7 +892,7 @@ for (const lane of ['merged', 'retained'] as const) {
       }
       const settled = await executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot,
-        recoveryRoot: fixture.recoveryRoot,
+        ...(lane === 'retained' ? { recoveryRoot: fixture.recoveryRoot } : {}),
         run: lane === 'merged' ? fixture.run : noMergedPr,
         ...(lane === 'retained' ? {
           retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
@@ -917,6 +917,13 @@ for (const lane of ['merged', 'retained'] as const) {
       expect(settled.settled).toEqual(['fix/example']);
       expect(existsSync(journalPath)).toBeFalse();
       expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+      if (lane === 'merged') {
+        expect(settled.recoveryRootRetired).toBeTrue();
+        expect(existsSync(path.join(
+          path.dirname(fixture.repositoryRoot),
+          `${path.basename(fixture.repositoryRoot)}-recovery`
+        ))).toBeFalse();
+      }
     });
   }, 45_000);
 
@@ -1359,23 +1366,6 @@ test('orphan completion receipt is retained when its local branch is recreated a
     })).rejects.toThrow('followed by ref recreation');
     expect(recreated).toBeTrue();
     expect(existsSync(path.join(fixture.recoveryRoot, receiptName))).toBeTrue();
-  });
-}, 30_000);
-
-test('default recovery root is not left behind after terminal settlement', async () => {
-  await withEffectFixture('default-root-retirement', async (fixture) => {
-    const defaultRecoveryRoot = path.join(
-      path.dirname(fixture.repositoryRoot),
-      `${path.basename(fixture.repositoryRoot)}-recovery`
-    );
-    const result = await executeMergedLocalBranchResidueCloseout({
-      repositoryRoot: fixture.repositoryRoot,
-      run: fixture.run,
-      now: () => new Date('2026-08-22T00:00:00.000Z')
-    });
-    expect(result.settled).toEqual(['fix/example']);
-    expect(result.recoveryRootRetired).toBeTrue();
-    expect(existsSync(defaultRecoveryRoot)).toBeFalse();
   });
 }, 30_000);
 
