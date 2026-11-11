@@ -2131,11 +2131,27 @@ describe('qualified exact-repository Session consumers', () => {
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
   test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
+  // The first fixture also proves fresh pre-merge authority after the older pre-gate expiry.
+  const refreshedAt = '2026-08-09T14:07:00.000Z';
   for (const options of [
-    { authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' },
+    { mergeAt: refreshedAt, authorizationExpiresAt: '2026-08-09T14:07:30.000Z',
+      now: '2026-08-09T14:07:31.000Z' },
     { consumed: true }
   ]) {
     await withReducerFixture(options, async (fixture) => {
+      if ('mergeAt' in options) {
+        expect(classifyVerificationSessionArtifactReuse(fixture.artifact, refreshedAt))
+          .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
+        expect(fixture.result.authorization).toMatchObject({
+          sessionRevision: fixture.artifact.session.sessionRevision,
+          baseSha: BASE, headSha: HEAD, issuedAt: refreshedAt,
+          expiresAt: options.authorizationExpiresAt
+        });
+        expect(fixture.result.authorization.reviewReceiptDigest)
+          .not.toBe(fixture.artifact.preGateReview.receiptDigest);
+        expect(fixture.result.authorization.mainHealthReceiptDigest)
+          .not.toBe(fixture.artifact.mainHealth.ledgerDigest);
+      }
       await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/expired|already consumed/i);
     });
   }
@@ -2185,22 +2201,6 @@ describe('qualified exact-repository Session consumers', () => {
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-  test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', async () => {
-  const stalePreGateAt = '2026-08-09T14:07:00.000Z';
-  await withReducerFixture({ mergeAt: stalePreGateAt }, async (stalePreGate) => {
-    expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
-      .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
-    expect(stalePreGate.result.authorization).toMatchObject({
-      sessionRevision: stalePreGate.artifact.session.sessionRevision,
-      baseSha: BASE,
-      headSha: HEAD,
-      issuedAt: stalePreGateAt
-    });
-    expect(stalePreGate.result.authorization.reviewReceiptDigest)
-      .not.toBe(stalePreGate.artifact.preGateReview.receiptDigest);
-    expect(stalePreGate.result.authorization.mainHealthReceiptDigest)
-      .not.toBe(stalePreGate.artifact.mainHealth.ledgerDigest);
-  });
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
 
 });
