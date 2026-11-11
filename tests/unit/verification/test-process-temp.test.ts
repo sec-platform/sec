@@ -332,68 +332,13 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
   });
 });
 
-test('direct test invocation binds and retires one State Cache and TMP generation then restores environment', async () => {
-  const root = generation('sec-direct-test-runtime-');
-  let runtime: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
-  let admissionSettled = true;
-  let cleanupAttempted = false;
-  let cleanupSettled = false;
-  await settleWorkspaceCallback(async () => {
-    const repositoryRoot = path.join(root, 'repository');
-    const hostTempRoot = path.join(root, 'host-temp');
-    const stateRoot = path.join(root, 'state');
-    const cacheRoot = path.join(root, 'cache');
-    for (const directory of [repositoryRoot, hostTempRoot]) mkdirSync(directory);
-    const environment: NodeJS.ProcessEnv = {
-      SEC_STATE_HOME: stateRoot,
-      SEC_CACHE_HOME: cacheRoot,
-      TMP: 'original-tmp',
-      TEMP: 'original-temp'
-    };
-    admissionSettled = false;
-    runtime = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment });
-    admissionSettled = true;
-    expect(runtime.ownership).toBe('direct');
-    expect(environment.SEC_STATE_HOME).toBe(runtime.stateRoot);
-    expect(environment.SEC_CACHE_HOME).toBe(runtime.cacheRoot);
-    expect(environment.TMP).toBe(runtime.tempRoot);
-    expect(environment.TEMP).toBe(runtime.tempRoot);
-    expect(environment.TMPDIR).toBe(runtime.tempRoot);
-    expect(runtime.tempRoot).toBe(path.join(runtime.processRoot, 'tmp'));
-    expect(existsSync(runtime.processRoot)).toBe(true);
-    cleanupAttempted = true;
-    await runtime.cleanup();
-    cleanupSettled = true;
-    expect(existsSync(runtime.processRoot)).toBe(false);
-    expect(existsSync(runtime.stateRoot)).toBe(false);
-    expect(existsSync(runtime.cacheRoot)).toBe(false);
-    expect(existsSync(hostTempRoot)).toBe(true);
-    expect(environment).toEqual({
-      SEC_STATE_HOME: stateRoot,
-      SEC_CACHE_HOME: cacheRoot,
-      TMP: 'original-tmp',
-      TEMP: 'original-temp'
-    });
-  }, async () => {
-    if (runtime !== undefined && !cleanupAttempted) {
-      cleanupAttempted = true;
-      await runtime.cleanup();
-      cleanupSettled = true;
-    }
-    if (!admissionSettled || (runtime !== undefined && !cleanupSettled)) {
-      throw new Error(`Invocation admission or retirement remains unresolved; fixture root retained: ${root}`);
-    }
-    rmSync(root, { recursive: true, force: true });
-  });
-});
-
 test('two direct invocations in one workspace own independent concurrent lifecycle generations', async () => {
   const root = generation('sec-direct-test-runtime-concurrent-');
   const repositoryRoot = path.join(root, 'repository');
   const hostTempRoot = path.join(root, 'host-temp');
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
-  const leftEnvironment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
+  const leftEnvironment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot, TMP: 'original-tmp', TEMP: 'original-temp' };
   const rightEnvironment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
   let left: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
   let right: Awaited<ReturnType<typeof prepareTestInvocationRuntime>> | undefined;
@@ -404,10 +349,17 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
     admissionSettled = false;
     left = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment: leftEnvironment });
     admissionSettled = true;
+    expect(left.ownership).toBe('direct');
+    expect(leftEnvironment.SEC_STATE_HOME).toBe(left.stateRoot);
+    expect(leftEnvironment.SEC_CACHE_HOME).toBe(left.cacheRoot);
+    expect(leftEnvironment.TMP).toBe(left.tempRoot);
+    expect(leftEnvironment.TEMP).toBe(left.tempRoot);
+    expect(leftEnvironment.TMPDIR).toBe(left.tempRoot);
+    expect(left.tempRoot).toBe(path.join(left.processRoot, 'tmp'));
+    expect(existsSync(left.processRoot)).toBe(true);
     admissionSettled = false;
     right = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment: rightEnvironment });
     admissionSettled = true;
-    expect(left.ownership).toBe('direct');
     expect(right.ownership).toBe('direct');
     expect(left.processRoot).not.toBe(right.processRoot);
     expect(existsSync(left.processRoot)).toBe(true);
@@ -422,6 +374,10 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
     const failures = [leftClose, thirdStart].flatMap(result => result.status === 'rejected' ? [result.reason] : []);
     if (failures.length === 1) throw failures[0];
     if (failures.length > 1) throw new AggregateError(failures, 'Concurrent invocation admission and retirement failed');
+    expect(existsSync(left.processRoot)).toBe(false);
+    expect(existsSync(left.stateRoot)).toBe(false);
+    expect(existsSync(left.cacheRoot)).toBe(false);
+    expect(leftEnvironment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot, TMP: 'original-tmp', TEMP: 'original-temp' });
     expect(existsSync(right.processRoot)).toBe(true);
   }, async () => {
     await settleResourcesAsync({ cleanup: [
@@ -430,6 +386,13 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
       { label: 'right invocation', settle: async () => { await right?.cleanup(); } }
     ] });
     if (!admissionSettled) throw new Error(`Invocation admission remains unresolved; fixture root retained: ${root}`);
+    for (const invocation of [left, right, third]) {
+      if (invocation === undefined) continue;
+      expect(existsSync(invocation.processRoot)).toBe(false);
+      expect(existsSync(invocation.stateRoot)).toBe(false);
+      expect(existsSync(invocation.cacheRoot)).toBe(false);
+    }
+    expect(existsSync(hostTempRoot)).toBe(true);
     rmSync(root, { recursive: true, force: true });
   });
   expect(rightEnvironment).toEqual({ SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot });
