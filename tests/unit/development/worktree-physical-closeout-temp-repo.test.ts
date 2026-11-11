@@ -265,8 +265,9 @@ test.skipIf(process.platform !== 'linux')('Unicode Git admin and tracked backsla
   });
 }, 30_000);
 
-test('real registered worktree reaches registry and physical absence under one durable receipt', async () => {
+test('completed worktree evidence honors lease and unknown-content fences before branch-settled GC', async () => {
   await withCloseoutFixture({}, async (value) => {
+    // An unissued caller token cannot elevate a completed worktree observation.
     expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: new WorktreePhysicalCloseoutConsumptionToken(),
       repositoryRoot: value.repository,
@@ -276,59 +277,6 @@ test('real registered worktree reaches registry and physical absence under one d
       treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     })).toThrow('was not issued by this process');
-    const authorization = await prepareWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-}, worktreePhysicalCloseoutOperations);
-
-    expect(existsSync(authorization.authorizationPath)).toBe(true);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).toContain(`worktree ${gitPath(value.target)}`);
-    const receipt = await executeWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-      authorizationPath: authorization.authorizationPath
-    });
-    expect(receipt.terminal).toBe('completed');
-    expect(receipt.readback).toEqual({
-      registryPresent: false,
-      physicalPresent: false,
-      authorizationValid: true
-    });
-    const latest = JSON.parse(readFileSync(authorization.receiptPath, 'utf8')) as {
-      schema: string; generation: string; receiptDigest: string;
-    };
-    expect(latest).toEqual({
-      schema: 'sec-worktree-cleanup-receipt-latest-v1',
-      generation: `receipt-${receipt.receiptDigest.slice('sha256:'.length)}.json`,
-      receiptDigest: receipt.receiptDigest
-    });
-    expect(existsSync(path.join(path.dirname(authorization.receiptPath), latest.generation))).toBe(true);
-    expect(existsSync(value.target)).toBe(false);
-    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u)).not.toContain(`worktree ${gitPath(value.target)}`);
-    expect(
-      (await executeWorktreePhysicalCloseout({
-        repositoryRoot: value.repository,
-        targetPath: value.target,
-        expectedBranch: value.branch,
-        expectedHeadSha: value.headSha,
-        expectedTreeSha: value.treeSha,
-        expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
-        authorizationPath: authorization.authorizationPath
-      })).receiptDigest
-    ).toBe(receipt.receiptDigest);
-  });
-}, 30_000);
-
-test('completed worktree evidence honors lease and unknown-content fences before branch-settled GC', async () => {
-  await withCloseoutFixture({}, async (value) => {
     const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -347,6 +295,15 @@ test('completed worktree evidence honors lease and unknown-content fences before
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: authorization.authorizationPath
     });
+    // GC must retain the uncompleted recovery root before any physical retirement.
+    const beforeCloseoutGc = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
+    expect(beforeCloseoutGc.retiredOperationIds).toEqual([]);
+    expect(beforeCloseoutGc.retained).toContainEqual({
+      operationId: authorization.operationId, reason: 'not-completed', terminal: 'prepared'
+    });
+    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
+    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
+    expect(existsSync(value.target)).toBeTrue();
     const unregisterLease = await acquireWorkspaceWriteLease(commonDir);
     try {
       await expect(execute()).rejects.toThrow('Workspace writer lease is already held');
@@ -358,6 +315,22 @@ test('completed worktree evidence honors lease and unknown-content fences before
     }
     const receipt = await execute();
     expect(receipt.terminal).toBe('completed');
+    expect(receipt.readback).toEqual({
+      registryPresent: false, physicalPresent: false, authorizationValid: true
+    });
+    const latest = JSON.parse(readFileSync(authorization.receiptPath, 'utf8')) as {
+      schema: string; generation: string; receiptDigest: string;
+    };
+    expect(latest).toEqual({
+      schema: 'sec-worktree-cleanup-receipt-latest-v1',
+      generation: `receipt-${receipt.receiptDigest.slice('sha256:'.length)}.json`,
+      receiptDigest: receipt.receiptDigest
+    });
+    expect(existsSync(path.join(path.dirname(authorization.receiptPath), latest.generation))).toBeTrue();
+    expect(existsSync(value.target)).toBeFalse();
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])).split(/\r?\n/u))
+      .not.toContain(`worktree ${gitPath(value.target)}`);
+    expect((await execute()).receiptDigest).toBe(receipt.receiptDigest);
 
     const retained = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
     expect(retained.retiredOperationIds).toEqual([]);
@@ -395,7 +368,7 @@ test('completed worktree evidence honors lease and unknown-content fences before
     expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
     expect(existsSync(authorization.proofRoot.path)).toBeFalse();
   });
-}, 90_000);
+}, 120_000);
 
 test('documentation coordination rejects nonempty and non-file leaves before empty-leaf admission', async () => {
   await withCloseoutFixture({ documentationCoordination: true }, async (value) => {
@@ -532,29 +505,6 @@ test('one branch settlement retires completed current worktree evidence it makes
     expect(existsSync(authorization.proofRoot.path)).toBeFalse();
   });
 }, 40_000);
-
-test('prepared worktree evidence remains a recovery root', async () => {
-  await withCloseoutFixture({}, async (value) => {
-    const authorization = await prepareWorktreePhysicalCloseout({
-      repositoryRoot: value.repository,
-      targetPath: value.target,
-      expectedBranch: value.branch,
-      expectedHeadSha: value.headSha,
-      expectedTreeSha: value.treeSha,
-      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    }, worktreePhysicalCloseoutOperations);
-    const result = await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository);
-    expect(result.retiredOperationIds).toEqual([]);
-    expect(result.retained).toContainEqual({
-      operationId: authorization.operationId,
-      reason: 'not-completed',
-      terminal: 'prepared'
-    });
-    expect(existsSync(path.dirname(authorization.authorizationPath))).toBeTrue();
-    expect(existsSync(authorization.proofRoot.path)).toBeTrue();
-    expect(existsSync(value.target)).toBeTrue();
-  });
-}, 30_000);
 
 test('fieldless historical proofless residue converges only from exact durable absence readback', async () => {
   await withCloseoutFixture({}, async (value) => {
