@@ -179,42 +179,6 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'native controlled failure drains stderr and proves Job closure',
-  async () => {
-    const marker = 'Semantic Mutation isolated verification failed\n';
-    const exitCode = 70;
-    const outcome = await runObservedCommand(process.execPath, [
-      '--no-env-file',
-      '--no-install',
-      '-e',
-      `process.stderr.write(${JSON.stringify(marker)}); process.exitCode = ${exitCode};`
-    ], {
-      cwd: process.cwd(),
-      maxObservedOutputBytes: 512,
-      terminationDeadlineMs: 1_000,
-      terminationGraceMs: 100,
-      timeoutMs: 2_000
-    });
-
-    expect(outcome.status).toBe('exited');
-    expect(outcome.exitCode).toBe(exitCode);
-    expect(outcome.stdout.bytes).toBe(0);
-    expect(outcome.stderr).toEqual({
-      bytes: Buffer.byteLength(marker),
-      digest: `sha256:${createHash('sha256').update(marker).digest('hex')}`,
-      observerTruncated: false
-    });
-    expect(outcome.termination).toMatchObject({
-      requested: false,
-      forcedAttempted: false,
-      childCloseObserved: true,
-      streamsDrained: true,
-      treeClosed: true
-    });
-  }
-);
-
-test.skipIf(process.platform !== 'win32')(
   'native controlled failure waits for a short-lived inherited Bun worker',
   async () => {
     const marker = 'Semantic Mutation isolated verification failed\n';
@@ -239,6 +203,7 @@ test.skipIf(process.platform !== 'win32')(
 
     expect(outcome.status).toBe('exited');
     expect(outcome.exitCode).toBe(exitCode);
+    expect(outcome.stdout.bytes).toBe(0);
     expect(outcome.stderr).toEqual({
       bytes: Buffer.byteLength(marker),
       digest: `sha256:${createHash('sha256').update(marker).digest('hex')}`,
