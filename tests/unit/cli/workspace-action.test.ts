@@ -9,6 +9,7 @@ import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { jsonOpts } from '../../../src/entry/cli/command-options.ts';
 import { commandValue } from '../../../src/entry/cli/command-value.ts';
 import { runWithOptionalSpinner } from '../../../src/bootstrap/cli/command-progress.ts';
+import { registerCoreWorkspaceCommands } from '../../../src/entry/cli/register-core-workspace-commands.ts';
 import { registerWorkspaceAction } from '../../../src/entry/cli/workspace-action.ts';
 
 function program() { return new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} }); }
@@ -38,6 +39,24 @@ test('JSON suppresses text formatting while preserving the projected payload thr
     view: (value) => commandValue({ projected: value.domain }, () => assert.fail('JSON formatted text'))
   });
   assert.deepEqual(await capture(() => root.parseAsync(['sample'], { from: 'user' })), [['{"projected":1}']]);
+
+  // Exercise the real verify text/default registration with a domain stub.
+  // The costly composed-workspace execution remains covered once by JSON E2E.
+  const verifyProgram = program();
+  const invoked: unknown[] = [];
+  const unrelated = async () => assert.fail('unrelated workspace command invoked');
+  registerCoreWorkspaceCommands(verifyProgram, {
+    progress: async (_text, _output, execute) => execute(),
+    init: unrelated, add: unrelated, resolve: unrelated, compose: unrelated,
+    verify: async (_workspaceRoot, request) => {
+      invoked.push(request);
+      return { report: { summary: { status: 'passed', requestedLane: 'fast' } } };
+    }
+  });
+  const verifyOutput = await capture(() => verifyProgram.parseAsync(['verify'], { from: 'user' }));
+  assert.equal(verifyOutput.length, 1);
+  assert.match(String(verifyOutput[0]?.[0]), /\bVerification\s+passed\s+\(fast\)/u);
+  assert.deepEqual(invoked, [{ lane: 'fast', emitTiming: true }]);
 });
 
 for (const phase of ['decode', 'execute-async', 'view-async', 'format', 'sink'] as const) {

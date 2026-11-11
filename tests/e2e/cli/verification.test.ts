@@ -7,14 +7,12 @@ import type { RuntimeInspectionView } from '../../../src/application/runtime-ins
 import type { AcceptanceCoverageReport } from '../../../src/assurance/acceptance/coverage.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../../src/assurance/verification/contract/types.ts';
 import type { PolicyReport } from '../../../src/semantics/policies/types.ts';
-import { expectCliJson, expectCliText } from '../../testkit/cli.ts';
+import { expectCliJson } from '../../testkit/cli.ts';
 import { withWorkspaceScenario } from '../../testkit/workspace.ts';
 
 test('CLI verifies a composed workspace and exposes policy, acceptance, runtime, and verification contracts', async () => {
   await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
-    // Verify the initially composed workspace through both real CLI presentation paths.
-    await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
-
+    // The live verification runs once; text/default dispatch is checked at the CLI entry boundary.
     const directVerificationReport = await expectCliJson<VerificationReport>(
       workspaceRoot,
       ['verify', '--lane', 'fast', '--json'],
