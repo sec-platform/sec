@@ -47,11 +47,34 @@ test.skipIf(process.platform !== 'win32')('provider-issued native checker writes
       nodeModulesPath,
       checker,
       1,
-      (boundary) => executeTypeScriptNativeChecker(checker, {
-        ...boundary,
-        args: diagnosticArguments,
-        deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
-      }),
+      async (boundary) => {
+        // Rejected preflight attempts must neither start a native process nor
+        // publish incremental state before the valid admitted execution.
+        const buildInfoFile = path.join(
+          boundary.auxiliaryDirectory.childPath,
+          boundary.buildInfoFileName
+        );
+        expect(await executeTypeScriptNativeChecker(checker, {
+          ...boundary,
+          deadlineAtUnixMs: Date.now() - 1
+        })).toMatchObject({ status: 'unverified', reason: 'deadline-exhausted' });
+        await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
+
+        const controller = new AbortController();
+        controller.abort();
+        expect(await executeTypeScriptNativeChecker(checker, {
+          ...boundary,
+          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+          signal: controller.signal
+        })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
+        await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
+
+        return executeTypeScriptNativeChecker(checker, {
+          ...boundary,
+          args: diagnosticArguments,
+          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+        });
+      },
       diagnosticArguments
     );
     expect(result).toMatchObject({ status: 'exited', code: 0 });
@@ -111,40 +134,5 @@ test.skipIf(process.platform !== 'win32')('repository policy rejects each unused
       { line: 5, column: 26, code: 6133, binding: 'unused' }
     ].map(diagnostic => ({ file: `${surface}/entry.ts`, ...diagnostic })));
     assert.deepEqual(diagnostics, expected, 'Every intended unused binding, and no other error, must be reported');
-  });
-});
-
-test.skipIf(process.platform !== 'win32')('expired or cancelled native checker operation creates no incremental state', async () => {
-  await withNativeCheckerExecutionWorkspace('sec-native-typecheck-deadline-', async (root, withBoundary) => {
-    const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
-    const projectRoot = path.join(root, 'project');
-    await fs.mkdir(projectRoot);
-    await fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({ files: [] }));
-    const checker = await selectNativeChecker(nodeModulesPath);
-    await withBoundary(
-      projectRoot,
-      nodeModulesPath,
-      checker,
-      0,
-      async (boundary) => {
-        expect(await executeTypeScriptNativeChecker(checker, {
-          ...boundary,
-          deadlineAtUnixMs: Date.now() - 1
-        })).toMatchObject({ status: 'unverified', reason: 'deadline-exhausted' });
-        const buildInfoFile = path.join(
-          boundary.auxiliaryDirectory.childPath,
-          boundary.buildInfoFileName
-        );
-        await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
-        const controller = new AbortController();
-        controller.abort();
-        expect(await executeTypeScriptNativeChecker(checker, {
-          ...boundary,
-          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-          signal: controller.signal
-        })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
-        await expect(fs.lstat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
-      }
-    );
   });
 });
