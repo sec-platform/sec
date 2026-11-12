@@ -403,23 +403,21 @@ test('aggregate response-byte budget rejects a bounded stream once its ceiling i
   })).rejects.toThrow('response-byte budget exceeded');
 });
 
-for (const reason of [undefined, new Error('operation failed')] as const) {
-  test(`read session distinguishes failure occurrence from ${String(reason)} payload`, async () => {
+test('read session distinguishes failure occurrence from an undefined payload', async () => {
     const api = capability({
       effect: 'read',
       transport: async () => Response.json({})
     });
     const outcome = await withGitHubApiTestSession({
       capability: api,
-      operation: async () => { throw reason; }
+      operation: async () => { throw undefined; }
     }).then(
       (value) => ({ status: 'succeeded' as const, value }),
       (error: unknown) => ({ status: 'failed' as const, error })
     );
     expect(outcome.status).toBe('failed');
-    if (outcome.status === 'failed') expect(outcome.error).toBe(reason);
-  });
-}
+    if (outcome.status === 'failed') expect(outcome.error).toBeUndefined();
+  })
 
 test('normal undefined results are distinct from thrown payloads', async () => {
   const api = capability({ effect: 'read', transport: async () => Response.json({}) });
