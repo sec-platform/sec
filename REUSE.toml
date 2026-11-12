@@ -11,3 +11,10 @@ path = ["*.md", "**/*.md", "CITATION.cff", "NOTICE", "docs/**", "alternatives/**
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Jeremy Yang and contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+# Bounded replayable Python/model fixtures are executable material, not prose specifications.
+[[annotations]]
+path = "alternatives/本地草稿封存/近期参考验证/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Jeremy Yang and contributors"
+SPDX-License-Identifier = "MPL-2.0"

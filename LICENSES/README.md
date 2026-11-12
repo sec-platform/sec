@@ -16,6 +16,8 @@ Repository-owned Markdown, the `docs/**` and `alternatives/**` design corpora, `
 
 When sharing or adapting this material, credit **Jeremy Yang**, identify the work as **Engineering Workspace Compiler (SEC)**, link to `https://github.com/sec-platform/sec` and `https://creativecommons.org/licenses/by/4.0/`, and indicate whether changes were made. Attribution must not imply endorsement.
 
+The bounded, replayable Python sources, tests, and machine-consumed JSON fixtures under `alternatives/本地草稿封存/近期参考验证/**` are implementation/reference-test material under MPL-2.0, not CC BY 4.0 prose. The surrounding Markdown design and source-custody descriptions remain CC BY 4.0. These reference assets are not adopted production compiler code.
+
 ## Machine-readable classification
 
 [`REUSE.toml`](../REUSE.toml) records the repository-wide SPDX classification. A more specific per-file SPDX notice or an applicable third-party notice takes precedence for that material.
