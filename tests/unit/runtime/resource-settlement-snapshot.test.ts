@@ -17,6 +17,20 @@ test('synchronous settlement preserves exact primary failures and still attempts
   const unaccompanied = new Error('operation failed');
   await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
     error => error === unaccompanied);
+  let undefinedPrimaryOnlyObserved = false;
+  try {
+    settlePhysicalResources({
+      primary: { label: 'run', error: undefined },
+      cleanup: [{
+        label: 'cleanup',
+        settle() { events.push('undefined-primary-only-cleanup'); }
+      }]
+    });
+  } catch (error) {
+    undefinedPrimaryOnlyObserved = true;
+    assert.equal(error, undefined);
+  }
+  assert.equal(undefinedPrimaryOnlyObserved, true);
   const undefinedPrimaryCleanup = new Error('cleanup after undefined primary');
   await assert.rejects(async () => settlePhysicalResources({
     primary: { label: 'run', error: undefined },
@@ -36,7 +50,7 @@ test('synchronous settlement preserves exact primary failures and still attempts
   await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: null }, cleanup: [{
     label: 'cleanup', settle() { events.push('primary-cleanup'); }
   }] }), error => error === null);
-  assert.deepEqual(events, ['first', 'second', 'undefined-primary-cleanup', 'primary-cleanup']);
+  assert.deepEqual(events, ['first', 'second', 'undefined-primary-cleanup', 'undefined-primary-only-cleanup', 'primary-cleanup']);
 });
 
 test('async settlement waits for each cleanup before attempting peers and returning', async () => {
