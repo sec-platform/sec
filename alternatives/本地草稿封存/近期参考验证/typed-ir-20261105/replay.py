@@ -3,7 +3,6 @@
 No product API or source is modified. Original compiler files remain unedited.
 """
 from __future__ import annotations
-import argparse
 import gzip
 import hashlib
 import json
@@ -29,8 +28,10 @@ def replay() -> dict:
     research = find_root() / "docs" / "信息" / "研究数据"
     model = gzip.decompress((research / "research_model.original-c64d0bc4452a.json.gz").read_bytes())
     mapping = (research / "568项模型责任追溯-735fed9f13fd.json").read_bytes()
-    assert hashlib.sha256(model).hexdigest() == MODEL_SHA, "Original model bytes changed"
-    assert hashlib.sha256(mapping).hexdigest() == MAP_SHA, "Question mapping bytes changed"
+    if hashlib.sha256(model).hexdigest() != MODEL_SHA:
+        raise ValueError("Original model bytes changed")
+    if hashlib.sha256(mapping).hexdigest() != MAP_SHA:
+        raise ValueError("Question mapping bytes changed")
     with tempfile.TemporaryDirectory(prefix="gift-20261105-reference-") as td:
         stage = Path(td)
         shutil.copytree(BASE / "src", stage / "src")
@@ -41,10 +42,12 @@ def replay() -> dict:
         (stage / "data" / "research_model.original.json").write_bytes(model)
         (stage / "data" / "多维到Gift模型_568项逐项追溯.json").write_bytes(mapping)
         test = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests",
-                               "-p", "test_branch_v2.py", "-v"], cwd=stage,
+                               "-p", "test_*.py", "-v"], cwd=stage,
                                capture_output=True, text=True)
         if test.returncode:
-            raise RuntimeError("Original /2 bridge tests failed:\n" + test.stdout + test.stderr)
+            raise RuntimeError("Isolated reference tests failed:\n" + test.stdout + test.stderr)
+        if "Ran 39 tests" not in test.stderr or "FAILED" in test.stderr:
+            raise RuntimeError("Isolated reference test count changed: " + test.stderr)
         results = []
         for source in ("shared_views", "two_predicates", "repo_v2_query"):
             args = [sys.executable, "compile.py", "examples/" + source + ".author.json",
@@ -56,7 +59,7 @@ def replay() -> dict:
             results.append({"input": source, "rows": rec["result_counts"],
                             "typescript": rec["typescript"], "rust": rec["rust"]})
         return {"model_sha256": MODEL_SHA, "mapping_sha256": MAP_SHA,
-                "bridge_tests": "passed", "examples": results,
+                "isolated_reference_tests": {"passed": 39, "original_test_scope": "23 IR + 16 /2 bridge"}, "examples": results,
                 "scope": "frozen 2026-11-05 reference, not Gift compiler production tests"}
 
 
