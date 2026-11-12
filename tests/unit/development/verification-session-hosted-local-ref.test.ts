@@ -48,6 +48,15 @@ test('hosted local ref consumer admits the native Git delete transaction', async
     });
     const attempts: BranchCloseoutAttempt[] = [];
     const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as OperationDigest;
+    // A stale expected-old OID must not remove the native ref.
+    const wrongPreimage = spawnSync('git', ['update-ref', '--no-deref', '--stdin'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true,
+      input: 'start\ndelete refs/heads/feat/example ' + '3'.repeat(40) + '\nprepare\ncommit\n'
+    });
+    expect(wrongPreimage.status).not.toBe(0);
+    expect(git(repositoryRoot, ['rev-parse', 'refs/heads/feat/example'])).toBe(headSha);
     const rejected = await observeLocalRefCasWithAdmissionDouble({ preparation, operationId,
       revokeAtFinalCheck: true }, run);
     expect(rejected.realForgedAdmissionRejected).toBe(true);

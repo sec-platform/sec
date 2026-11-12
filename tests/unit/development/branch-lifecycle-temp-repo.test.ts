@@ -22,6 +22,8 @@ import {
   prepareBranchCloseout,
   rehydratePreparedBranchCloseoutRecoveryArtifact
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { authorizeBranchCloseout } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   createBranchLifecycleGitHubCredentialArgs
 } from '../../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
@@ -154,12 +156,13 @@ function activeWorkObservation(
 }
 
 function noActiveWorkObservation(
-  fixture: ReturnType<typeof repositoryFixture>
+  fixture: ReturnType<typeof repositoryFixture>,
+  defaultSha = fixture.mainSha
 ): ActiveWorkPackageOwnerObservation {
   return issueActiveWorkPackageOwnerObservation({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
-    defaultSha: fixture.mainSha,
+    defaultSha,
     observedAt: new Date().toISOString(),
     state: 'none',
     branch: null,
@@ -196,19 +199,20 @@ function compiledGitHubShim(program: string): string {
 function installGitHubObservationShim(
   fixture: ReturnType<typeof repositoryFixture>,
   pullRequests: readonly Readonly<Record<string, unknown>>[] = [],
-  apiResponses: Readonly<Record<string, string>> = {}
+  apiResponses: Readonly<Record<string, string>> = {},
+  exactPullRequest?: Readonly<Record<string, unknown>>
 ): () => void {
   const shimRoot = path.join(fixture.root, 'command-shims');
   mkdirSync(shimRoot, { recursive: true });
   const program = path.join(shimRoot, 'gh-shim.ts');
   // Compiled executables read case data beside their copied executable.
-  // The generated Windows program is byte-identical for all six acquisitions.
+  // The generated Windows program is byte-identical for every acquisition.
   const caseConfiguration = process.platform === 'win32'
     ? "JSON.parse(require('node:fs').readFileSync(require('node:path').join(require('node:path').dirname(process.execPath), 'gh-shim-data.json'), 'utf8'))"
-    : JSON.stringify({ apiResponses, pullRequests });
+    : JSON.stringify({ apiResponses, pullRequests, exactPullRequest });
   writeFileSync(program, `
 const args = process.argv.slice(2);
-const { apiResponses, pullRequests } = ${caseConfiguration};
+const { apiResponses, pullRequests, exactPullRequest } = ${caseConfiguration};
 const endpoint = args.find(arg => arg.startsWith('/repos/'));
 if (args[0] === 'api' && Object.hasOwn(apiResponses, endpoint)) {
   if (args.includes('--jq')) throw new Error('paired permission response must remain intact');
@@ -217,6 +221,10 @@ if (args[0] === 'api' && Object.hasOwn(apiResponses, endpoint)) {
 }
 if (args[0] === 'pr' && args[1] === 'list') {
   process.stdout.write(JSON.stringify(pullRequests));
+  process.exit(0);
+}
+if (args[0] === 'pr' && args[1] === 'view' && exactPullRequest !== undefined) {
+  process.stdout.write(JSON.stringify(exactPullRequest));
   process.exit(0);
 }
 if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
@@ -232,7 +240,7 @@ process.exit(1);
 `, 'utf8');
   if (process.platform === 'win32') {
     writeFileSync(path.join(shimRoot, 'gh-shim-data.json'),
-      JSON.stringify({ apiResponses, pullRequests }), 'utf8');
+      JSON.stringify({ apiResponses, pullRequests, exactPullRequest }), 'utf8');
     cpSync(compiledGitHubShim(program), path.join(shimRoot, 'gh.exe'));
   } else {
     const shellShim = path.join(shimRoot, 'gh');
@@ -539,6 +547,179 @@ test('closeout requires its documentation owner and revalidates the exact recove
     ] });
   });
 }, 180_000);
+
+
+test('merged closeout retains exact PR readback after both refs disappear', () => {
+  const fixture = repositoryFixture();
+  let restorePath: (() => void) | undefined;
+  settleWorkspaceCallbackSync(() => {
+    const openPullRequest = {
+      number: 42,
+      headRefName: fixture.branch,
+      headRefOid: fixture.headSha,
+      baseRefName: 'main',
+      baseRefOid: fixture.mainSha,
+      state: 'OPEN',
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    };
+    restorePath = installGitHubObservationShim(fixture, [openPullRequest]);
+    const activeWork = activeWorkObservation(fixture);
+    const prepared = prepareBranchCloseout({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation: activeWork,
+      recoveryRoot: path.join(fixture.root, 'prepared-recovery')
+    }, {
+      branch: fixture.branch,
+      expectedHeadSha: fixture.headSha,
+      pullRequestNumber: 42
+    });
+    expect(prepared.preparation.pullRequestStateAtPreparation).toBe('open');
+    expect(prepared.preparation.repository.commonDir).toBe(
+      git(fixture.repository, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+    );
+    const recovery = prepared.preparation.recovery;
+    if (recovery === null) throw new Error('Expected exact recovery authority.');
+    const recoveryBundleBytes = readFileSync(recovery.path);
+    const rehydrated = rehydratePreparedBranchCloseoutRecoveryArtifact({
+      scope: {
+        repositoryRoot: fixture.repository,
+        repositoryFullName: 'sec-platform/sec',
+        defaultBranch: 'main',
+        recoveryRoot: path.join(fixture.root, 'rehydrated-recovery'),
+        activeWorkPackageObservation: activeWork
+      },
+      remote: prepared,
+      recoveryBundleBytes
+    });
+    const rehydratedRecovery = rehydrated.preparation.recovery;
+    if (rehydratedRecovery === null) throw new Error('Rehydrated recovery authority is absent.');
+    expect(rehydratedRecovery.path).not.toBe(recovery.path);
+    expect(rehydrated.preparation.preparationDigest).toBe(prepared.preparation.preparationDigest);
+    expect(rehydrated.before).toEqual(prepared.before);
+    expect(readFileSync(rehydratedRecovery.path)).toEqual(recoveryBundleBytes);
+    expect(rehydratedRecovery.sha256).toBe(recovery.sha256);
+    expect(git(fixture.repository, ['rev-parse', 'refs/heads/' + fixture.branch]))
+      .toBe(fixture.headSha);
+    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', 'refs/heads/' + fixture.branch]))
+      .toContain(fixture.headSha);
+
+    git(fixture.repository, ['switch', 'main']);
+    git(fixture.repository, [
+      '-c', 'user.name=SEC Test',
+      '-c', 'user.email=sec-test@example.invalid',
+      'merge', '--no-ff', '--no-edit', fixture.branch
+    ]);
+    const mergedMainSha = git(fixture.repository, ['rev-parse', 'refs/heads/main']);
+    git(fixture.repository, ['push', 'origin', 'main']);
+    git(fixture.repository, ['branch', '-D', fixture.branch]);
+    git(fixture.repository, ['push', 'origin', '--delete', fixture.branch]);
+
+    restorePath?.();
+    restorePath = installGitHubObservationShim(fixture);
+    const mergedWork = noActiveWorkObservation(fixture, mergedMainSha);
+    const ordinary = collectBranchLifecycleInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation: mergedWork
+    });
+    expect(ordinary.pullRequests).toEqual([]);
+
+    const mergedPullRequest = {
+      number: 42,
+      headRefName: fixture.branch,
+      headRefOid: fixture.headSha,
+      baseRefName: 'main',
+      baseRefOid: fixture.mainSha,
+      state: 'MERGED',
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    };
+    const observeMergedInventory = (
+      exactPullRequest: Readonly<Record<string, unknown>>,
+      pullRequests: readonly Readonly<Record<string, unknown>>[] = []
+    ) => {
+      restorePath?.();
+      restorePath = installGitHubObservationShim(fixture, pullRequests, {}, exactPullRequest);
+      return collectBranchLifecycleInventory({
+        repositoryRoot: fixture.repository,
+        repositoryFullName: 'sec-platform/sec',
+        defaultBranch: 'main',
+        activeWorkPackageObservation: mergedWork,
+        mergedCloseoutTarget: {
+          number: 42,
+          headBranch: fixture.branch,
+          headSha: fixture.headSha,
+          baseBranch: 'main'
+        }
+      });
+    };
+
+    const listedAndExact = observeMergedInventory(mergedPullRequest, [mergedPullRequest]);
+    expect(listedAndExact.unknowns).toEqual([]);
+    expect(listedAndExact.pullRequests).toHaveLength(1);
+    expect(listedAndExact.pullRequests[0]).toMatchObject({
+      number: 42,
+      state: 'merged',
+      headSha: fixture.headSha
+    });
+
+    // Exact provider readback remains authoritative when ordinary discovery has no row.
+    const exactOnly = observeMergedInventory(mergedPullRequest);
+    expect(exactOnly.unknowns).toEqual([]);
+    expect(exactOnly.pullRequests).toHaveLength(1);
+    expect(exactOnly.pullRequests[0]).toMatchObject({
+      number: 42,
+      state: 'merged',
+      headSha: fixture.headSha
+    });
+
+    for (const mismatch of [
+      { number: 43 },
+      { headRefOid: '3'.repeat(40) },
+      { state: 'OPEN' },
+      { url: 'https://github.com/foreign/repository/pull/42' }
+    ]) {
+      const rejected = observeMergedInventory({ ...mergedPullRequest, ...mismatch });
+      expect(rejected.unknowns).toContain(
+        'PR inventory parse failed: Merged closeout exact PR identity differs from the prepared target.'
+      );
+    }
+    const duplicated = observeMergedInventory(mergedPullRequest, [
+      mergedPullRequest,
+      mergedPullRequest
+    ]);
+    expect(duplicated.unknowns).toContain(
+      'PR inventory parse failed: Merged closeout target is duplicated or changed between list and exact readback.'
+    );
+
+    const authorization = authorizeBranchCloseout({
+      preparation: rehydrated.preparation,
+      before: rehydrated.before,
+      current: exactOnly,
+      request: {
+        capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
+        disposition: 'merged',
+        durableGoal: { kind: 'main', reference: 'main@' + mergedMainSha }
+      }
+    });
+    expect(authorization).toMatchObject({
+      remoteAction: 'already-absent',
+      localAction: 'already-absent',
+      blockers: []
+    });
+  }, () => {
+    settleResources({ cleanup: [
+      { label: 'merged closeout GitHub shim', settle: () => restorePath?.() },
+      { label: 'merged closeout native repository', settle: () => rmSync(fixture.root, { recursive: true, force: true }) }
+    ] });
+  });
+}, 30_000);
 
 
 test('receipt inventory consumes paired permission JSON and preserves unreadable-provider uncertainty', () => {

@@ -240,11 +240,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/verification/verification-session-closeout-fixture.test.ts',
-    reason: 'process-global-environment-and-synthetic-closeout-processes',
-    resourceClass: 'independent-process'
-  },
-  {
     file: 'tests/unit/verification/ci-verification-execution.test.ts',
     reason: 'copied-tcb-cli-and-child-process-recovery',
     resourceClass: 'independent-process'
