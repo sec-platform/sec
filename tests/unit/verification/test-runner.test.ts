@@ -2009,7 +2009,12 @@ test.serial('slow suite selector rejects unknown suite ids', async () => {
   expect(errors[0]).toContain('Unknown slow test suite "not-a-suite". Available suites:');
 });
 
-test.serial('affected tests fail before dependency bootstrap for unresolved source ownership', async () => {
+test.serial('affected tests fail closed for mixed mapped and unresolved paths before dependency bootstrap or any child', async () => {
+  changedFiles = [
+    'scripts/release-helper.ts',
+    'assets/new.bin',
+    'platform/unmapped-source.ts'
+  ];
   const errors: string[] = [];
   console.error = (message?: unknown) => {
     errors.push(String(message));
@@ -2018,22 +2023,13 @@ test.serial('affected tests fail before dependency bootstrap for unresolved sour
   const code = await runAffectedTests();
 
   expect(code).toBe(1);
+  expect(fastDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([]);
   expect(devCommandEnvironments).toEqual([]);
-  expect(errors).toContain('Affected test ownership is unresolved for changed paths: platform/unmapped-source.ts');
-});
-
-test.serial('affected tests fail closed for mixed mapped and unresolved paths before any child', async () => {
-  changedFiles = [
-    'scripts/release-helper.ts',
-    'assets/new.bin'
-  ];
-
-  const code = await runAffectedTests();
-
-  expect(code).toBe(1);
-  expect(devCommandCalls).toEqual([]);
-  expect(devCommandEnvironments).toEqual([]);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toContain('Affected test ownership is unresolved for changed paths:');
+  expect(errors[0]).toContain('assets/new.bin');
+  expect(errors[0]).toContain('platform/unmapped-source.ts');
 });
 
 test.serial('affected plan reports resolved selection without dependency or test execution', async () => {
