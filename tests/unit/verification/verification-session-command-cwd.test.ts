@@ -113,7 +113,9 @@ test.skipIf(process.platform !== 'win32')('session command rejects an actual Win
 
 // Fault wrappers delegate acquisition/assertion/disposal to the real Physical
 // resource. They diagnose composition, not a second capability or OS proof.
-for (const fault of ['none', 'spawn', 'undefined-spawn', 'readback', 'dispose', 'spawn-and-dispose', 'readback-and-dispose'] as const) {
+// Post-spawn readback rejection and primary/cleanup aggregation are already
+// independently witnessed by `readback` and `spawn-and-dispose` on this same catch/finally path.
+for (const fault of ['none', 'spawn', 'undefined-spawn', 'readback', 'dispose', 'spawn-and-dispose'] as const) {
   test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(`session cwd settlement preserves command contract after ${fault}`, async () => {
     await isolatedCase(`
       const fault = ${JSON.stringify(fault)};
