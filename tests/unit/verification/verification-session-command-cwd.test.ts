@@ -113,13 +113,14 @@ test.skipIf(process.platform !== 'win32')('session command rejects an actual Win
 
 // Fault wrappers delegate acquisition/assertion/disposal to the real Physical
 // resource. They diagnose composition, not a second capability or OS proof.
-// Post-spawn readback rejection and primary/cleanup aggregation are already
-// independently witnessed by `readback` and `spawn-and-dispose` on this same catch/finally path.
-for (const fault of ['none', 'spawn', 'undefined-spawn', 'readback', 'dispose', 'spawn-and-dispose'] as const) {
+// The synchronous settlement owner covers exact primary-only propagation (including `undefined`)
+// and cleanup semantics. Keep this adapter's distinct success, post-spawn readback, cleanup-only,
+// and combined spawn/cleanup witnesses; a plain spawn-only rethrow adds no independent behavior.
+for (const fault of ['none', 'readback', 'dispose', 'spawn-and-dispose'] as const) {
   test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(`session cwd settlement preserves command contract after ${fault}`, async () => {
     await isolatedCase(`
       const fault = ${JSON.stringify(fault)};
-      const primary = fault === 'undefined-spawn' ? undefined : Object.freeze({ fault });
+      const primary = Object.freeze({ fault });
       const cleanup = Object.freeze({ cleanup: true }); const events = []; let assertions = 0;
       const physical = await import(${physicalModule});
       const originalRetain = physical.retainNoFollowDirectoryForChildProcess;

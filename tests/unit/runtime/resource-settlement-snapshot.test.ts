@@ -17,10 +17,26 @@ test('synchronous settlement preserves exact primary failures and still attempts
   const unaccompanied = new Error('operation failed');
   await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: unaccompanied }, cleanup: [] }),
     error => error === unaccompanied);
+  const undefinedPrimaryCleanup = new Error('cleanup after undefined primary');
+  await assert.rejects(async () => settlePhysicalResources({
+    primary: { label: 'run', error: undefined },
+    cleanup: [{
+      label: 'cleanup',
+      settle() { events.push('undefined-primary-cleanup'); throw undefinedPrimaryCleanup; }
+    }]
+  }), error => {
+    assert.ok(error instanceof PhysicalResourceCompositeSettlementError);
+    assert.deepEqual(error.failures, [
+      { label: 'run', error: undefined },
+      { label: 'cleanup', error: undefinedPrimaryCleanup }
+    ]);
+    assert.deepEqual(error.errors, [undefined, undefinedPrimaryCleanup]);
+    return true;
+  });
   await assert.rejects(async () => settlePhysicalResources({ primary: { label: 'run', error: null }, cleanup: [{
     label: 'cleanup', settle() { events.push('primary-cleanup'); }
   }] }), error => error === null);
-  assert.deepEqual(events, ['first', 'second', 'primary-cleanup']);
+  assert.deepEqual(events, ['first', 'second', 'undefined-primary-cleanup', 'primary-cleanup']);
 });
 
 test('async settlement waits for each cleanup before attempting peers and returning', async () => {
