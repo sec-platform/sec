@@ -1,0 +1,73 @@
+{
+  "review_date": "2026-11-08",
+  "repository_candidate": {
+    "repository": "sec-platform/sec",
+    "pr": 896,
+    "commit": "1eff90f4fdc1787f1bd223e9dfb70dac002e0acb",
+    "source_read_only": true
+  },
+  "original_report": {
+    "file": "Gift_设计差异审查与融合实施方案_20261108.md",
+    "bytes": 22789,
+    "sha256": "bbdee52d68949b4622bf983e1a6bdfd3c45ca24704fd1f4a2b64236c66aa20a3"
+  },
+  "last_automation_result": {
+    "task_id": "6aeb213b8f688191bdcc4615574d40a7",
+    "enabled": false,
+    "last_run_id": "aad47ee0-6c74-8327-bd73-57beb6823cb6",
+    "last_run_completed_utc": "2026-11-08T04:28:26.097278Z",
+    "reported_zip_sha256": "5722b10f1b3928f9f1ddac079e0a14707e0aa6de89765b9b5f68ce2f19334965",
+    "source_bytes_obtained": false,
+    "evidence_level": "automation run record only"
+  },
+  "materialized_old_archives": [
+    {
+      "file": "Gift_1786项信息与全部接合_整合包(2).zip",
+      "bytes": 18739595,
+      "sha256": "78af4a79b175f38ec97e6fa81126fc0db13b9dabc6815f28a1e60b1bea3e00e7",
+      "file_members": 44
+    },
+    {
+      "file": "Gift_IR_仓库分支设计融合_20261105.zip",
+      "bytes": 2981013,
+      "sha256": "d29d86fdaa4313460e677043156f46cf15cd8ae3689ff3f4684e22e2bde7c676",
+      "file_members": 82
+    },
+    {
+      "file": "Gift_统一模型_精简工作基线_20261105.zip",
+      "bytes": 2870869,
+      "sha256": "3c4d3b3ddd5df93c392e91682866e56e16a208883eeede68d40bb503a10f384b",
+      "file_members": 7
+    },
+    {
+      "file": "Gift_统一语义IR_TS_Rust双目标_合一参考成品_20261105.zip",
+      "bytes": 2958689,
+      "sha256": "f5221c1123f1106379de5145e606d8ce49aaee0815b660a5fc5539106c2385a2",
+      "file_members": 63
+    },
+    {
+      "file": "Gift_通用关系_持续维护整合版.zip",
+      "bytes": 67760058,
+      "sha256": "6ff0f01de1a298763a58751739a2801b6274376612f1a5ab593b42f108dccd58",
+      "file_members": 266
+    }
+  ],
+  "validation": {
+    "product_tests": "NOT_RUN",
+    "independent_design_checks": 8,
+    "product_source_modified": false,
+    "remote_writes": false,
+    "automation_restarted": false
+  },
+  "limitations": [
+    "Latest 629-member source ZIP is not obtained.",
+    "No buildable full repository checkout obtained in container.",
+    "No repository Rust/TS, formal gate, cross-platform or deployment tests run.",
+    "No complete semantic preservation proof for PR 892 or the research corpus."
+  ],
+  "revised_report": {
+    "file": "Gift_融合方案_工程完整修订_20261108.md",
+    "bytes": 59185,
+    "sha256": "ae5eafff70a99fe221a77df0689cb42b7ce2b4be8b923526772e3a35e1ff74c3"
+  }
+}

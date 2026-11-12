@@ -1,0 +1,283 @@
+{
+  "format": "gift.author-structure/1",
+  "identity": {
+    "id": "demo:shared-views",
+    "revision": "1"
+  },
+  "records": {
+    "Item": {
+      "id": "Text",
+      "score": "I64",
+      "kind": "Text"
+    },
+    "Tag": {
+      "kind": "Text",
+      "label": "Text"
+    },
+    "Public": {
+      "id": "Text",
+      "score": "I64"
+    },
+    "Enriched": {
+      "id": "Text",
+      "score": "I64",
+      "label": "Text"
+    }
+  },
+  "definitions": [
+    {
+      "id": "Items",
+      "revision": "1",
+      "mechanism": "sequence.literal",
+      "output": "Item",
+      "rows": [
+        {
+          "id": "a",
+          "score": 5,
+          "kind": "x"
+        },
+        {
+          "id": "a",
+          "score": 5,
+          "kind": "x"
+        },
+        {
+          "id": "b",
+          "score": 6,
+          "kind": "y"
+        },
+        {
+          "id": "c",
+          "score": 4,
+          "kind": "x"
+        }
+      ]
+    },
+    {
+      "id": "Tags",
+      "revision": "1",
+      "mechanism": "sequence.literal",
+      "output": "Tag",
+      "rows": [
+        {
+          "kind": "x",
+          "label": "primary"
+        },
+        {
+          "kind": "y",
+          "label": "secondary"
+        }
+      ]
+    },
+    {
+      "id": "ScoreGate",
+      "revision": "1",
+      "mechanism": "sequence.filter",
+      "output": "Item",
+      "inputs": {
+        "items": "Item"
+      },
+      "parameters": {
+        "min": "I64"
+      },
+      "predicate": {
+        "op": "ge",
+        "left": {
+          "field": [
+            "items",
+            "score"
+          ]
+        },
+        "right": {
+          "param": "min"
+        }
+      }
+    },
+    {
+      "id": "PublicView",
+      "revision": "1",
+      "mechanism": "sequence.project",
+      "output": "Public",
+      "inputs": {
+        "rows": "Item"
+      },
+      "columns": {
+        "id": {
+          "field": [
+            "rows",
+            "id"
+          ]
+        },
+        "score": {
+          "field": [
+            "rows",
+            "score"
+          ]
+        }
+      }
+    },
+    {
+      "id": "AttachLabel",
+      "revision": "1",
+      "mechanism": "sequence.join",
+      "output": "Enriched",
+      "inputs": {
+        "left": "Item",
+        "right": "Tag"
+      },
+      "predicate": {
+        "op": "eq",
+        "left": {
+          "field": [
+            "left",
+            "kind"
+          ]
+        },
+        "right": {
+          "field": [
+            "right",
+            "kind"
+          ]
+        }
+      },
+      "columns": {
+        "id": {
+          "field": [
+            "left",
+            "id"
+          ]
+        },
+        "score": {
+          "field": [
+            "left",
+            "score"
+          ]
+        },
+        "label": {
+          "field": [
+            "right",
+            "label"
+          ]
+        }
+      }
+    }
+  ],
+  "uses": [
+    {
+      "id": "store",
+      "definition": "Items"
+    },
+    {
+      "id": "tags",
+      "definition": "Tags"
+    },
+    {
+      "id": "viewA",
+      "definition": "ScoreGate",
+      "arguments": {
+        "min": 5
+      }
+    },
+    {
+      "id": "viewB",
+      "definition": "ScoreGate",
+      "arguments": {
+        "min": 6
+      }
+    },
+    {
+      "id": "publicA",
+      "definition": "PublicView"
+    },
+    {
+      "id": "enriched",
+      "definition": "AttachLabel"
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "use": "store",
+        "port": "rows"
+      },
+      "to": {
+        "use": "viewA",
+        "port": "items"
+      }
+    },
+    {
+      "from": {
+        "use": "store",
+        "port": "rows"
+      },
+      "to": {
+        "use": "viewB",
+        "port": "items"
+      }
+    },
+    {
+      "from": {
+        "use": "viewA",
+        "port": "rows"
+      },
+      "to": {
+        "use": "publicA",
+        "port": "rows"
+      }
+    },
+    {
+      "from": {
+        "use": "viewA",
+        "port": "rows"
+      },
+      "to": {
+        "use": "enriched",
+        "port": "left"
+      }
+    },
+    {
+      "from": {
+        "use": "tags",
+        "port": "rows"
+      },
+      "to": {
+        "use": "enriched",
+        "port": "right"
+      }
+    }
+  ],
+  "exports": [
+    {
+      "name": "visibleA",
+      "use": "viewA",
+      "port": "rows"
+    },
+    {
+      "name": "visibleB",
+      "use": "viewB",
+      "port": "rows"
+    },
+    {
+      "name": "publicA",
+      "use": "publicA",
+      "port": "rows"
+    },
+    {
+      "name": "enriched",
+      "use": "enriched",
+      "port": "rows"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "order",
+      "kind": "preserve-order",
+      "export": "visibleA"
+    },
+    {
+      "id": "repeat",
+      "kind": "preserve-duplicates",
+      "export": "visibleA"
+    }
+  ]
+}

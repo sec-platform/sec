@@ -1,0 +1,531 @@
+{
+  "scope": "Independent bounded design studies; NOT Gift implementation tests.",
+  "study_count": 12,
+  "model_checks_completed": true,
+  "studies": [
+    {
+      "id": "one_generation_per_logical_read",
+      "scope": "Two correlated reads; one atomic publication. Acquiring/retaining a generation is atomic in this model.",
+      "histories_per_design": 3,
+      "unsafe_violating_histories": 1,
+      "guarded_violating_histories": 0,
+      "unsafe_witness": {
+        "schedule": [
+          "read_data",
+          "publish_g1",
+          "read_index"
+        ],
+        "violation": true,
+        "observed_generations": [
+          0,
+          1
+        ]
+      },
+      "guarded_same_schedule": {
+        "violation": false,
+        "observed_generations": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "pin_acquisition_vs_reclamation",
+      "scope": "One reader and one retirement attempt. Safety only: eventual reclamation and real Arc/OS semantics are not proved.",
+      "histories_per_design": 15,
+      "unsafe_violating_histories": 1,
+      "guarded_violating_histories": 0,
+      "unsafe_witness": {
+        "schedule": [
+          "load_unprotected",
+          "publish_g1",
+          "collect_old",
+          "protect",
+          "read",
+          "release"
+        ],
+        "violation": true,
+        "trace": [
+          {
+            "event": "load_unprotected",
+            "active": 0,
+            "live": [
+              0,
+              1
+            ],
+            "pinned": null,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          },
+          {
+            "event": "publish_g1",
+            "active": 1,
+            "live": [
+              0,
+              1
+            ],
+            "pinned": null,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          },
+          {
+            "event": "collect_old",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": null,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          },
+          {
+            "event": "protect",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": 0,
+            "refs": {
+              "0": 1,
+              "1": 0
+            }
+          },
+          {
+            "event": "read",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": 0,
+            "refs": {
+              "0": 1,
+              "1": 0
+            }
+          },
+          {
+            "event": "release",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": 0,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          }
+        ]
+      },
+      "guarded_same_schedule": {
+        "violation": false,
+        "trace": [
+          {
+            "event": "load_unprotected",
+            "active": 0,
+            "live": [
+              0,
+              1
+            ],
+            "pinned": null,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          },
+          {
+            "event": "publish_g1",
+            "active": 1,
+            "live": [
+              0,
+              1
+            ],
+            "pinned": null,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          },
+          {
+            "event": "collect_old",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": null,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          },
+          {
+            "event": "protect",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": 1,
+            "refs": {
+              "0": 0,
+              "1": 1
+            }
+          },
+          {
+            "event": "read",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": 1,
+            "refs": {
+              "0": 0,
+              "1": 1
+            }
+          },
+          {
+            "event": "release",
+            "active": 1,
+            "live": [
+              1
+            ],
+            "pinned": 1,
+            "refs": {
+              "0": 0,
+              "1": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "disjoint_writes_shared_predicate",
+      "scope": "Two one-unit reservations; capacity is one. The guard rechecks the actual shared predicate, not every project file.",
+      "histories_per_design": 6,
+      "unsafe_violating_histories": 4,
+      "guarded_violating_histories": 0,
+      "unsafe_witness": {
+        "schedule": [
+          "read_A",
+          "read_B",
+          "commit_A",
+          "commit_B"
+        ],
+        "violation": true,
+        "allocations": {
+          "A": 1,
+          "B": 1
+        },
+        "accepted": [
+          "A",
+          "B"
+        ],
+        "capacity": 1
+      },
+      "guarded_same_schedule": {
+        "violation": false,
+        "allocations": {
+          "A": 1,
+          "B": 0
+        },
+        "accepted": [
+          "A"
+        ],
+        "capacity": 1
+      },
+      "capacity_two_control": {
+        "histories": 6,
+        "both_accepted_in_all": true
+      }
+    },
+    {
+      "id": "check_then_publish_race",
+      "scope": "The request requires current-basis publication. Historical/detached artifact creation has a different, weaker contract.",
+      "histories_per_design": 3,
+      "unsafe_violating_histories": 1,
+      "guarded_violating_histories": 0,
+      "unsafe_witness": {
+        "schedule": [
+          "check_basis",
+          "edit_source",
+          "publish"
+        ],
+        "violation": true,
+        "published_as_current": true,
+        "source_at_end": 1
+      },
+      "guarded_same_schedule": {
+        "violation": false,
+        "published_as_current": false,
+        "source_at_end": 1
+      }
+    },
+    {
+      "id": "content_equality_does_not_revive_request",
+      "scope": "Old request is explicitly revoked. Equal content permits pure-value reuse, not resurrection of that request authority.",
+      "histories_per_design": 3,
+      "unsafe_violating_histories": 1,
+      "guarded_violating_histories": 0,
+      "unsafe_witness": {
+        "schedule": [
+          "replace_with_B_cancel",
+          "new_request_for_A",
+          "publish_old_request"
+        ],
+        "violation": true,
+        "published_by_old_request": true,
+        "active_content": "A",
+        "active_fence": 2,
+        "pure_value_cache_reuse_for_new_request": true
+      },
+      "guarded_same_schedule": {
+        "violation": false,
+        "published_by_old_request": false,
+        "active_content": "A",
+        "active_fence": 2,
+        "pure_value_cache_reuse_for_new_request": true
+      }
+    },
+    {
+      "id": "state_schema_equality_is_not_migration",
+      "finite_inputs": 8,
+      "ambiguous_old_state_classes": 2,
+      "witness": [
+        {
+          "input": [
+            0
+          ],
+          "old_state": 1,
+          "new_state": 0
+        },
+        {
+          "input": [
+            2
+          ],
+          "old_state": 1,
+          "new_state": 1
+        }
+      ],
+      "conclusion": "No total function of old_count alone can reconstruct the new filtered count for all enumerated inputs.",
+      "allowed_recovery": "Retained exact input at a fixed cut, sufficient supporting state, or a qualified mapping; not guessed zero.",
+      "scope": "Finite non-injectivity witness, not an executed product migration."
+    },
+    {
+      "id": "summary_does_not_reconstruct_arena",
+      "witness": {
+        "arenas": [
+          {
+            "nodes": [
+              "Int"
+            ],
+            "return_type_id": 0
+          },
+          {
+            "nodes": [
+              "Text"
+            ],
+            "return_type_id": 0
+          }
+        ],
+        "common_projection": {
+          "type_count": 1,
+          "return_type_id": 0
+        }
+      },
+      "conclusion": "Count plus arena indices omits type definitions. Full report basis hashes can distinguish inputs but cannot reconstruct those definitions without retained data or reanalysis.",
+      "scope": "Lossy-projection witness. Does NOT claim two actual complete reports or input hashes collide."
+    },
+    {
+      "id": "qualification_depends_on_requested_stage",
+      "finite_states": 128,
+      "false_generation_acceptances_from_three_ready_flags": 14,
+      "allowed_generations_despite_unrelated_need": 1,
+      "prepared_states_not_generation_ready": 62,
+      "unsafe_witness": {
+        "prepared": true,
+        "type_ready": true,
+        "body_checked": true,
+        "method_qualified": false,
+        "target_legal": false,
+        "relevant_need": false,
+        "unrelated_need": false
+      },
+      "scope": "A selected pure generation region. relevant_need includes independent accepted obligations and shared invariants; this is not the complete Gift qualification algorithm."
+    },
+    {
+      "id": "transport_encoded_size_and_replay",
+      "sample_encodings_verified": 4,
+      "worst_three_digit_byte_tables": [
+        {
+          "raw_bytes": 1048576,
+          "numeric_array_bytes": 4194305,
+          "base64_payload_bytes": 1398104,
+          "exceeds_64MiB_transport_before_envelope": false,
+          "exceeds_48MiB_native_charge_at_2x_before_other_costs": false
+        },
+        {
+          "raw_bytes": 4194304,
+          "numeric_array_bytes": 16777217,
+          "base64_payload_bytes": 5592408,
+          "exceeds_64MiB_transport_before_envelope": false,
+          "exceeds_48MiB_native_charge_at_2x_before_other_costs": false
+        },
+        {
+          "raw_bytes": 6291456,
+          "numeric_array_bytes": 25165825,
+          "base64_payload_bytes": 8388608,
+          "exceeds_64MiB_transport_before_envelope": false,
+          "exceeds_48MiB_native_charge_at_2x_before_other_costs": true
+        },
+        {
+          "raw_bytes": 8388608,
+          "numeric_array_bytes": 33554433,
+          "base64_payload_bytes": 11184812,
+          "exceeds_64MiB_transport_before_envelope": false,
+          "exceeds_48MiB_native_charge_at_2x_before_other_costs": true
+        },
+        {
+          "raw_bytes": 16777216,
+          "numeric_array_bytes": 67108865,
+          "base64_payload_bytes": 22369624,
+          "exceeds_64MiB_transport_before_envelope": true,
+          "exceeds_48MiB_native_charge_at_2x_before_other_costs": true
+        },
+        {
+          "raw_bytes": 33554432,
+          "numeric_array_bytes": 134217729,
+          "base64_payload_bytes": 44739244,
+          "exceeds_64MiB_transport_before_envelope": true,
+          "exceeds_48MiB_native_charge_at_2x_before_other_costs": true
+        }
+      ],
+      "sequential_discovery_scenario": [
+        {
+          "sequential_new_captures": 1,
+          "replayed_source_bytes": 65536,
+          "one_transfer_per_capture_bytes": 65536
+        },
+        {
+          "sequential_new_captures": 4,
+          "replayed_source_bytes": 655360,
+          "one_transfer_per_capture_bytes": 262144
+        },
+        {
+          "sequential_new_captures": 8,
+          "replayed_source_bytes": 2359296,
+          "one_transfer_per_capture_bytes": 524288
+        },
+        {
+          "sequential_new_captures": 16,
+          "replayed_source_bytes": 8912896,
+          "one_transfer_per_capture_bytes": 1048576
+        },
+        {
+          "sequential_new_captures": 32,
+          "replayed_source_bytes": 34603008,
+          "one_transfer_per_capture_bytes": 2097152
+        }
+      ],
+      "scope": "Exact encoded-byte arithmetic. No wall-clock, JS/Rust heap, real user workload or effective maximum source capacity was measured. Base64 is a comparison, not an adopted protocol."
+    },
+    {
+      "id": "pins_have_global_retention_cost",
+      "capacity_units": 20,
+      "currently_live": [
+        0,
+        1
+      ],
+      "pinned": [
+        0
+      ],
+      "candidate_generation": 2,
+      "required_units_with_candidate": 30,
+      "admission": "defer_or_reject_before_allocation",
+      "scope": "Synthetic equal-sized generations. One pin prevents reclamation; no byte-size or performance claim about Gift."
+    },
+    {
+      "id": "atomic_visibility_is_not_durable_commit",
+      "crash_cuts": [
+        {
+          "completed_prefix": [],
+          "new_visible": false,
+          "new_durable_in_model": false,
+          "unsafe_reports_durable": false,
+          "guarded_reports_durable": false,
+          "unsafe_false_claim": false
+        },
+        {
+          "completed_prefix": [
+            "write_candidate"
+          ],
+          "new_visible": false,
+          "new_durable_in_model": false,
+          "unsafe_reports_durable": false,
+          "guarded_reports_durable": false,
+          "unsafe_false_claim": false
+        },
+        {
+          "completed_prefix": [
+            "write_candidate",
+            "persist_candidate"
+          ],
+          "new_visible": false,
+          "new_durable_in_model": false,
+          "unsafe_reports_durable": false,
+          "guarded_reports_durable": false,
+          "unsafe_false_claim": false
+        },
+        {
+          "completed_prefix": [
+            "write_candidate",
+            "persist_candidate",
+            "replace_active_name"
+          ],
+          "new_visible": true,
+          "new_durable_in_model": false,
+          "unsafe_reports_durable": true,
+          "guarded_reports_durable": false,
+          "unsafe_false_claim": true
+        },
+        {
+          "completed_prefix": [
+            "write_candidate",
+            "persist_candidate",
+            "replace_active_name",
+            "persist_directory"
+          ],
+          "new_visible": true,
+          "new_durable_in_model": true,
+          "unsafe_reports_durable": true,
+          "guarded_reports_durable": true,
+          "unsafe_false_claim": false
+        }
+      ],
+      "scope": "Abstract persistence contract inspired by Linux fsync documentation. Not a filesystem test, Windows recipe or proof that one directory fsync qualifies an entire multi-file tree."
+    },
+    {
+      "id": "explicit_parameter_is_not_definition_pin",
+      "baseline": {
+        "A": 11,
+        "B": 11
+      },
+      "accepted_local_default_change": {
+        "A": 12,
+        "B": 11
+      },
+      "accepted_local_body_change": {
+        "A": 21,
+        "B": 21
+      },
+      "new_remote_version_with_unchanged_lock": {
+        "A": 11,
+        "B": 11
+      },
+      "scope": "Plain arithmetic design witness, not a gift.author-module fixture or compiler execution."
+    }
+  ]
+}

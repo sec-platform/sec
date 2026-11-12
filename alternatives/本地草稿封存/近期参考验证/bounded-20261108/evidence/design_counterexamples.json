@@ -1,0 +1,111 @@
+{
+  "schema": "gift.design-review-counterexamples/1",
+  "purpose": "Independent model-level checks; not repository conformance tests.",
+  "product_tests_run": false,
+  "checks": [
+    {
+      "name": "projection_must_retain_join_key",
+      "status": "passed",
+      "observed": {
+        "correct_count": {
+          "A": 1
+        },
+        "dropped_key_count": {
+          "A": 2
+        }
+      },
+      "scope": "Count-valued bag, equality join, final projection. This refutes only the bad rewrite dropping correlation keys."
+    },
+    {
+      "name": "existence_semijoin_is_not_weighted_join",
+      "status": "passed",
+      "observed": {
+        "existence_guard_profile": 2,
+        "weighted_join_profile": 14
+      },
+      "scope": "Chosen existence-guard profile only; does not assert the intended semantics of every Gift semijoin."
+    },
+    {
+      "name": "finite_carrier_not_finite_weighted_fixed_point",
+      "status": "passed",
+      "observed": {
+        "count_iterates": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "boolean_iterates": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      "scope": "One-tuple equations x=1+x over N and x=True OR x over Bool. Nonexistence of a finite N solution follows algebraically, not from bounded sampling."
+    },
+    {
+      "name": "min_deletion_requires_support",
+      "status": "passed",
+      "observed": {
+        "before_minimum": 1,
+        "removed": 1,
+        "after_minimum": 3,
+        "naive_subtraction": 0
+      },
+      "scope": "Deleting a minimum requires remaining support or recomputation, not subtraction from the old minimum."
+    },
+    {
+      "name": "zero_weight_cannot_erase_invalid_source",
+      "status": "passed",
+      "observed": {
+        "source_valid": false,
+        "premature_elimination_empty": true
+      },
+      "scope": "The model requires all supplied facts to be typed before zero elimination; no existing implementation is executed."
+    },
+    {
+      "name": "exact_rational_not_host_float",
+      "status": "passed",
+      "observed": {
+        "exact_sum": "3/10",
+        "binary_float_sum_repr": "0.30000000000000004"
+      },
+      "scope": "Only illustrates that a rational profile needs an exact target representation; does not benchmark target backends."
+    },
+    {
+      "name": "same_value_new_dependency",
+      "status": "passed",
+      "observed": {
+        "before_value": 7,
+        "after_value": 7,
+        "before_reads": [
+          "a",
+          "flag"
+        ],
+        "after_reads": [
+          "b",
+          "flag"
+        ]
+      },
+      "scope": "May avoid downstream value recomputation, but must update the query dependency set for later changes."
+    },
+    {
+      "name": "publication_basis_guard",
+      "status": "passed",
+      "observed": {
+        "finite_states": 16,
+        "accepted_matching_basis": 4,
+        "rejected_stale_basis": 12
+      },
+      "scope": "Exhaustive truth table for a two-field equality guard only; not a proof of real concurrent publication, IPC or filesystem atomicity."
+    }
+  ],
+  "passed_count": 8
+}

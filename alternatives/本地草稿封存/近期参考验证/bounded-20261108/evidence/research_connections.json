@@ -1,0 +1,730 @@
+{
+  "scope": "6 existing D records and their 23 distinct U records; not all 568/1786 mappings validated.",
+  "source_archive_sha256": "d29d86fdaa4313460e677043156f46cf15cd8ae3689ff3f4684e22e2bde7c676",
+  "source_model": {
+    "member": "Gift_IR_仓库设计融合_20261105/data/research_model.original.json",
+    "size_bytes": 36217206,
+    "sha256": "c64d0bc4452a24e36f83fbfd27d22fe64dec4259666be7cbdac7b44a806b157e"
+  },
+  "source_mapping": {
+    "member": "Gift_IR_仓库设计融合_20261105/data/多维到Gift模型_568项逐项追溯.json",
+    "size_bytes": 907711,
+    "sha256": "735fed9f13fdd7f865103567bb9555d81676ba8e69792fde234471074cc0fdfd"
+  },
+  "question_count": 6,
+  "unique_unit_count": 23,
+  "preservation_note": "JSON对象按语义值原样提取，输出文件不是原始源文件字节副本；原源由上述SHA和member定位。source_refs原引用未在本轮全部追到外部原文。",
+  "connections": [
+    {
+      "original_question_contract": {
+        "id": "D0108",
+        "revision": "4.0",
+        "name": "类型约束",
+        "original_family": "TYP",
+        "subject_kind": "TypingUse",
+        "question": "目标值必须满足哪个准确类型？",
+        "selectors": {
+          "term_or_value": {
+            "kind": "reference",
+            "target_kind": "Entity"
+          },
+          "environment": {
+            "kind": "reference",
+            "target_kind": "TypeEnvironment"
+          }
+        },
+        "answer_type": "Ref[Type]",
+        "meaning": "固定该位置的准确类型及解释版本；结构合法不等于业务合同满足。",
+        "source_units": [
+          "U0019",
+          "U0039",
+          "U0040"
+        ],
+        "model_responsibility": "type/formation",
+        "required_distinction": "类型规则、子类型、泛型、值表示与目标ABI分别有前提。",
+        "consumer_contract": "在特定Subject/UseContext下按原问题合同取得，非所有工程对象必填字段",
+        "qualification": "研究提出的模型设计检查义务；不是已形式化的世界原语、已安装求解器或真实值",
+        "unverified_historical_question_links": [
+          {
+            "role": "signature",
+            "question": "D0086"
+          }
+        ],
+        "adoption_status": "research-mapping-not-production-verified"
+      },
+      "original_source_units": [
+        {
+          "id": "U0019",
+          "name": "类型",
+          "reading_section": "对象、身份与发生",
+          "abstract_content": "规定什么值或表达可以合法形成、使用，以及适用操作的规则。",
+          "necessary_distinctions": "类型声明不是具体实例；类型检查不证明所有业务性质。",
+          "discriminating_example": "Amount类型成立不说明某笔款已到账。",
+          "source_refs": [
+            "F:identity",
+            "facet:identity.identity",
+            "facet:identity.existence",
+            "theory:A08"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0039",
+          "name": "结构类型",
+          "reading_section": "类型、缺项与边界",
+          "abstract_content": "按成员及操作的形状判断兼容性的类型规则。",
+          "necessary_distinctions": "结构相同不覆盖名义、单位、效果及业务身份。",
+          "discriminating_example": "两个含id字段的记录不当然表示同一领域对象。",
+          "source_refs": [
+            "F:types",
+            "facet:types.nullability",
+            "family:C04"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0040",
+          "name": "精化类型",
+          "reading_section": "类型、缺项与边界",
+          "abstract_content": "在已有类型上附加需要满足的谓词或范围。",
+          "necessary_distinctions": "约束声明与取得值符合约束的依据分开。",
+          "discriminating_example": "年龄是整数再限制0到150；读到字符串不能直接强转。",
+          "source_refs": [
+            "F:types",
+            "facet:types.nullability",
+            "family:C04"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        }
+      ],
+      "this_review_proposed_connection": {
+        "seam": "type_count/TypeId展示摘要不能作为完整类型或Method资格",
+        "consumers": [
+          "crates/gift-author-kernel/src/signature_resolution.rs",
+          "crates/gift-author-kernel/src/project_input.rs",
+          "src/adapters/compilation/author-analysis-transport.ts"
+        ],
+        "models": [
+          "summary_does_not_reconstruct_arena",
+          "qualification_depends_on_requested_stage"
+        ]
+      },
+      "status": "原始记录与引用存在已核；接合方案及独立模型，不是生产实现资格或原理论的全域证明"
+    },
+    {
+      "original_question_contract": {
+        "id": "D0140",
+        "revision": "4.0",
+        "name": "阶段归属",
+        "original_family": "CMP",
+        "subject_kind": "StagedContentUse",
+        "question": "某内容在构建期、编译期还是运行期取得？",
+        "selectors": {
+          "content": {
+            "kind": "reference",
+            "target_kind": "Content"
+          },
+          "toolchain": {
+            "kind": "reference",
+            "target_kind": "Configuration"
+          }
+        },
+        "answer_type": "Enum[authoring,build,compile,link,load,runtime]",
+        "meaning": "阶段固定信息取得时点和实际执行者；编译期执行仍需自己的资源与权限。",
+        "source_units": [
+          "U0484",
+          "U0487",
+          "U0488",
+          "U0489",
+          "U0490",
+          "U0491",
+          "U1422",
+          "U1423",
+          "U1424",
+          "U1425"
+        ],
+        "model_responsibility": "computation/effects",
+        "required_distinction": "顺序、调用次数、失败/发散、效果、生命周期与值结果分离。",
+        "consumer_contract": "在特定Subject/UseContext下按原问题合同取得，非所有工程对象必填字段",
+        "qualification": "研究提出的模型设计检查义务；不是已形式化的世界原语、已安装求解器或真实值",
+        "unverified_historical_question_links": [
+          {
+            "role": "configuration",
+            "question": "D0187"
+          },
+          {
+            "role": "authority",
+            "question": "D0403"
+          }
+        ],
+        "adoption_status": "research-mapping-not-production-verified"
+      },
+      "original_source_units": [
+        {
+          "id": "U0484",
+          "name": "静态分支实例化",
+          "reading_section": "原生能力中的独立语义",
+          "abstract_content": "编译条件确定后只对规定分支进行相应实例化的规则。",
+          "necessary_distinctions": "语法和非依赖前提仍可能需要检查；不能无条件忽略未选分支全部问题。",
+          "discriminating_example": "不存在成员的依赖分支可不实例化，但词法仍应合法。",
+          "source_refs": [
+            "cap:35"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0487",
+          "name": "仅编译期执行",
+          "reading_section": "原生能力中的独立语义",
+          "abstract_content": "规定某调用必须在编译阶段取得结果的合同。 区分某函数在合格常量上下文可求值、仍能正常运行时调用，以及某调用必须在编译期取得结果的阶段合同。",
+          "necessary_distinctions": "不能失败后静默转运行时；预算和纯性仍有要求。 函数有const能力不保证任意调用都静态执行；仅编译期入口不能在失败后暗退到运行时，泛型还取决于所选方法见证。",
+          "discriminating_example": "布局计算必须在目标生成前完成。 同一个纯加法函数可在编译期算数组长度，也可在运行时处理输入；某静态布局需求则不接受延后计算。",
+          "source_refs": [
+            "cap:38",
+            "S4-STAGE",
+            "S4-OBJECT"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0488",
+          "name": "阶段化行为见证",
+          "reading_section": "原生能力中的独立语义",
+          "abstract_content": "泛型方法不仅带类型，还带可执行阶段与效果资格。",
+          "necessary_distinctions": "普通运行函数不能因泛型已实例化就视为常量求值合法。",
+          "discriminating_example": "带网络读取的方法不得隐式参与纯编译求值。",
+          "source_refs": [
+            "cap:39"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0489",
+          "name": "语义反射权限",
+          "reading_section": "原生能力中的独立语义",
+          "abstract_content": "在准确快照和可见性范围内查询类型、成员与签名的信息能力。",
+          "necessary_distinctions": "能反射签名不等于能读取私有正文或执行初始化。 反射结果须绑定声明修订、可见上下文及实例化参数；显示字符串不能替代准确实体引用，也不许可就地修改当前编译映像。",
+          "discriminating_example": "工具补全不得为列方法而运行不受信脚本。",
+          "source_refs": [
+            "cap:40",
+            "S4-STAGE"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0490",
+          "name": "受控结构生成",
+          "reading_section": "原生能力中的独立语义",
+          "abstract_content": "用反射结果生成引用、声明或表达式并保留绑定和阶段规则的机制。 默认生成新绑定不捕获原自由变量；需要故意捕获时，明确指向原可见绑定并经过适用权限与阶段检查。",
+          "necessary_distinctions": "字符串拼接不自动具备卫生、权限和类型资格。 输出仍须重新执行形成、绑定、类型、效果、寿命和目标检查；生成器可信不代表其每份输出自动取得这些资格，半份展开不得作为完整定义发布。 gensym或唯一显示名不单独证明整个展开卫生；源位置、嵌套展开和调用点/定义点解析规则仍须一致。",
+          "discriminating_example": "生成字段访问仍须核原字段可见性。 将λy.x中的自由x替换为y，需要重命名原binder以免把自由y变成被捕获的参数。",
+          "source_refs": [
+            "cap:41",
+            "S4-STAGE",
+            "S4-OBJECT"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0491",
+          "name": "编译期逐项展开",
+          "reading_section": "原生能力中的独立语义",
+          "abstract_content": "对有限静态序列为每项形成独立绑定和主体的生成操作。",
+          "necessary_distinctions": "不同项的类型、来源和效果必须保留。",
+          "discriminating_example": "异构参数包不能全按首项类型展开。",
+          "source_refs": [
+            "cap:42"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U1422",
+          "name": "编译期堆的冻结边界",
+          "reading_section": "阶段计算、构造发布及契约捕获",
+          "abstract_content": "在静态执行完成时，将合法临时对象转换为可被目标表示的不可变值图或带明确重定位的静态数据。",
+          "necessary_distinctions": "临时分配成功不许可宿主地址、文件、锁或未结借用逃逸；冻结应保留独立身份与别名，循环需要目标支持。",
+          "discriminating_example": "编译期容器内两个引用共享同一节点，输出静态数据时不能无依据复制成两个独立可变对象。",
+          "source_refs": [
+            "S4-STAGE",
+            "S4-OBJECT"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        },
+        {
+          "id": "U1423",
+          "name": "目标事实与构建宿主事实",
+          "reading_section": "阶段计算、构造发布及契约捕获",
+          "abstract_content": "将目标字长、对齐、数值规则和能力作为准确编译输入，与正在执行生成器的机器属性分开。",
+          "necessary_distinctions": "交叉编译不能默认宿主与目标一致；读取环境得到的事实需有来源，不能用构建机大小直接决定目标ABI。",
+          "discriminating_example": "在64位宿主上生成32位设备布局，指针大小必须来自设备画像而非宿主sizeof。",
+          "source_refs": [
+            "S4-STAGE",
+            "S4-OBJECT"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        },
+        {
+          "id": "U1424",
+          "name": "宏语法引用与语义实体引用",
+          "reading_section": "阶段计算、构造发布及契约捕获",
+          "abstract_content": "区分未绑定语法、带作用域标记的语法结构，以及已经解析到准确声明的语义引用。",
+          "necessary_distinctions": "同一拼写不等于同一实体；拼接不同种类节点需检查形成条件，字符串反射结果不能取代绑定。",
+          "discriminating_example": "宏中的x来自定义模块时，调用者也有x不应无声明地抢占该引用。",
+          "source_refs": [
+            "S4-STAGE",
+            "S4-OBJECT"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        },
+        {
+          "id": "U1425",
+          "name": "阶段引导的前置消费者",
+          "reading_section": "阶段计算、构造发布及契约捕获",
+          "abstract_content": "新增语法、解释器或生成器能力，先由已有可信阶段能够处理的表示构建桥接消费者，再取得新阶段资格。",
+          "necessary_distinctions": "用新规则生成的唯一检查器不能自行证明新规则正确；输出代码存在不表示启动种子已经理解新输入。",
+          "discriminating_example": "编译器目前只理解B时，不能先把自身唯一源码改成X，再要求尚不存在的X读取器构建它。",
+          "source_refs": [
+            "S4-STAGE",
+            "S4-OBJECT"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        }
+      ],
+      "this_review_proposed_connection": {
+        "seam": "在真实Rust分析会话内继续限定根的资格与降低；生成输出重新检查，不以摘要重新猜解释",
+        "consumers": [
+          "crates/gift-author-kernel/src/signature_resolution.rs",
+          "docs/编译/内核/领域方法与整体根.md"
+        ],
+        "models": [
+          "qualification_depends_on_requested_stage"
+        ]
+      },
+      "status": "原始记录与引用存在已核；接合方案及独立模型，不是生产实现资格或原理论的全域证明"
+    },
+    {
+      "original_question_contract": {
+        "id": "D0188",
+        "revision": "4.0",
+        "name": "前像基础",
+        "original_family": "REV",
+        "subject_kind": "ChangeProposal",
+        "question": "一次修改针对哪个准确旧版本？",
+        "selectors": {
+          "subject": {
+            "kind": "reference",
+            "target_kind": "Entity"
+          }
+        },
+        "answer_type": "Record[expected_revision:Ref[Revision];selected_scope:Ref[Domain];content_digest:text]",
+        "meaning": "前像同时约束主体与范围；路径相同不保证内容未改，提交前重新比较。",
+        "source_units": [
+          "U0594",
+          "U1567",
+          "U1781"
+        ],
+        "model_responsibility": "identity/revision",
+        "required_distinction": "源/语义/目标/运行/证据版本不同步；旧实例不因新源码改义。",
+        "consumer_contract": "在特定Subject/UseContext下按原问题合同取得，非所有工程对象必填字段",
+        "qualification": "研究提出的模型设计检查义务；不是已形式化的世界原语、已安装求解器或真实值",
+        "unverified_historical_question_links": [
+          {
+            "role": "revision",
+            "question": "D0184"
+          }
+        ],
+        "adoption_status": "research-mapping-not-production-verified"
+      },
+      "original_source_units": [
+        {
+          "id": "U0594",
+          "name": "迁移前像",
+          "reading_section": "修改、版本与信息维护",
+          "abstract_content": "迁移失败或回退所需的原数据、版本和解释信息。",
+          "necessary_distinctions": "只保新文件不一定能回旧系统。",
+          "discriminating_example": "数据压缩后丢信息时，旧格式可能不可恢复。",
+          "source_refs": [
+            "F:evolution",
+            "F:artifact",
+            "F:productivity",
+            "hist:B04"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U1567",
+          "name": "文本缓冲与持久前像",
+          "reading_section": "源码编辑、重构与任务投影",
+          "abstract_content": "编辑器未保存内容、已封存候选和磁盘当前字节分别属于什么版本，实际写回需要比较哪份前像。 每次诊断、分析和写回还要说明实际使用缓冲修订还是磁盘观察切面。",
+          "necessary_distinctions": "候选构造成功不等于磁盘已写；工具失败不得删除编辑器独立草稿，旧AST也不冒充新文本。 磁盘监听新鲜不保证未保存缓冲的分析新鲜；旧磁盘补丁仍须对缓冲重基。",
+          "discriminating_example": "工具基于保存版生成补丁时，不能覆盖用户尚未保存的新修改。 用户在缓冲中改了函数签名，AI不能直接覆盖为依据旧磁盘生成的函数体。",
+          "source_refs": [
+            "S5-EDIT",
+            "S5-EDITOWNER",
+            "S6-WORK"
+          ],
+          "status": "本轮从存量设计中界定的语义工作条目；不宣称终极原语、规范已采用或产品已实现",
+          "derivation": "提炼准确历史内容；外部规范仅核列明技术点；例子是说明性构造，未运行Gift产品"
+        },
+        {
+          "id": "U1781",
+          "name": "修复候选的目标与适用前像",
+          "reading_section": "结果、诊断与证据的局部语义",
+          "abstract_content": "诊断提出的修复指向哪个具体问题、源前像和目标差额，以及其假设、作用、风险和验证义务。",
+          "necessary_distinctions": "修复建议不是批准或执行许可；旧前像不成立时不能直接重放，修复一个症状也未必解决原问题。",
+          "discriminating_example": "给定旧源码的自动导入补丁，在用户已经改名后须重算；不能把诊断正文里的命令自动执行。",
+          "source_refs": [
+            "H7-RESULT",
+            "ED1749:U0685"
+          ],
+          "status": "本轮具体语义补订；不是最小原语、全域完备性或产品能力声明",
+          "derivation": "依据列明来源及相邻旧条目作含义辨析；示例为说明性构造，未冒充运行测试。"
+        }
+      ],
+      "this_review_proposed_connection": {
+        "seam": "发布比较准确前像、当前操作代及实际接受范围；状态迁移不能补造已丢信息",
+        "consumers": [
+          "src/compiler/pipeline/semantic-context.ts",
+          "docs/编译/目标/成员布局与完整产物.md"
+        ],
+        "models": [
+          "check_then_publish_race",
+          "content_equality_does_not_revive_request",
+          "state_schema_equality_is_not_migration"
+        ]
+      },
+      "status": "原始记录与引用存在已核；接合方案及独立模型，不是生产实现资格或原理论的全域证明"
+    },
+    {
+      "original_question_contract": {
+        "id": "D0349",
+        "revision": "4.0",
+        "name": "一致读取切面",
+        "original_family": "DATA",
+        "subject_kind": "ConsistentReadUse",
+        "question": "此次结果来自哪个共同快照？",
+        "selectors": {
+          "providers": {
+            "kind": "set",
+            "item": {
+              "kind": "reference",
+              "target_kind": "Provider"
+            }
+          },
+          "requested_scope": {
+            "kind": "reference",
+            "target_kind": "Domain"
+          }
+        },
+        "answer_type": "Record[snapshot_vector:List[SnapshotBinding];consistency:Ref[ConsistencyProfile];observation_interval:Interval;limitations:Set[Formula]]",
+        "meaning": "同一次结果的跨源切面必须可解释；只取得不同时刻片段时保留受限一致性。",
+        "source_units": [
+          "U0551",
+          "U0836",
+          "U1457"
+        ],
+        "model_responsibility": "domain/data",
+        "required_distinction": "set/bag/sequence、键/NULL、事务切面、查询完整性各有合同。",
+        "consumer_contract": "在特定Subject/UseContext下按原问题合同取得，非所有工程对象必填字段",
+        "qualification": "研究提出的模型设计检查义务；不是已形式化的世界原语、已安装求解器或真实值",
+        "unverified_historical_question_links": [
+          {
+            "role": "selection",
+            "question": "D0187"
+          },
+          {
+            "role": "consistency",
+            "question": "D0388"
+          }
+        ],
+        "adoption_status": "research-mapping-not-production-verified"
+      },
+      "original_source_units": [
+        {
+          "id": "U0551",
+          "name": "查询快照",
+          "reading_section": "查询、检索与信息取得",
+          "abstract_content": "一次查询所使用的数据版本、观察时间或一致性切面。 记录快照由原子版本、协调锁、验证重试还是尽力读取取得，并限定其可支持的判断。",
+          "necessary_distinctions": "无快照能力时只能报告实际观察范围，不能假称同一时刻全量。 有限查看可使用受限一致性结果，但不能把混合观察当作原子修改前像。",
+          "discriminating_example": "逐页读取活数据不自动得到一致快照。 数据库一致性事务与遍历持续变化目录须报告不同的快照保证。",
+          "source_refs": [
+            "F:search",
+            "F:knowledge",
+            "hist:B21",
+            "S6-WORK"
+          ],
+          "status": "本轮语义提炼工作条目；非终极原语或已采用规范",
+          "derivation": "依据列明材料重新界定与拆分；例子为说明性构造，未标为实际测试"
+        },
+        {
+          "id": "U0836",
+          "name": "跨源共同快照",
+          "reading_section": "关系查询和增量内容的独立条件",
+          "abstract_content": "多个来源的读数在一个被认可的一致性切面上可以共同解释的资格。 逐项捕获准确字节还要区别于证明它们曾在来源中同时组成一个整体。",
+          "necessary_distinctions": "每个来源各自快照完整，不保证它们对应同一业务时刻或事务。 各文件散列正确只证明这些字节；稳定性检查或元数据重读只提供其真实机制能支持的保证。",
+          "discriminating_example": "读取旧订单与新库存两份合法快照，组合结果仍可能从未在现场共同存在。 先读a旧版再读b新版，两者可能从未共同出现在一个现场状态。",
+          "source_refs": [
+            "BASE:U0059",
+            "BASE:U0060",
+            "BASE:U0546",
+            "BASE:U0547",
+            "BASE:U0548",
+            "BASE:U0557",
+            "H-QUERY:L32-L126",
+            "S6-WORK"
+          ],
+          "status": "续订新增语义工作条目；不等于已采用规范或最小原语",
+          "derivation": "在基线及所列来源上作工作性分解；数学小例和情景例为自含说明，不冒充产品测试",
+          "source_interpretation": "来源作为具体问题与概念依据；条目为本轮工作性界定，示例为自含构造，不声称由某一来源证明全部内容。"
+        },
+        {
+          "id": "U1457",
+          "name": "恢复切面的多存储一致性",
+          "reading_section": "持久对象、日志和恢复的独立信息",
+          "abstract_content": "恢复需要固定数据库、内容对象、解释版本、密钥和操作日志之间共同成立的切面及其取得方式。",
+          "necessary_distinctions": "每份备份各自可读不证明组合一致；不能把不同时间的头、日志和内容随意拼成一个正常现场。",
+          "discriminating_example": "数据库备份引用内容v2而对象备份只有v1，文件均通过校验仍不能恢复该数据库状态。",
+          "source_refs": [
+            "S4-STORE",
+            "S4-STORE2",
+            "S4-STORE3"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        }
+      ],
+      "this_review_proposed_connection": {
+        "seam": "捕获内容准确、共同观察切面、一次运行读取同代分别成立",
+        "consumers": [
+          "src/compiler/semantic-compiler.ts",
+          "docs/编译/目标/成员布局与完整产物.md"
+        ],
+        "models": [
+          "one_generation_per_logical_read",
+          "disjoint_writes_shared_predicate"
+        ]
+      },
+      "status": "原始记录与引用存在已核；接合方案及独立模型，不是生产实现资格或原理论的全域证明"
+    },
+    {
+      "original_question_contract": {
+        "id": "D0371",
+        "revision": "4.0",
+        "name": "恢复资源预留",
+        "original_family": "RES",
+        "subject_kind": "RecoveryBudget",
+        "question": "故障与结算还必须留下哪些资源？",
+        "selectors": {
+          "operation": {
+            "kind": "reference",
+            "target_kind": "LogicalOperation"
+          },
+          "fault_model": {
+            "kind": "reference",
+            "target_kind": "FaultModel"
+          }
+        },
+        "answer_type": "Record[reserved:List[Quantity];unknown_effect_liability:Ref[BoundModel];release_condition:Predicate]",
+        "meaning": "恢复、查回和补偿所需资源不能被正常流程耗尽；未知作用保留适用责任界。",
+        "source_units": [
+          "U1402",
+          "U1403",
+          "U1489"
+        ],
+        "model_responsibility": "resource/capability",
+        "required_distinction": "共同占用、资源峰值、保留/释放、物理作用不能由单项合格推出。",
+        "consumer_contract": "在特定Subject/UseContext下按原问题合同取得，非所有工程对象必填字段",
+        "qualification": "研究提出的模型设计检查义务；不是已形式化的世界原语、已安装求解器或真实值",
+        "unverified_historical_question_links": [
+          {
+            "role": "budget",
+            "question": "D0369"
+          },
+          {
+            "role": "settlement",
+            "question": "D0376"
+          },
+          {
+            "role": "risk",
+            "question": "D0328"
+          }
+        ],
+        "adoption_status": "research-mapping-not-production-verified"
+      },
+      "original_source_units": [
+        {
+          "id": "U1402",
+          "name": "未知消费的责任上界",
+          "reading_section": "资源计量模式及共同预算",
+          "abstract_content": "在外部可能已经接受、消耗尚未确认时，保留原预留中仍可能被消费的份额及后续查回责任。",
+          "necessary_distinctions": "当前已观察用量不等于最终用量；只有确认剩余不会再消费，才可释放余额，未知也不能与同一已计消耗重复记账。",
+          "discriminating_example": "预留6后回执丢失，后来只知道已用4但还可能继续，不能立即把剩余2分给其他任务。",
+          "source_refs": [
+            "S4-RESOURCE",
+            "S4-RESOURCE2",
+            "S4-QUANT"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        },
+        {
+          "id": "U1403",
+          "name": "恢复与结算资源保留",
+          "reading_section": "资源计量模式及共同预算",
+          "abstract_content": "在普通工作准入前，为停止、查回、日志、清理和恢复保留真实可用的必要资源与权限。",
+          "necessary_distinctions": "恢复标签不创造额外容量，也不能借恢复执行新的业务；有清理函数不证明资源耗尽时仍能调用并完成它。",
+          "discriminating_example": "所有磁盘空间被工作数据占满后，才尝试记录唯一恢复状态，可能已经无法安全收尾。",
+          "source_refs": [
+            "S4-RESOURCE",
+            "S4-RESOURCE2",
+            "S4-QUANT"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        },
+        {
+          "id": "U1489",
+          "name": "恢复资源之间的竞争",
+          "reading_section": "不确定风险、取得信息与损害时间",
+          "abstract_content": "考虑多个故障情景同时发生时，对备用容量、凭据、人员、带宽或控制面的共同需求。",
+          "necessary_distinctions": "每个单项都有恢复方案，不保证它们能同时实施；备用路径还可能与主路径共因失效。",
+          "discriminating_example": "两个服务各计划故障时独占同一台备用机，双故障时两个恢复承诺不能同时成立。",
+          "source_refs": [
+            "S4-RISK"
+          ],
+          "status": "本轮从已有材料反向核对后新增的语义工作条目；非最终原语或已采用规范",
+          "derivation": "保留原资料适用条件，界定独立内容；例子是说明性构造，不冒充产品测试"
+        }
+      ],
+      "this_review_proposed_connection": {
+        "seam": "旧代持有、候选代、正常工作与故障结算共同计量；容量不能全被正常复制占用",
+        "consumers": [
+          "src/adapters/compilation/author-analysis-transport.ts",
+          "crates/gift-author-kernel/src/project_input.rs"
+        ],
+        "models": [
+          "pins_have_global_retention_cost",
+          "pin_acquisition_vs_reclamation",
+          "transport_encoded_size_and_replay"
+        ]
+      },
+      "status": "原始记录与引用存在已核；接合方案及独立模型，不是生产实现资格或原理论的全域证明"
+    },
+    {
+      "original_question_contract": {
+        "id": "D0445",
+        "revision": "4.0",
+        "name": "修改前提",
+        "original_family": "EDIT",
+        "subject_kind": "EditAdmission",
+        "question": "编辑在哪个源修订和条件下合法？",
+        "selectors": {
+          "edit": {
+            "kind": "reference",
+            "target_kind": "EditProposal"
+          },
+          "source": {
+            "kind": "reference",
+            "target_kind": "Revision"
+          },
+          "authority": {
+            "kind": "reference",
+            "target_kind": "Agent"
+          }
+        },
+        "answer_type": "Record[expected_preimage:Ref[Revision];formation:Predicate;semantic_conditions:Set[Formula];write_authority:Ref[EvidenceUse]]",
+        "meaning": "同时核前像、语法完整、语义保持或有权改义；草稿可保存不等于可执行。",
+        "source_units": [
+          "U1781",
+          "U1567",
+          "U1500"
+        ],
+        "model_responsibility": "edit/source-correspondence",
+        "required_distinction": "真正拥有者、修改前像、无损/有损视图、源映射和冲突责任。",
+        "consumer_contract": "在特定Subject/UseContext下按原问题合同取得，非所有工程对象必填字段",
+        "qualification": "研究提出的模型设计检查义务；不是已形式化的世界原语、已安装求解器或真实值",
+        "unverified_historical_question_links": [
+          {
+            "role": "preimage",
+            "question": "D0188"
+          },
+          {
+            "role": "owner",
+            "question": "D0442"
+          }
+        ],
+        "adoption_status": "research-mapping-not-production-verified"
+      },
+      "original_source_units": [
+        {
+          "id": "U1781",
+          "name": "修复候选的目标与适用前像",
+          "reading_section": "结果、诊断与证据的局部语义",
+          "abstract_content": "诊断提出的修复指向哪个具体问题、源前像和目标差额，以及其假设、作用、风险和验证义务。",
+          "necessary_distinctions": "修复建议不是批准或执行许可；旧前像不成立时不能直接重放，修复一个症状也未必解决原问题。",
+          "discriminating_example": "给定旧源码的自动导入补丁，在用户已经改名后须重算；不能把诊断正文里的命令自动执行。",
+          "source_refs": [
+            "H7-RESULT",
+            "ED1749:U0685"
+          ],
+          "status": "本轮具体语义补订；不是最小原语、全域完备性或产品能力声明",
+          "derivation": "依据列明来源及相邻旧条目作含义辨析；示例为说明性构造，未冒充运行测试。"
+        },
+        {
+          "id": "U1567",
+          "name": "文本缓冲与持久前像",
+          "reading_section": "源码编辑、重构与任务投影",
+          "abstract_content": "编辑器未保存内容、已封存候选和磁盘当前字节分别属于什么版本，实际写回需要比较哪份前像。 每次诊断、分析和写回还要说明实际使用缓冲修订还是磁盘观察切面。",
+          "necessary_distinctions": "候选构造成功不等于磁盘已写；工具失败不得删除编辑器独立草稿，旧AST也不冒充新文本。 磁盘监听新鲜不保证未保存缓冲的分析新鲜；旧磁盘补丁仍须对缓冲重基。",
+          "discriminating_example": "工具基于保存版生成补丁时，不能覆盖用户尚未保存的新修改。 用户在缓冲中改了函数签名，AI不能直接覆盖为依据旧磁盘生成的函数体。",
+          "source_refs": [
+            "S5-EDIT",
+            "S5-EDITOWNER",
+            "S6-WORK"
+          ],
+          "status": "本轮从存量设计中界定的语义工作条目；不宣称终极原语、规范已采用或产品已实现",
+          "derivation": "提炼准确历史内容；外部规范仅核列明技术点；例子是说明性构造，未运行Gift产品"
+        },
+        {
+          "id": "U1500",
+          "name": "编辑恢复节点与可执行空洞",
+          "reading_section": "名称、声明和封装的具体含义",
+          "abstract_content": "在不完整源中用于继续定位、补全和保存的占位结构，以及它在进入类型解释或执行之前仍缺少什么。",
+          "necessary_distinctions": "编辑器能围绕坏语法工作，不表示占位被赋予默认业务含义；有明确语义的语言空洞也须保留其未决义务，不能自动转成成功值。",
+          "discriminating_example": "缺右操作数的“x +”可以保留草稿，但生成器不能把缺项悄悄替成0。",
+          "source_refs": [
+            "S5-IMPORT"
+          ],
+          "status": "本轮从存量设计中界定的语义工作条目；不宣称终极原语、规范已采用或产品已实现",
+          "derivation": "提炼准确历史内容；外部规范仅核列明技术点；例子是说明性构造，未运行Gift产品"
+        }
+      ],
+      "this_review_proposed_connection": {
+        "seam": "编辑可保全的空洞不冒充可生成值；独立文件变更仍须检查共同前提",
+        "consumers": [
+          "docs/编译/内核/领域方法与整体根.md",
+          "docs/编译/目标/成员布局与完整产物.md"
+        ],
+        "models": [
+          "disjoint_writes_shared_predicate",
+          "qualification_depends_on_requested_stage"
+        ]
+      },
+      "status": "原始记录与引用存在已核；接合方案及独立模型，不是生产实现资格或原理论的全域证明"
+    }
+  ]
+}

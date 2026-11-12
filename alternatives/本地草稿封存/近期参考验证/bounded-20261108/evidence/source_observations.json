@@ -1,0 +1,171 @@
+{
+  "review_date": "2026-11-08",
+  "repository": "sec-platform/sec",
+  "pr_read": {
+    "number": 896,
+    "state": "open",
+    "draft": true,
+    "merged": false,
+    "head_sha": "1eff90f4fdc1787f1bd223e9dfb70dac002e0acb",
+    "base_sha": "d0b2fdb20f720455a584453505f0ae4386db807f"
+  },
+  "sources": [
+    {
+      "id": "G02",
+      "path": "crates/gift-author-kernel/src/signature_resolution.rs",
+      "blob_sha": "9a7c3cfaa07e7fb775ed1b6323e3f2aead981442",
+      "read_ranges": [
+        "1-150"
+      ],
+      "observation": "PreparedAnalysis保留私有会话；SignatureResolution保留完整types/bodies/effects；类型就绪不等于可调用",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/crates/gift-author-kernel/src/signature_resolution.rs"
+    },
+    {
+      "id": "G03",
+      "path": "crates/gift-author-kernel/src/project_input.rs",
+      "blob_sha": "3e0ee561f2f4eacce67b5499fa83300911056074",
+      "read_ranges": [
+        "1-150"
+      ],
+      "observation": "report_analysis输出摘要；原请求共享预算；请求计费、终态预留",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/crates/gift-author-kernel/src/project_input.rs"
+    },
+    {
+      "id": "G04/G08/G09",
+      "path": "src/adapters/compilation/author-analysis-transport.ts",
+      "blob_sha": "b1a5c777d96b09bef643ed43ade49621da9ef181",
+      "read_ranges": [
+        "95-235",
+        "235-285",
+        "400-490"
+      ],
+      "observation": "数字数组、完整捕获重复序列化、之后查wire大小；未做产品性能测试",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/src/adapters/compilation/author-analysis-transport.ts"
+    },
+    {
+      "id": "G05",
+      "path": "src/compiler/pipeline/semantic-context.ts",
+      "blob_sha": "355961f54e95dbc00a08cff045ad6bd48da44678",
+      "read_ranges": [
+        "full"
+      ],
+      "observation": "WeakMap仅本地关联；不是IR验证或操作授权",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/src/compiler/pipeline/semantic-context.ts"
+    },
+    {
+      "id": "G06",
+      "path": "src/compiler/ir/validate-engineering-ir.ts",
+      "blob_sha": "5006a5ac820db8d52b013548d04e87fb05358d09",
+      "read_ranges": [
+        "1-180",
+        "350-end"
+      ],
+      "observation": "校验IR真实引用/谓词/身份/摘要并冻结；拒绝host bigint；输入预算归准入",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/src/compiler/ir/validate-engineering-ir.ts"
+    },
+    {
+      "id": "G07",
+      "path": "src/semantics/engineering-ir/validated-types.ts",
+      "blob_sha": "62bbf98f74b016ce91d330063da0b261ec389e23",
+      "read_ranges": [
+        "full"
+      ],
+      "observation": "TS名义brand不是单独的运行检查",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/src/semantics/engineering-ir/validated-types.ts"
+    },
+    {
+      "id": "G10",
+      "path": "src/compiler/semantic-compiler.ts",
+      "blob_sha": "57043f9c4bbf730cb577b975cc02c707875b43bf",
+      "read_ranges": [
+        "full"
+      ],
+      "observation": "原值捕获→验证/生成；一致读集由调用者负责",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/src/compiler/semantic-compiler.ts"
+    },
+    {
+      "id": "G11",
+      "path": "docs/编译/内核/领域方法与整体根.md",
+      "blob_sha": "faa15191eeba11cde49e4418073b5c83dd4fcd8a",
+      "read_ranges": [
+        "visible portion of 1-155",
+        "138-210"
+      ],
+      "observation": "按根和独立义务；MethodSpec实际接口；Needs不是任意工具命令",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/docs/编译/内核/领域方法与整体根.md"
+    },
+    {
+      "id": "G12",
+      "path": "docs/编译/目标/成员布局与完整产物.md",
+      "blob_sha": null,
+      "read_ranges": [
+        "visible prefix only; full response truncated"
+      ],
+      "observation": "已存在同代运行/结果检查提交点/目标贡献与依赖组合器规范",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/docs/编译/目标/成员布局与完整产物.md"
+    },
+    {
+      "id": "G13",
+      "path": "docs/作者/结构化源码.md",
+      "blob_sha": "42f1e8c303fe9aeb85740ee96e6f5e194049a1b2",
+      "read_ranges": [
+        "342-356"
+      ],
+      "observation": "坏默认不会被显式实参洗合法；省略与显式同值的未来选择不同",
+      "url": "https://github.com/sec-platform/sec/blob/1eff90f4fdc1787f1bd223e9dfb70dac002e0acb/docs/作者/结构化源码.md"
+    }
+  ],
+  "public_primary_sources": [
+    {
+      "id": "E01",
+      "url": "https://docs.rs/arc-swap/latest/arc_swap/struct.ArcSwapAny.html",
+      "used_for": "load-once related reads and retention; not an adoption decision"
+    },
+    {
+      "id": "E02",
+      "url": "https://www.postgresql.org/docs/current/applevel-consistency.html",
+      "used_for": "snapshot consistency is not by itself shared-predicate serializability; not a Gift database choice"
+    },
+    {
+      "id": "E03",
+      "url": "https://man7.org/linux/man-pages/man2/rename.2.html",
+      "used_for": "Linux namespace atomic replacement scope"
+    },
+    {
+      "id": "E04",
+      "url": "https://man7.org/linux/man-pages/man2/fsync.2.html",
+      "used_for": "file and directory-entry durability are distinct"
+    }
+  ],
+  "source_recovery": {
+    "latest_629_zip_bytes_recovered": false,
+    "reported_sha256": "5722b10f1b3928f9f1ddac079e0a14707e0aa6de89765b9b5f68ce2f19334965",
+    "searched": "Exact title/hash search across conversation and Library; known /Gift-SEC-Design-Research directory inspected",
+    "limitation": "Not a claim of absence from all stores or the user computer"
+  },
+  "repository_download": {
+    "complete_checkout_available": false,
+    "attempt": "fixed GitHub codeload archive",
+    "failure": "DNS resolution failed; connector per-file reads succeeded"
+  },
+  "execution": {
+    "gift_product_tests_run": false,
+    "independent_bounded_studies": 12,
+    "new_source_research_contracts": 6,
+    "new_source_research_unique_units": 23
+  },
+  "actions": {
+    "github_writes": false,
+    "automation_changes": false,
+    "automation_status_requeried_this_turn": false,
+    "persistent_library_writes": false
+  },
+  "baseline": {
+    "file": "baseline/Gift_融合方案_工程完整修订_20261108.md",
+    "sha256": "ae5eafff70a99fe221a77df0689cb42b7ce2b4be8b923526772e3a35e1ff74c3"
+  },
+  "claim_limits": [
+    "No performance benchmark, product bug reproduction, OS durability test, all-U/D proof, full #892 semantic reconciliation, or production adoption is claimed.",
+    "Model guards assume their declared atomic action; zero violating histories only covers the enumerated model scope."
+  ]
+}
