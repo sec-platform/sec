@@ -753,6 +753,15 @@ test('selected forest retains one root, emits selector prefixes, and shares hard
       ...options,
       deadlineAtMs: performance.now() - 1
     })).toThrow('deadline exceeded');
+    // A missing selection and omitted navigation prefixes do not exempt the
+    // traversed directory entries from the same global entry budget.
+    expect(() => scanNoFollowDirectoryTreeSelectedForest(identity, {
+      ...options,
+      maximumEntries: 1,
+      maximumBytes: 16_384,
+      includeRelativePaths: ['selected/missing'],
+      omitNavigationPrefixes: true
+    })).toThrow('entry bound');
 
     renameSync(root, replaced);
     mkdirSync(root);

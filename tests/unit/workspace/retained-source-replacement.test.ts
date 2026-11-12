@@ -73,10 +73,14 @@ async function fixture(run: (value: {
   });
 }
 
-test.skipIf(!supported)('retained replacement publishes and restores exact bytes without temporary residue', async () => {
+test.skipIf(!supported)('retained replacement snapshots caller bytes before its commit fence, publishes and restores exact bytes without temporary residue', async () => {
   await fixture(async ({ target, sourceRoot, replace }) => {
     const initial = statSync(target, { bigint: true }).ino;
-    await replace();
+    const mutable = Buffer.from(successor);
+    await replace(undefined, {
+      bytes: mutable,
+      commitFence: async () => { mutable.fill(0); }
+    });
     expect(readFileSync(target)).toEqual(successor);
     expect(statSync(target, { bigint: true }).ino).not.toBe(initial);
     expect(readdirSync(sourceRoot)).toEqual([]);

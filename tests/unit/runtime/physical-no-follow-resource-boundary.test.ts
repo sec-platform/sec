@@ -15,8 +15,7 @@ import {
   retainNoFollowOrdinaryFile,
   scanNoFollowDirectoryTree,
   scanNoFollowDirectoryTreeInventory,
-  scanNoFollowDirectoryTreeMetadata,
-  scanNoFollowDirectoryTreeSelectedForest
+  scanNoFollowDirectoryTreeMetadata
 } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 function fixture() {
@@ -159,17 +158,6 @@ test('all inventory modes stop enumeration at the same inclusive entry ceiling',
   for (const scan of [scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata]) {
     expect(() => scan(root, { maximumEntries: 1, deadlineAtMs: performance.now() + 5000 })).toThrow('entry bound');
   }
-}));
-
-test('selected-forest filtering cannot reset or hide directory enumeration work', () => withFixture(f => {
-  for (let index = 0; index < 4; index += 1) writeFileSync(path.join(f.source, `ignored-${index}`), 'ignored');
-  const root = inspectNoFollowDirectoryChain(f.source).target;
-  expect(() => scanNoFollowDirectoryTreeSelectedForest(root, {
-    maximumEntries: 2,
-    deadlineAtMs: performance.now() + 5000,
-    includeRelativePaths: ['selected/missing'],
-    omitNavigationPrefixes: true
-  })).toThrow('entry bound');
 }));
 
 test('bulk-copy entry accounting includes excluded names across all three inventories', async () => withAsyncFixture(async f => {
