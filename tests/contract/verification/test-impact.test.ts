@@ -6,11 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
+
 import { commitTestImpactFixtureSources } from '../../helpers/test-impact-git-commit.ts';
 
 import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
 import { compileRepositorySourceProgramCompilation } from '../../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { issueTestImpactProjection } from '../../../src/adapters/repository/source-program-model/test-impact-projection.ts';
+import {
+  assertIssuedTestImpactProjection,
+  encodeTestImpactProjectionReceipt,
+  issueTestImpactProjection,
+  parseTestImpactProjectionReceipt
+} from '../../../src/adapters/repository/source-program-model/test-impact-projection.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
@@ -56,7 +63,10 @@ function emptyGitTestImpactBase(): string {
 
 function sourceProvider(
   sources: Readonly<Record<string, string>>,
-  inspectCompilation?: (compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>) => void
+  inspectCompilation?: (
+    compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>,
+    projection: ReturnType<typeof issueTestImpactProjection>
+  ) => void
 ) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
   let primary: ResourceSettlementFailure | undefined;
@@ -82,14 +92,15 @@ function sourceProvider(
       commitSha
     });
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot, repositoryRoot: root });
-    inspectCompilation?.(repositoryCompilation);
+    const projection = issueTestImpactProjection({
+      workspaceSnapshot,
+      repositoryModel: repositoryCompilation.model,
+      typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
+      testObservations: repositoryCompilation.testObservations
+    });
+    inspectCompilation?.(repositoryCompilation, projection);
     return createRepositoryTestImpactSourceProvider({
-      projection: issueTestImpactProjection({
-        workspaceSnapshot,
-        repositoryModel: repositoryCompilation.model,
-        typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
-        testObservations: repositoryCompilation.testObservations
-      }),
+      projection,
       testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
@@ -183,6 +194,22 @@ test('non-code source ownership and executable import impact remain independentl
         "spawnSync(process.execPath, ['tests/helpers/value-child.ts']);",
         ''
       ].join('\n'),
+      'tests/unit/value-second.test.ts': [
+        "import { readFileSync } from 'node:fs';",
+        "readFileSync('src/value.json', 'utf8');",
+        ''
+      ].join('\n'),
+      'tests/unit/program-fixture.test.ts': [
+        "import { spawnSync } from 'node:child_process';",
+        "import process from 'node:process';",
+        "import path from 'node:path';",
+        "import { test } from 'bun:test';",
+        "test.skipIf(process.platform !== 'win32')('program', () => {",
+        "  const program = path.resolve(import.meta.dir, '../../src/read-only.ts');",
+        "  spawnSync(process.execPath, [program]);",
+        "});",
+        ''
+      ].join('\n'),
       'tsconfig.json': '{"compilerOptions":{"noEmit":true},"include":["src/**/*.ts","tests/**/*.ts"],"exclude":["tests/unit/tsconfig-excluded.test.ts"]}\n'
   } as const;
   // Observed runtime reads/invocations join the existing independent source worlds.
@@ -219,9 +246,58 @@ test('non-code source ownership and executable import impact remain independentl
     [alphaFacade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
     [alphaTest]: "import { alpha } from './virtual-public.ts'; void alpha;",
     [betaTest]: "import { beta } from '../../src/compiler/virtual-public.ts'; void beta;"
-  }, compilation => {
-    expect(compilation.testObservations.resourceReads.map(({ target }) => target))
-      .toEqual(['src/value.json']);
+  }, (compilation, projection) => {
+    expect(compilation.testObservations.resourceReads.map(({ target }) => target).sort())
+      .toEqual(['src/value.json', 'src/value.json']);
+    expect(projection.purpose).toBe('test-impact-selection');
+    expect(projection.subjectDigest).toBe(compilation.subjectDigest);
+    expect(projection.workspaceSnapshotIdentityDigest)
+      .toBe(compilation.workspaceSnapshotIdentityDigest);
+    expect(projection.moduleGraphDigest).toBe(compilation.moduleGraphDigest);
+    expect(projection.testObservationDigest).toBe(compilation.testObservations.observationDigest);
+    expect(projection.files.every(file => !('source' in file))).toBe(true);
+    expect('registrations' in projection).toBe(false);
+    expect(projection.moduleOwners).toContainEqual({
+      moduleId: 'compiler',
+      root: 'src/compiler'
+    });
+
+    const fullConsumerPayloadBytes = Buffer.byteLength(JSON.stringify({
+      model: compilation.typeScriptCompilation.model,
+      testObservations: compilation.testObservations,
+      moduleGraph: compilation.workspaceSnapshot.moduleGraph,
+      moduleMembership: compilation.workspaceSnapshot.moduleMembership.descriptors
+    }));
+    const encoded = encodeTestImpactProjectionReceipt(projection);
+    expect(Buffer.byteLength(encoded, 'utf8')).toBeLessThan(fullConsumerPayloadBytes);
+
+    const parsed = parseTestImpactProjectionReceipt(encoded);
+    expect(parsed).toEqual(projection);
+    expect(() => assertIssuedTestImpactProjection(parsed)).toThrow('owner-issued');
+    expect(() => parseTestImpactProjectionReceipt(
+      encoded.replace('"schema":', '"schema":"duplicate","schema":')
+    )).toThrow('duplicate key');
+
+    const outsideSnapshot = JSON.parse(encoded) as Record<string, unknown>;
+    outsideSnapshot.observedTestConsumers = [{
+      targetPath: 'src/compiler/absent.ts',
+      testPath: 'tests/unit/value.test.ts'
+    }];
+    const { projectionDigest: _discardedOutside, ...outsideUnsigned } = outsideSnapshot;
+    outsideSnapshot.projectionDigest = sha256(outsideUnsigned);
+    expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
+      .toThrow('within its snapshot');
+
+    const forged = JSON.parse(encoded) as Record<string, unknown>;
+    forged.testObservationDigest = rawSha256('foreign-observation');
+    const { projectionDigest: _discardedForged, ...forgedUnsigned } = forged;
+    forged.projectionDigest = sha256(forgedUnsigned);
+    const decodedForgery = parseTestImpactProjectionReceipt(JSON.stringify(forged));
+    expect(() => assertIssuedTestImpactProjection(decodedForgery)).toThrow('owner-issued');
+
+    const unknown = JSON.parse(encoded) as Record<string, unknown>;
+    unknown.unexpected = true;
+    expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
   });
   expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
     .toEqual(['tests/unit/agent-fixture.test.ts']);
@@ -268,35 +344,36 @@ test('non-code source ownership and executable import impact remain independentl
   expect(selectTestsForSources(['src/value.ts'], provider).fast)
     .toEqual(['tests/unit/value.test.ts']);
   expect(provider.projection.observedTestConsumers).toEqual([
+    { targetPath: 'src/read-only.ts', testPath: 'tests/unit/program-fixture.test.ts' },
     { targetPath: 'src/read-only.ts', testPath: 'tests/unit/value.test.ts' },
+    { targetPath: 'src/value.json', testPath: 'tests/unit/value-second.test.ts' },
     { targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts' },
     { targetPath: 'tests/helpers/value-child.ts', testPath: 'tests/unit/value.test.ts' }
   ]);
   expect(selectTestsForSources(['src/value.json'], provider).fast)
-    .toEqual(['tests/unit/value.test.ts']);
+    .toEqual(['tests/unit/value-second.test.ts', 'tests/unit/value.test.ts']);
   expect(selectTestsForSources(['src/read-only.ts'], provider).fast)
-    .toEqual(['tests/unit/value.test.ts']);
+    .toEqual(['tests/unit/program-fixture.test.ts', 'tests/unit/value.test.ts']);
 });
 
 test('repository receipts isolate exact source bytes across equal-length mutations', () => {
-  const sourceA = 'src/compiler/virtual-source-a.ts';
-  const sourceB = 'src/compiler/virtual-source-b.ts';
-  const selected = 'tests/unit/virtual-source-switch.test.ts';
+  const source = 'src/compiler/virtual-source.ts';
+  const selected = 'tests/unit/virtual-source.test.ts';
   const sources: Record<string, string> = {
-    [sourceA]: 'export const a = 1;',
-    [sourceB]: 'export const b = 1;',
-    [selected]: "import '../../src/compiler/virtual-source-a.ts';"
+    [source]: 'export const value = 1;',
+    [selected]: "import '../../src/compiler/virtual-source.ts';"
   };
   const initialProvider = sourceProvider(sources);
 
-  expect(selectTestsForSources([sourceA], initialProvider).fast).toEqual([selected]);
-  const previousLength = Buffer.byteLength(sources[selected]!);
-  sources[selected] = "import '../../src/compiler/virtual-source-b.ts';";
-  expect(Buffer.byteLength(sources[selected]!)).toBe(previousLength);
+  expect(selectTestsForSources([source], initialProvider).fast).toEqual([selected]);
+  const previousLength = Buffer.byteLength(sources[source]!);
+  sources[source] = 'export const value = 2;';
+  expect(Buffer.byteLength(sources[source]!)).toBe(previousLength);
   const mutatedProvider = sourceProvider(sources);
-  expect(selectTestsForSources([sourceA], initialProvider).fast).toEqual([selected]);
-  expect(selectTestsForSources([sourceA], mutatedProvider).fast).toEqual([]);
-  expect(selectTestsForSources([sourceB], mutatedProvider).fast).toEqual([selected]);
+  expect(selectTestsForSources([source], mutatedProvider).fast).toEqual([selected]);
+  expect(mutatedProvider.projection.sourceRevision).not.toBe(initialProvider.projection.sourceRevision);
+  expect(mutatedProvider.projection.snapshotDigest).not.toBe(initialProvider.projection.snapshotDigest);
+  expect(mutatedProvider.projection.projectionDigest).not.toBe(initialProvider.projection.projectionDigest);
 });
 
 test('deleted local dependency makes selection unresolved', () => {
