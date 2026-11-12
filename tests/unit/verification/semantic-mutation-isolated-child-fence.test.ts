@@ -12,8 +12,7 @@ import {
 } from '../../../src/adapters/verification/isolation/isolated-verification-child-progress.ts';
 import {
   parseSemanticMutationIsolatedProgressTransportBytes,
-  SEMANTIC_MUTATION_ISOLATED_EXIT_CODES,
-  semanticMutationIsolatedProgressFrameText
+  SEMANTIC_MUTATION_ISOLATED_EXIT_CODES
 } from '../../../src/assurance/verification/semantic-mutation/isolated-progress.ts';
 
 import { expect, test } from 'bun:test';
@@ -84,6 +83,28 @@ test('generated bootstrap relocates to the staged root and emits exact progress 
         lastCheckpoint: 'core-import-started'
       }
     });
+    expect(await readdir(path.join(root, '.isolated-process', 'child'))).toEqual(['core-imported']);
+
+    // Independent protocol vectors avoid using the production frame writer as
+    // the parser's expected-value source.
+    const pendingFrames = [
+      'sec-isolated-progress/1 pending bootstrap-entered\n',
+      'sec-isolated-progress/1 committed bootstrap-entered\n',
+      'sec-isolated-progress/1 pending loader-entered\n'
+    ].join('');
+    expect(parseSemanticMutationIsolatedProgressTransportBytes(
+      new TextEncoder().encode(pendingFrames)
+    )).toEqual({
+      status: 'valid',
+      trace: {
+        checkpoints: ['bootstrap-entered'],
+        lastCheckpoint: 'bootstrap-entered',
+        pendingCheckpoint: 'loader-entered'
+      }
+    });
+    expect(parseSemanticMutationIsolatedProgressTransportBytes(
+      new TextEncoder().encode('ordinary child stdout\n')
+    )).toEqual({ status: 'protocol-error' });
   });
 });
 
@@ -103,27 +124,6 @@ test('generated bootstrap rejects a moved entrypoint before publishing progress 
 
 
 
-test('progress transport preserves committed and pending checkpoint state and rejects foreign stdout', () => {
-  const committed = [
-    semanticMutationIsolatedProgressFrameText('pending', 'bootstrap-entered'),
-    semanticMutationIsolatedProgressFrameText('committed', 'bootstrap-entered'),
-    semanticMutationIsolatedProgressFrameText('pending', 'loader-entered')
-  ].join('');
-  expect(parseSemanticMutationIsolatedProgressTransportBytes(
-    new TextEncoder().encode(committed)
-  )).toEqual({
-    status: 'valid',
-    trace: {
-      checkpoints: ['bootstrap-entered'],
-      lastCheckpoint: 'bootstrap-entered',
-      pendingCheckpoint: 'loader-entered'
-    }
-  });
-  expect(parseSemanticMutationIsolatedProgressTransportBytes(
-    new TextEncoder().encode('ordinary child stdout\n')
-  )).toEqual({ status: 'protocol-error' });
-});
-
 async function withGeneratedRuntime(run: (root: string, bootstrap: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-isolated-relocation-'));
   await settleWorkspaceCallback(async () => {
@@ -137,6 +137,8 @@ async function withGeneratedRuntime(run: (root: string, bootstrap: string) => Pr
         })],
       [path.join(root, SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH),
         new TextEncoder().encode(
+          `import { writeFile } from 'node:fs/promises';\n` +
+          `await writeFile(${JSON.stringify(pathToFixture(root))}, 'imported');\n` +
           `if (process.cwd() !== ${JSON.stringify(root)}) process.exitCode = 93;\n`
         )]
     ] as const;
