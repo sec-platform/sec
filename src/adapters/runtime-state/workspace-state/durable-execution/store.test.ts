@@ -18,7 +18,12 @@ import {
 } from '../../../../execution/operation/semantic.ts';
 import { inspectNoFollowDirectoryChain } from '../../physical/runtime/physical-no-follow.ts';
 import { createRuntimeStateJournalFileSystem } from '../journal-filesystem.ts';
-import { type DurableExecutionDigest } from './contract.ts';
+import {
+  DurableExecutionContractError,
+  encodeDurableExecutionRecord,
+  parseDurableExecutionRecord,
+  type DurableExecutionDigest
+} from './contract.ts';
 import {
   createDurableExecutionStore,
   createDurableExecutionWriter,
@@ -165,6 +170,34 @@ test('journal lineage derives from a foundation-compiled operation and rejects a
     retryAdmissionReferenceDigest: null
   });
   expect(observation.state).toBe('running');
+
+  // The persisted intent is also the canonical parser fixture. These malformed
+  // variants independently exercise duplicate-key, strict-schema, digest and
+  // byte-canonicality rejection without another test registration.
+  const intent = value.reader.read(identity)!.intent;
+  const encoded = encodeDurableExecutionRecord(intent);
+  expect(parseDurableExecutionRecord(encoded)).toEqual(intent);
+  expect(() => parseDurableExecutionRecord(
+    encoded.replace('"kind":"intent"', '"kind":"intent","\\u006bind":"intent"')
+  )).toThrow('duplicate key');
+  try {
+    parseDurableExecutionRecord(encoded.replace('{', '{"unknown":true,'));
+    throw new Error('expected strict record parsing to fail');
+  } catch (error) {
+    expect(error).toBeInstanceOf(DurableExecutionContractError);
+    expect((error as DurableExecutionContractError).kind).toBe('invalid-record');
+  }
+  const tamperedIntentDigest = intent.intentReferenceDigest === digest('26')
+    ? digest('27') : digest('26');
+  const tampered = encoded.replace(intent.intentReferenceDigest, tamperedIntentDigest);
+  expect(tampered).not.toBe(encoded);
+  expect(() => parseDurableExecutionRecord(tampered))
+    .toThrow(expect.objectContaining({ kind: 'digest-mismatch' }));
+  const noncanonical = JSON.stringify(Object.fromEntries(Object.entries(intent).reverse()));
+  expect(noncanonical).not.toBe(encoded);
+  expect(() => parseDurableExecutionRecord(noncanonical))
+    .toThrow(expect.objectContaining({ kind: 'noncanonical-record' }));
+
   expect(() => value.store.appendInitialAttemptStart({
     ...operation,
     plan: { ...operation.plan }
@@ -211,6 +244,21 @@ test('owner terminal resolution references only an exact owner-issued join recei
   const operation = boundOperation('owner terminal join');
   value.store.createIntent(operation);
   const started = value.store.appendInitialAttemptStart(operation, digest('92'));
+  const providerReceipt = issueProviderSettlementReceipt(operation, {
+    requirementId: 'runtime.journal',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: digest('167')
+  });
+  const providerObservation = value.store.appendProviderSettlement(operation, providerReceipt);
+  const providerRecordDigest = providerObservation.activeAttempt!.providerSettlements[0]!.recordDigest;
+  const duplicateProviderReceipt = issueProviderSettlementReceipt(operation, {
+    requirementId: 'runtime.journal',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: digest('168')
+  });
+  expect(() => value.store.appendProviderSettlement(operation, duplicateProviderReceipt))
+    .toThrow('unique active requirement');
+
   const recovery = recoveryOperation('owner terminal recovery');
   const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
     predecessor: durableExecutionPredecessorAttemptReference(started),
@@ -225,11 +273,12 @@ test('owner terminal resolution references only an exact owner-issued join recei
     ownerTerminalReferenceDigest: digest('86')
   });
   value.store.appendDomainReadback(recovery, recoveredReadback);
-  expect(value.store.appendOwnerTerminalResolution(recovery, join).latestResolution)
-    .toMatchObject({
-      resolutionKind: 'owner-terminal-reference',
-      resolutionReferenceDigest: join.joinReceiptDigest
-    });
+  const resolved = value.store.appendOwnerTerminalResolution(recovery, join);
+  expect(resolved.latestResolution).toMatchObject({
+    resolutionKind: 'owner-terminal-reference',
+    resolutionReferenceDigest: join.joinReceiptDigest,
+    providerSettlementRecordDigests: [providerRecordDigest]
+  });
   expect(value.store.read(durableExecutionJournalIdentity(operation))).toMatchObject({
     state: 'settled', activeAttempt: null
   });
