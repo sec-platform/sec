@@ -356,36 +356,36 @@ test('non-code source ownership and executable import impact remain independentl
     .toEqual(['tests/unit/program-fixture.test.ts', 'tests/unit/value.test.ts']);
 });
 
-test('repository receipts isolate exact source bytes across equal-length mutations', () => {
+test('repository receipts bind equal-length source mutations and unresolved test imports', () => {
   const source = 'src/compiler/virtual-source.ts';
   const selected = 'tests/unit/virtual-source.test.ts';
+  const unresolvedConsumer = 'tests/unit/retired-owner-consumer.test.ts';
   const sources: Record<string, string> = {
     [source]: 'export const value = 1;',
-    [selected]: "import '../../src/compiler/virtual-source.ts';"
+    [selected]: "import '../../src/compiler/virtual-source.ts';",
+    // Keep this missing edge identical in both snapshots so the source-byte
+    // mutation remains the only changing input.
+    [unresolvedConsumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';"
   };
   const initialProvider = sourceProvider(sources);
 
   expect(selectTestsForSources([source], initialProvider).fast).toEqual([selected]);
+  expect(resolveTestImpactSelectionTrustBoundary(initialProvider)).toEqual({
+    selectionResolved: false,
+    unresolvedModuleFiles: [unresolvedConsumer]
+  });
   const previousLength = Buffer.byteLength(sources[source]!);
   sources[source] = 'export const value = 2;';
   expect(Buffer.byteLength(sources[source]!)).toBe(previousLength);
   const mutatedProvider = sourceProvider(sources);
   expect(selectTestsForSources([source], mutatedProvider).fast).toEqual([selected]);
+  expect(resolveTestImpactSelectionTrustBoundary(mutatedProvider)).toEqual({
+    selectionResolved: false,
+    unresolvedModuleFiles: [unresolvedConsumer]
+  });
   expect(mutatedProvider.projection.sourceRevision).not.toBe(initialProvider.projection.sourceRevision);
   expect(mutatedProvider.projection.snapshotDigest).not.toBe(initialProvider.projection.snapshotDigest);
   expect(mutatedProvider.projection.projectionDigest).not.toBe(initialProvider.projection.projectionDigest);
-});
-
-test('deleted local dependency makes selection unresolved', () => {
-  const consumer = 'tests/unit/retired-owner-consumer.test.ts';
-  const provider = sourceProvider({
-    [consumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';"
-  });
-
-  expect(resolveTestImpactSelectionTrustBoundary(provider)).toEqual({
-    selectionResolved: false,
-    unresolvedModuleFiles: [consumer]
-  });
 });
 
 test('imported machine data retains exact consumers for present and missing sources', () => {
