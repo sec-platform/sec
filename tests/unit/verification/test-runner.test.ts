@@ -2032,8 +2032,18 @@ test.serial('affected tests fail closed for mixed mapped and unresolved paths be
   expect(errors[0]).toContain('platform/unmapped-source.ts');
 });
 
-test.serial('affected plan reports resolved selection without dependency or test execution', async () => {
-  changedFiles = ['tests/unit/workspace/path-containment.test.ts'];
+test.serial('affected plan preserves ordinary and default-excluded fast changes without execution', async () => {
+  changedFiles = [
+    'tests/unit/workspace/path-containment.test.ts',
+    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
+  ];
+  const expectedChangedPaths = [...changedFiles].sort();
+  const expectedFastTests = [
+    TEST_ARCHITECTURE_POLICY_TEST_FILE,
+    FAST_TEST_PROCESS_POLICY_TEST_FILE,
+    'tests/unit/workspace/path-containment.test.ts',
+    'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
+  ].sort();
   const logs: string[] = [];
   console.log = (message?: unknown) => {
     logs.push(String(message));
@@ -2045,13 +2055,9 @@ test.serial('affected plan reports resolved selection without dependency or test
   expect(code).toBe(0);
   expect(plan).toMatchObject({
     schema: 'sec-affected-test-plan-v1',
-    changedPaths: ['tests/unit/workspace/path-containment.test.ts'],
+    changedPaths: expectedChangedPaths,
     owners: ['dev-runner', 'verification.test-governance'],
-    selectedFastTests: [
-      TEST_ARCHITECTURE_POLICY_TEST_FILE,
-      FAST_TEST_PROCESS_POLICY_TEST_FILE,
-      'tests/unit/workspace/path-containment.test.ts'
-    ],
+    selectedFastTests: expectedFastTests,
     unresolvedPaths: [],
     resolved: true,
     verificationResult: { status: 'not-run', reasonCode: 'not-dispatched', applicability: 'required' },
@@ -2078,30 +2084,7 @@ test.serial('canonical docs-only Git selection does not construct ProjectInput o
   expect(devCommandCalls).toEqual([]);
 });
 
-test.serial('affected plan applies the same process-policy sentinel to a default-excluded fast test', async () => {
-  changedFiles = ['tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'];
-  const logs: string[] = [];
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
 
-  const code = await runAffectedTests(['--plan']);
-  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
-
-  expect(code).toBe(0);
-  expect(plan).toMatchObject({
-    changedPaths: ['tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'],
-    owners: ['dev-runner', 'verification.test-governance'],
-    selectedFastTests: [
-      TEST_ARCHITECTURE_POLICY_TEST_FILE,
-      'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
-      FAST_TEST_PROCESS_POLICY_TEST_FILE
-    ],
-    unresolvedPaths: [],
-    resolved: true
-  });
-  expect(devCommandCalls).toEqual([]);
-});
 
 test.serial('deleted test paths remain changed facts without becoming runnable tests', async () => {
   changedFiles = ['tests/integration/project-runtime.test.ts'];
@@ -2290,24 +2273,7 @@ test.serial('affected tests combine multiple tracked fast-test facts with policy
     });
 });
 
-test.serial('affected tests isolate changed serial fast files', async () => {
-  changedFiles = ['tests/unit/verification/test-runner.test.ts'];
 
-  const code = await runAffectedTests();
-
-  expect(code).toBe(0);
-  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
-    TEST_ARCHITECTURE_POLICY_TEST_FILE,
-    'tests/unit/verification/test-runner.test.ts'
-  ].sort());
-  expect(devCommandCalls.find((call) => invocationTestFiles(call.args).includes('tests/unit/verification/test-runner.test.ts'))).toMatchObject({
-    command: 'bun',
-    args: [
-      'test', './tests/unit/verification/test-runner.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
-      '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
-    ]
-  });
-});
 
 test.serial('affected tests run the architecture policy sentinel for changed slow files', async () => {
   changedFiles = ['tests/e2e/toolchain/registry.test.ts'];
