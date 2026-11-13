@@ -2013,7 +2013,8 @@ test.serial('affected tests fail closed for mixed mapped and unresolved paths be
   changedFiles = [
     'scripts/release-helper.ts',
     'assets/new.bin',
-    'platform/unmapped-source.ts'
+    'platform/unmapped-source.ts',
+    'catalog/registry/official/ticket.basic/contracts/ticket.yaml'
   ];
   const errors: string[] = [];
   console.error = (message?: unknown) => {
@@ -2030,6 +2031,7 @@ test.serial('affected tests fail closed for mixed mapped and unresolved paths be
   expect(errors[0]).toContain('Affected test ownership is unresolved for changed paths:');
   expect(errors[0]).toContain('assets/new.bin');
   expect(errors[0]).toContain('platform/unmapped-source.ts');
+  expect(errors[0]).toContain('catalog/registry/official/ticket.basic/contracts/ticket.yaml');
 });
 
 test.serial('affected plan selects explicitly changed default-excluded fast files without reviving deleted paths', async () => {
@@ -2202,15 +2204,6 @@ test.serial('affected base ref validation rejects option-like, NUL, and oversize
   commandCalls.length = 0;
   await expect(runAffectedTests(['--plan'])).rejects.toThrow('NUL');
   expect(commandCalls).toEqual([]);
-});
-
-test.serial('affected tests do not fabricate semantic Contract ownership outside the exact fixture tree', async () => {
-  changedFiles = ['catalog/registry/official/ticket.basic/contracts/ticket.yaml'];
-
-  const code = await runAffectedTests();
-
-  expect(code).toBe(1);
-  expect(devCommandCalls).toEqual([]);
 });
 
 test.serial('affected tests combine multiple tracked fast-test facts with policy coverage', async () => {
