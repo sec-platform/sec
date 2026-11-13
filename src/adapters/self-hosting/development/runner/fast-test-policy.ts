@@ -107,10 +107,6 @@ const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
     reason: 'durable-recovery-lifecycle'
   },
   { file: 'tests/integration/workspace/semantic-pipeline-spine.test.ts', reason: 'full-workspace-compile' },
-  {
-    file: 'tests/integration/verification/semantic-projection-consumers.test.ts',
-    reason: 'full-workspace-derived-consumers'
-  },
   { file: 'tests/integration/workspace/workspace-engineering-ir.test.ts', reason: 'full-workspace-ir-build' },
   {
     file: 'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts',
@@ -211,11 +207,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   },
   {
     file: 'tests/integration/workspace/semantic-pipeline-spine.test.ts',
-    reason: 'workspace-mutation',
-    resourceClass: 'independent-process'
-  },
-  {
-    file: 'tests/integration/verification/semantic-projection-consumers.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },

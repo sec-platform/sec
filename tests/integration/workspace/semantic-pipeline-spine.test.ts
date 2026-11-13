@@ -6,18 +6,24 @@ import {
   readPipelineJournal,
   REFERENCE_PIPELINE_TRANSACTION_ID
 } from '../../../src/adapters/compilation/pipeline/journal.ts';
+import { readJson } from '../../../src/adapters/filesystem/files.ts';
 import { readLockFile, saveLock } from "../../../src/adapters/workspace/lock.ts";
 import {
   addBlock,
   compileWorkspace,
+  explainWorkspace,
   initWorkspace
 } from '../../../src/bootstrap/engineering/cli.ts';
 import { copyWorkspaceFixture, createWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
-import { resolveWorkspaceLockPath } from '../../../src/adapters/workspace-context.ts';
+import { resolveWorkspaceArtifactPath, resolveWorkspaceLockPath } from '../../../src/adapters/workspace-context.ts';
+import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummary } from '../../../src/assurance/verification/review/contract/types.ts';
+import type { LockFile } from '../../../src/compiler/contract.ts';
+import type { ExplainGraph } from '../../../src/semantics/projection/explain.ts';
 
-// One immutable ticket authoring baseline for three independent pipeline
-// transactions. Cloning never reuses generated state, write leases, journals,
-// selected pipeline ranges, or actual oracle outcomes.
+// One immutable ticket authoring baseline for independent pipeline scenarios.
+// Cloning never reuses generated state, write leases, journals, selected pipeline
+// ranges, or actual oracle outcomes.
 let ticketSourceTemplate: Promise<string> | undefined;
 function immutableTicketSourceTemplate(): Promise<string> {
   if (ticketSourceTemplate !== undefined) return ticketSourceTemplate;
@@ -61,7 +67,7 @@ async function copyTicketSource(workspaceRoot: string): Promise<void> {
   }
 }
 
-test('Ticket canonical compile binds one validated semantic snapshot to each transaction', async () => {
+test('Ticket pipeline carries one validated semantic snapshot through ExplainGraph and ReviewSummary', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await copyTicketSource(workspaceRoot);
 
@@ -130,11 +136,12 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
     const second = await compileWorkspace(workspaceRoot, {
       source: 'ci',
       from: 'compose',
-      through: 'compose'
+      through: 'lock',
+      verificationLane: 'all'
     });
     const secondSemantic = second.semanticContext!;
 
-    expect(second.completedStages).toEqual(['semantic', 'compose']);
+    expect(second.completedStages).toEqual(['semantic', 'compose', 'verify', 'lock']);
     expect(second.transactionId).not.toBe(first.transactionId);
     expect(secondSemantic.transactionId).toBe(second.transactionId);
     expect(secondSemantic.inputRevision).toBe(firstSemantic.inputRevision);
@@ -147,8 +154,46 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
       semanticRevision: secondSemantic.semanticRevision,
       compilationTransactionId: second.transactionId
     });
+
+    // Carry the real Explain/Review consumer contract on this already-owned
+    // ticket workspace instead of preparing a second full locked workspace.
+    await explainWorkspace(workspaceRoot);
+
+    const artifactPaths = {
+      lock: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock),
+      explainGraph: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph),
+      reviewSummary: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary)
+    };
+    const persistedLock = await readJson<LockFile>(artifactPaths.lock);
+    const semanticViews = persistedLock.semanticViews!;
+    expect(semanticViews).toEqual(secondSemantic.semanticViews);
+    const persistedSharedFactId = semanticViews.views.find((view) => view.viewKind === 'architecture')!
+      .edges.find((edge) =>
+        edge.source === 'operation:ticket:transitionTicketStatus' &&
+        edge.relation === 'MUTATES' &&
+        edge.target === 'state:ticket:ticket-status'
+      )!.references.find((reference) => reference.kind === 'fact')!.ref;
+    expect(persistedSharedFactId).toBeTruthy();
+
+    const graph = await readJson<ExplainGraph>(artifactPaths.explainGraph);
+    const review = await readJson<ReviewSummary>(artifactPaths.reviewSummary);
+    expect(graph.semanticViews).toEqual(semanticViews);
+    expect(new Set(graph.semanticViews?.views.map((view) => view.viewKind))).toEqual(
+      new Set(['architecture', 'scenario', 'state'])
+    );
+    expect(graph.nodes.some((node) =>
+      node.references?.some((reference) =>
+        reference.kind === 'fact' && reference.ref === persistedSharedFactId
+      )
+    )).toBe(true);
+    expect(review.semanticViewSummary).toMatchObject({
+      inputRevision: semanticViews.inputRevision,
+      semanticRevision: semanticViews.semanticRevision,
+      viewKindCounts: { architecture: 1 }
+    });
+    expect(review.semanticViewSummary?.factIds).toContain(persistedSharedFactId);
   }, 'engineering-compiler-semantic-pipeline-ticket-');
-}, 120000);
+}, 300000);
 
 test('reference recompilation keeps a stable binding to its current named transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
