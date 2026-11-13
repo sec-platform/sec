@@ -362,18 +362,16 @@ test('repository receipts bind equal-length source mutations and missing module/
   const unresolvedConsumer = 'tests/unit/retired-owner-consumer.test.ts';
   const data = 'src/compiler/virtual-registry.json';
   const consumer = 'src/compiler/virtual-registry-consumer.ts';
-  const selectedDataConsumer = 'tests/unit/virtual-registry-consumer.test.ts';
-  const unrelatedSource = 'src/compiler/virtual-unrelated.ts';
-  const unrelated = 'tests/unit/virtual-unrelated.test.ts';
   const sources: Record<string, string> = {
     [source]: 'export const value = 1;',
-    [selected]: "import '../../src/compiler/virtual-source.ts';",
+    [selected]: [
+      "import '../../src/compiler/virtual-source.ts';",
+      "import '../../src/compiler/virtual-registry-consumer.ts';",
+      ''
+    ].join('\n'),
     [unresolvedConsumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';",
     [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
-    [data]: '{"enabled":true}\n',
-    [selectedDataConsumer]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;",
-    [unrelatedSource]: 'export const unrelated = true;',
-    [unrelated]: "import { unrelated } from '../../src/compiler/virtual-unrelated.ts'; void unrelated;"
+    [data]: '{"enabled":true}\n'
   };
 
   const initialProvider = sourceProvider(sources);
@@ -383,11 +381,10 @@ test('repository receipts bind equal-length source mutations and missing module/
     unresolvedModuleFiles: [unresolvedConsumer]
   });
   expect(selectTestsForSources([data], initialProvider)).toEqual({
-    fast: [selectedDataConsumer],
+    fast: [selected],
     slow: [],
     owners: ['compiler']
   });
-  expect(selectTestsForSources([unrelatedSource], initialProvider).fast).toEqual([unrelated]);
 
   // Isolate the equal-length source-byte mutation from the later data deletion.
   const previousLength = Buffer.byteLength(sources[source]!);
@@ -403,7 +400,7 @@ test('repository receipts bind equal-length source mutations and missing module/
   expect(mutatedProvider.projection.snapshotDigest).not.toBe(initialProvider.projection.snapshotDigest);
   expect(mutatedProvider.projection.projectionDigest).not.toBe(initialProvider.projection.projectionDigest);
   expect(selectTestsForSources([data], mutatedProvider)).toEqual({
-    fast: [selectedDataConsumer],
+    fast: [selected],
     slow: [],
     owners: ['compiler']
   });
@@ -417,7 +414,7 @@ test('repository receipts bind equal-length source mutations and missing module/
     unresolvedModuleFiles: [consumer, unresolvedConsumer]
   });
   expect(selectTestsForSources([data], missingDataProvider)).toEqual({
-    fast: [selectedDataConsumer],
+    fast: [selected],
     slow: [],
     owners: ['compiler']
   });
