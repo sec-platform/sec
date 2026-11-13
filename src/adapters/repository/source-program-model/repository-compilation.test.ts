@@ -425,9 +425,12 @@ const incrementalFixtureBase = {
   'src/example/unrelated.ts': 'export const stable = 7;\n'
 };
 const addedTestSource = "import { expect, test } from 'bun:test'; import { value } from '../src/example/helper.ts'; test('value', () => expect(value).toBe(1));\n";
+  // Lower-level TypeScript incremental and persisted-cache tests own the
+  // shared invalidation matrix. Retain only upper-layer cases that add a
+  // distinct repository projection or live-baseline context observation.
 const incrementalScenarios: readonly Readonly<{
   name: string; before?: Readonly<Record<string, string>>;
-  after: Readonly<Record<string, string>>; remove?: string; mode: 'incremental' | 'full';
+  after: Readonly<Record<string, string>>; mode: 'incremental' | 'full';
 }>[] = [
   { name: 'isolated new test', after: { 'tests/added.test.ts': addedTestSource }, mode: 'incremental' },
   // One helper-byte change must exercise the direct and star re-export consumers.
@@ -437,15 +440,10 @@ const incrementalScenarios: readonly Readonly<{
   }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
   { name: 'formerly unresolved import', before: { 'src/example/consumer.ts': "import { value } from './late.ts'; export const result = value;\n" }, after: { 'src/example/late.ts': 'export const value = 2;\n' }, mode: 'full' },
   { name: 'global augmentation', after: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, mode: 'full' },
-  { name: 'added module with changed global input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': 'export const value = 1; declare global { interface Window { value: number } }\n' }, mode: 'full' },
   { name: 'added module with changed triple-slash input', after: { 'tests/added.test.ts': addedTestSource, 'src/example/helper.ts': '/// <reference lib="es2022" />\nexport const value = 1;\n' }, mode: 'full' },
   { name: 'unchanged global dependency', before: { 'src/example/global.ts': 'export {}; declare global { const GLOBAL: number; }\n', 'src/example/helper.ts': 'export const value = GLOBAL;\n' }, after: { 'src/example/helper.ts': 'export const value = GLOBAL + 1;\n' }, mode: 'full' },
-  { name: 'unchanged triple-slash reference', before: { 'src/example/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
   { name: 'tsconfig change', after: { 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['src/example/**/*.ts', 'tests/**/*.ts'] }) }, mode: 'full' },
-  { name: 'unchanged unknown frontier', before: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'full' },
   { name: 'unknown dynamic frontier', after: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, mode: 'full' },
-  { name: 'module deletion', remove: 'src/example/unrelated.ts', after: {}, mode: 'full' },
-  { name: 'resolution candidate shadowing', before: { 'src/example/choice/index.ts': 'export const choice = 1;\n', 'src/example/consumer.ts': "import { choice } from './choice'; export const result = choice;\n" }, after: { 'src/example/choice.ts': 'export const choice = 2;\n' }, mode: 'full' }
 ];
 
 // Unchanged-source predecessors reuse one immutable issued generation;
@@ -455,7 +453,6 @@ for (const scenario of incrementalScenarios) {
   test(`live baseline incremental/full facts agree for ${scenario.name}`, () => {
     const before = { ...incrementalFixtureBase, ...scenario.before };
     const after: Record<string, string> = { ...before, ...scenario.after };
-    if (scenario.remove !== undefined) delete after[scenario.remove];
     const currentInput = incrementalFixture(after, `${scenario.name}:after`);
     const baseline = scenario.before === undefined
       ? sharedIncrementalBaseline ??= compileVirtualRepositorySourceProgramCompilation(
