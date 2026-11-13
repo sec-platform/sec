@@ -2049,7 +2049,7 @@ test.serial('affected plan selects explicitly changed default-excluded fast file
   };
 
   const code = await runAffectedTests(['--plan']);
-  const plan = JSON.parse(logs.join('\\n')) as Record<string, unknown>;
+  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
   expect(code).toBe(0);
   expect(plan).toMatchObject({
