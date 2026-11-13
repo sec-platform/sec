@@ -356,24 +356,40 @@ test('non-code source ownership and executable import impact remain independentl
     .toEqual(['tests/unit/program-fixture.test.ts', 'tests/unit/value.test.ts']);
 });
 
-test('repository receipts bind equal-length source mutations and unresolved test imports', () => {
+test('repository receipts bind equal-length source mutations and missing module/data edges', () => {
   const source = 'src/compiler/virtual-source.ts';
   const selected = 'tests/unit/virtual-source.test.ts';
   const unresolvedConsumer = 'tests/unit/retired-owner-consumer.test.ts';
+  const data = 'src/compiler/virtual-registry.json';
+  const consumer = 'src/compiler/virtual-registry-consumer.ts';
+  const selectedDataConsumer = 'tests/unit/virtual-registry-consumer.test.ts';
+  const unrelatedSource = 'src/compiler/virtual-unrelated.ts';
+  const unrelated = 'tests/unit/virtual-unrelated.test.ts';
   const sources: Record<string, string> = {
     [source]: 'export const value = 1;',
     [selected]: "import '../../src/compiler/virtual-source.ts';",
-    // Keep this missing edge identical in both snapshots so the source-byte
-    // mutation remains the only changing input.
-    [unresolvedConsumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';"
+    [unresolvedConsumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';",
+    [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
+    [data]: '{"enabled":true}\n',
+    [selectedDataConsumer]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;",
+    [unrelatedSource]: 'export const unrelated = true;',
+    [unrelated]: "import { unrelated } from '../../src/compiler/virtual-unrelated.ts'; void unrelated;"
   };
-  const initialProvider = sourceProvider(sources);
 
+  const initialProvider = sourceProvider(sources);
   expect(selectTestsForSources([source], initialProvider).fast).toEqual([selected]);
   expect(resolveTestImpactSelectionTrustBoundary(initialProvider)).toEqual({
     selectionResolved: false,
     unresolvedModuleFiles: [unresolvedConsumer]
   });
+  expect(selectTestsForSources([data], initialProvider)).toEqual({
+    fast: [selectedDataConsumer],
+    slow: [],
+    owners: ['compiler']
+  });
+  expect(selectTestsForSources([unrelatedSource], initialProvider).fast).toEqual([unrelated]);
+
+  // Isolate the equal-length source-byte mutation from the later data deletion.
   const previousLength = Buffer.byteLength(sources[source]!);
   sources[source] = 'export const value = 2;';
   expect(Buffer.byteLength(sources[source]!)).toBe(previousLength);
@@ -386,33 +402,23 @@ test('repository receipts bind equal-length source mutations and unresolved test
   expect(mutatedProvider.projection.sourceRevision).not.toBe(initialProvider.projection.sourceRevision);
   expect(mutatedProvider.projection.snapshotDigest).not.toBe(initialProvider.projection.snapshotDigest);
   expect(mutatedProvider.projection.projectionDigest).not.toBe(initialProvider.projection.projectionDigest);
-});
+  expect(selectTestsForSources([data], mutatedProvider)).toEqual({
+    fast: [selectedDataConsumer],
+    slow: [],
+    owners: ['compiler']
+  });
 
-test('imported machine data retains exact consumers for present and missing sources', () => {
-  const data = 'src/compiler/virtual-registry.json';
-  const consumer = 'src/compiler/virtual-registry-consumer.ts';
-  const selected = 'tests/unit/virtual-registry-consumer.test.ts';
-  const unrelated = 'tests/unit/virtual-unrelated.test.ts';
-  const sources = {
-    [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
-    [selected]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;",
-    'src/compiler/virtual-unrelated.ts': 'export const unrelated = true;',
-    [unrelated]: "import { unrelated } from '../../src/compiler/virtual-unrelated.ts'; void unrelated;"
-  };
-
-  for (const dataPresent of [true, false]) {
-    const provider = sourceProvider({
-      ...sources,
-      ...(dataPresent ? { [data]: '{"enabled":true}\n' } : {})
-    });
-    expect(resolveTestImpactSelectionTrustBoundary(provider)).toEqual({
-      selectionResolved: dataPresent,
-      unresolvedModuleFiles: dataPresent ? [] : [consumer]
-    });
-    expect(selectTestsForSources([data], provider)).toEqual({
-      fast: [selected],
-      slow: [],
-      owners: ['compiler']
-    });
-  }
+  // The only change from the second receipt is removal of the imported data blob.
+  const missingDataSources: Record<string, string> = { ...sources };
+  delete missingDataSources[data];
+  const missingDataProvider = sourceProvider(missingDataSources);
+  expect(resolveTestImpactSelectionTrustBoundary(missingDataProvider)).toEqual({
+    selectionResolved: false,
+    unresolvedModuleFiles: [consumer, unresolvedConsumer]
+  });
+  expect(selectTestsForSources([data], missingDataProvider)).toEqual({
+    fast: [selectedDataConsumer],
+    slow: [],
+    owners: ['compiler']
+  });
 });
