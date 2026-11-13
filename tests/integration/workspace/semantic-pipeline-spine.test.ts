@@ -67,7 +67,7 @@ async function copyTicketSource(workspaceRoot: string): Promise<void> {
   }
 }
 
-test('Ticket pipeline carries one validated semantic snapshot through ExplainGraph and ReviewSummary', async () => {
+test('Ticket canonical compile binds one validated semantic snapshot to each transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await copyTicketSource(workspaceRoot);
 
@@ -136,12 +136,11 @@ test('Ticket pipeline carries one validated semantic snapshot through ExplainGra
     const second = await compileWorkspace(workspaceRoot, {
       source: 'ci',
       from: 'compose',
-      through: 'lock',
-      verificationLane: 'all'
+      through: 'compose'
     });
     const secondSemantic = second.semanticContext!;
 
-    expect(second.completedStages).toEqual(['semantic', 'compose', 'verify', 'lock']);
+    expect(second.completedStages).toEqual(['semantic', 'compose']);
     expect(second.transactionId).not.toBe(first.transactionId);
     expect(secondSemantic.transactionId).toBe(second.transactionId);
     expect(secondSemantic.inputRevision).toBe(firstSemantic.inputRevision);
@@ -155,8 +154,17 @@ test('Ticket pipeline carries one validated semantic snapshot through ExplainGra
       compilationTransactionId: second.transactionId
     });
 
-    // Carry the real Explain/Review consumer contract on this already-owned
-    // ticket workspace instead of preparing a second full locked workspace.
+  }, 'engineering-compiler-semantic-pipeline-ticket-');
+}, 120000);
+
+test('ExplainGraph and ReviewSummary consume one canonical SemanticViewSet identity', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await copyTicketSource(workspaceRoot);
+    const locked = await compileWorkspace(workspaceRoot, {
+      source: 'api',
+      through: 'lock',
+      verificationLane: 'all'
+    });
     await explainWorkspace(workspaceRoot);
 
     const artifactPaths = {
@@ -166,14 +174,14 @@ test('Ticket pipeline carries one validated semantic snapshot through ExplainGra
     };
     const persistedLock = await readJson<LockFile>(artifactPaths.lock);
     const semanticViews = persistedLock.semanticViews!;
-    expect(semanticViews).toEqual(secondSemantic.semanticViews);
-    const persistedSharedFactId = semanticViews.views.find((view) => view.viewKind === 'architecture')!
+    expect(semanticViews).toEqual(locked.lock.semanticViews);
+    const sharedFactId = semanticViews.views.find((view) => view.viewKind === 'architecture')!
       .edges.find((edge) =>
         edge.source === 'operation:ticket:transitionTicketStatus' &&
         edge.relation === 'MUTATES' &&
         edge.target === 'state:ticket:ticket-status'
       )!.references.find((reference) => reference.kind === 'fact')!.ref;
-    expect(persistedSharedFactId).toBeTruthy();
+    expect(sharedFactId).toBeTruthy();
 
     const graph = await readJson<ExplainGraph>(artifactPaths.explainGraph);
     const review = await readJson<ReviewSummary>(artifactPaths.reviewSummary);
@@ -183,7 +191,7 @@ test('Ticket pipeline carries one validated semantic snapshot through ExplainGra
     );
     expect(graph.nodes.some((node) =>
       node.references?.some((reference) =>
-        reference.kind === 'fact' && reference.ref === persistedSharedFactId
+        reference.kind === 'fact' && reference.ref === sharedFactId
       )
     )).toBe(true);
     expect(review.semanticViewSummary).toMatchObject({
@@ -191,9 +199,9 @@ test('Ticket pipeline carries one validated semantic snapshot through ExplainGra
       semanticRevision: semanticViews.semanticRevision,
       viewKindCounts: { architecture: 1 }
     });
-    expect(review.semanticViewSummary?.factIds).toContain(persistedSharedFactId);
-  }, 'engineering-compiler-semantic-pipeline-ticket-');
-}, 300000);
+    expect(review.semanticViewSummary?.factIds).toContain(sharedFactId);
+  }, 'semantic-projection-consumers-');
+}, 180000);
 
 test('reference recompilation keeps a stable binding to its current named transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
