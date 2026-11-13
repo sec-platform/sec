@@ -9,7 +9,8 @@ import {
 } from './typescript-fact-shards.ts';
 import {
   compileTypeScriptSourceProgramModelIncremental,
-  releaseTypeScriptSourceProgramWorkspace
+  releaseTypeScriptSourceProgramWorkspace,
+  sourceProgramTypeScriptCompilerIdentity
 } from './typescript.ts';
 import { sourceInput } from './test/typescript-model-input.ts';
 
@@ -108,6 +109,31 @@ test('foreign shard objects and persisted bytes cannot stand in for a canonical 
     assert.throws(() => assembleTypeScriptSourceProgramModel({ sourceRevision: 'snapshot', compilerRevision: digest,
       provider, shards: [foreign] }));
   }
+
+  const identity = sourceProgramTypeScriptCompilerIdentity();
+  const foreignCompilerRevision = sha256({ fixture: 'independent-foreign-compiler-revision' });
+  const foreignSourceDigest = rawSha256('export {};');
+  assert.notEqual(identity.compilerRevision, foreignCompilerRevision);
+  const foreignCompilerShard = compileTypeScriptSourceProgramFactShard({
+    compilerRevision: foreignCompilerRevision,
+    providerRevision: identity.providerRevision,
+    rawFileDigest: foreignSourceDigest,
+    moduleDigest: sha256(null),
+    semanticDependencyScope: 'module-scoped',
+    facts: {
+      path: 'src/a.ts',
+      file: { path: 'src/a.ts', contentDigest: foreignSourceDigest, moduleId: null,
+        surface: 'production', semanticKind: 'executable', semanticObservationClass: 'derived' },
+      declarations: [], references: [], returnProvenances: [], literals: [],
+      entrypoints: [], capabilities: [], unknowns: []
+    }
+  });
+  assert.throws(() => assembleTypeScriptSourceProgramModel({
+    sourceRevision: foreignSourceDigest,
+    compilerRevision: identity.compilerRevision,
+    provider: identity.provider,
+    shards: [foreignCompilerShard]
+  }), /incompatible fact shards/);
 });
 
 test('empty observed literals remain canonical facts without weakening structural rejection', () => {

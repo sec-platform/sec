@@ -345,3 +345,32 @@ test('workspace-signed incremental performance observation remains clean-compile
     releaseTypeScriptSourceProgramWorkspace();
   }
 });
+
+test('incomplete module-loader observations recover on the next source generation', () => {
+  try {
+    const malformed = sourceInput({
+      'src/incomplete-dynamic.ts': 'void import();',
+      'src/incomplete-await.ts': 'const { value } = await import();',
+      'src/incomplete-require.ts': 'export function run() { return require(); }'
+    });
+    const first = compileTypeScriptSourceProgramModelIncremental(malformed, null);
+    for (const file of malformed.files) {
+      expect(first.model.unknowns.some(({ path, code }) =>
+        path === file.path && code === 'dynamic-module-unresolved')).toBe(true);
+      expect(first.model.references.some(({ path, kind }) =>
+        path === file.path && kind === 'import')).toBe(false);
+    }
+    const recovered = sourceInput({
+      'src/incomplete-dynamic.ts': 'export const readyDynamic = 1;',
+      'src/incomplete-await.ts': 'export const readyAwait = 1;',
+      'src/incomplete-require.ts': 'export const readyRequire = 1;'
+    });
+    const next = compileTypeScriptSourceProgramModelIncremental(recovered, first.state);
+    expect(next.model.unknowns).toEqual([]);
+    expect(next.model.declarations.map(({ name }) => name).sort()).toEqual([
+      'readyAwait', 'readyDynamic', 'readyRequire'
+    ]);
+  } finally {
+    releaseTypeScriptSourceProgramWorkspace();
+  }
+});

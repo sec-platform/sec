@@ -1,9 +1,12 @@
 import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { assembleRepositoryModuleGraph as assemble, resolveRepositoryModuleImportCandidates as candidates } from './module-graph.ts';
 import { compileSourceProgramRepositoryModuleGraph } from './source-program-module-graph.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
+import { sourceInput } from './test/typescript-model-input.ts';
+import { compileTypeScriptSourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from './typescript.ts';
 
 const workflowPath = '.github/workflows/embedded-program.test.yml';
 const repeatedWorkflowImport = [
@@ -139,3 +142,71 @@ test('lexical resolution retains ordered candidates, exact first targets and mis
     }
   }
 });
+
+test('Source Program model and repository graph share the canonical module-loader identity', () => {
+  type ModuleImportCase = Readonly<{
+    name: string;
+    source: string;
+    imports: readonly { kind: string; specifier: string; typeOnly: boolean }[];
+    unresolved: boolean;
+  }>;
+  const cases = JSON.parse(readFileSync(
+    new URL('./typescript-module-import-cases.json', import.meta.url), 'utf8'
+  )) as readonly ModuleImportCase[];
+  const select = (name: string): ModuleImportCase => {
+    const item = cases.find((candidate) => candidate.name === name);
+    if (item === undefined) throw new Error('Missing canonical module import case: ' + name);
+    return item;
+  };
+  // The exhaustive syntax/emit matrix remains in typescript-module-imports.test.ts.
+  // This small upper-layer sample checks only the distinct model/graph projection.
+  const selected: readonly ModuleImportCase[] = [
+    { name: 'ordinary zero-argument function', source: 'function require() {} require();',
+      imports: [], unresolved: false },
+    select('ordinary same-named arrow'),
+    { name: 'ordinary same-named binding', source: "const require = () => 1; require('./b.ts');",
+      imports: [], unresolved: false },
+    select('immutable alias chain'),
+    { name: 'computed alias', source: 'const load = require; load(target);',
+      imports: [], unresolved: true },
+    select('dynamic literal'),
+    select('conditional loader identity remains unknown')
+  ];
+  const sources = new Map<string, string>([['src/b.ts', 'export const value = 1;\n']]);
+  selected.forEach((item, index) => {
+    // Separate ES modules retain each case's lexical binding without allowing
+    // one script's global declaration to capture another case's require.
+    sources.set('src/loader-' + index + '.ts', item.source + '\nexport {};\n');
+  });
+  const input = sourceInput(Object.fromEntries(sources));
+  try {
+    const model = compileTypeScriptSourceProgramModel(input);
+    const graph = compileSourceProgramRepositoryModuleGraph({
+      files: input.files.map(({ path }) => path),
+      readSource: (path) => sources.get(path) ?? null
+    });
+    for (const [index, item] of selected.entries()) {
+      const path = 'src/loader-' + index + '.ts';
+      const hasRuntimeDependency = item.imports.some(({ specifier, typeOnly }) =>
+        specifier === './b.ts' && !typeOnly);
+      const references = model.references.filter((reference) =>
+        reference.path === path && reference.kind === 'import' && reference.targetPath === 'src/b.ts');
+      assert.equal(references.length, hasRuntimeDependency ? 1 : 0, item.name);
+      for (const reference of references) assert.equal(reference.moduleSpecifier, './b.ts', item.name);
+      assert.deepEqual(graph.directRuntimeDependencies(path),
+        hasRuntimeDependency ? ['src/b.ts'] : [], item.name);
+      assert.equal(model.unknowns.some(({ path: from, code }) =>
+        from === path && code === 'dynamic-module-unresolved'), item.unresolved, item.name);
+      assert.deepEqual(graph.unresolvedFiles.filter((from) => from === path),
+        item.unresolved ? [path] : [], item.name);
+      if (item.name === 'ordinary zero-argument function') {
+        assert.deepEqual(model.unknowns.filter(({ path: from }) => from === path), []);
+        assert.ok(model.references.some(({ path: from, kind, name }) =>
+          from === path && kind === 'call' && name === 'require'));
+      }
+    }
+  } finally {
+    releaseTypeScriptSourceProgramWorkspace();
+  }
+});
+
