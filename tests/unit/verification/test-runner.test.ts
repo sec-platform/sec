@@ -2032,16 +2032,15 @@ test.serial('affected tests fail closed for mixed mapped and unresolved paths be
   expect(errors[0]).toContain('platform/unmapped-source.ts');
 });
 
-test.serial('affected plan preserves ordinary and default-excluded fast changes without execution', async () => {
+test.serial('affected plan selects explicitly changed default-excluded fast files without reviving deleted paths', async () => {
   changedFiles = [
-    'tests/unit/workspace/path-containment.test.ts',
+    'tests/integration/project-runtime.test.ts',
     'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
   ];
   const expectedChangedPaths = [...changedFiles].sort();
   const expectedFastTests = [
     TEST_ARCHITECTURE_POLICY_TEST_FILE,
     FAST_TEST_PROCESS_POLICY_TEST_FILE,
-    'tests/unit/workspace/path-containment.test.ts',
     'tests/unit/verification/semantic-mutation-isolated-child-fence.test.ts'
   ].sort();
   const logs: string[] = [];
@@ -2050,7 +2049,7 @@ test.serial('affected plan preserves ordinary and default-excluded fast changes 
   };
 
   const code = await runAffectedTests(['--plan']);
-  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+  const plan = JSON.parse(logs.join('\\n')) as Record<string, unknown>;
 
   expect(code).toBe(0);
   expect(plan).toMatchObject({
@@ -2058,6 +2057,7 @@ test.serial('affected plan preserves ordinary and default-excluded fast changes 
     changedPaths: expectedChangedPaths,
     owners: ['dev-runner', 'verification.test-governance'],
     selectedFastTests: expectedFastTests,
+    selectedSlowTests: [],
     unresolvedPaths: [],
     resolved: true,
     verificationResult: { status: 'not-run', reasonCode: 'not-dispatched', applicability: 'required' },
@@ -2085,32 +2085,6 @@ test.serial('canonical docs-only Git selection does not construct ProjectInput o
 });
 
 
-
-test.serial('deleted test paths remain changed facts without becoming runnable tests', async () => {
-  changedFiles = ['tests/integration/project-runtime.test.ts'];
-  const logs: string[] = [];
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
-
-  const code = await runAffectedTests(['--plan']);
-  const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
-
-  expect(code).toBe(0);
-  expect(plan).toMatchObject({
-    schema: 'sec-affected-test-plan-v1',
-    changedPaths: ['tests/integration/project-runtime.test.ts'],
-    owners: ['dev-runner', 'verification.test-governance'],
-    selectedFastTests: [
-      TEST_ARCHITECTURE_POLICY_TEST_FILE,
-      FAST_TEST_PROCESS_POLICY_TEST_FILE
-    ],
-    selectedSlowTests: [],
-    unresolvedPaths: [],
-    resolved: true
-  });
-  expect(devCommandCalls).toEqual([]);
-});
 
 test.serial('resolved affected plan executes only after its final Git revalidation', async () => {
   changedFiles = ['tests/unit/workspace/path-containment.test.ts'];
@@ -2242,13 +2216,14 @@ test.serial('affected tests do not fabricate semantic Contract ownership outside
 test.serial('affected tests combine multiple tracked fast-test facts with policy coverage', async () => {
   changedFiles = [
     'tests/contract/cli/usage.test.ts',
-    'tests/unit/workspace/path-containment.test.ts'
+    'tests/unit/workspace/path-containment.test.ts',
+    'tests/unit/verification/test-runner.test.ts'
   ];
 
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toHaveLength(4);
+  expect(devCommandCalls).toHaveLength(5);
   const concurrentInvocation = devCommandCalls.find((call) => (
     Array.isArray(call.args) && invocationTestFiles(call.args).includes('tests/unit/workspace/path-containment.test.ts')
   ));
@@ -2260,7 +2235,8 @@ test.serial('affected tests combine multiple tracked fast-test facts with policy
     FAST_TEST_PROCESS_POLICY_TEST_FILE,
     TEST_ARCHITECTURE_POLICY_TEST_FILE,
     'tests/contract/cli/usage.test.ts',
-    'tests/unit/workspace/path-containment.test.ts'
+    'tests/unit/workspace/path-containment.test.ts',
+    'tests/unit/verification/test-runner.test.ts'
   ].sort());
   expect(devCommandCalls.every((call) => invocationTestFiles(call.args).length === 1)).toBe(true);
   expect(devCommandCalls.every((call) => call.args[0] === 'test')).toBe(true);
@@ -2271,9 +2247,13 @@ test.serial('affected tests combine multiple tracked fast-test facts with policy
       args: ['test', `./${FAST_TEST_PROCESS_POLICY_TEST_FILE}`, ...DEFAULT_MANAGED_INNER_ARGS,
         '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
     });
+  expect(devCommandCalls.find((call) => invocationTestFiles(call.args).includes('tests/unit/verification/test-runner.test.ts')))
+    .toMatchObject({
+      command: 'bun',
+      args: ['test', './tests/unit/verification/test-runner.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
+        '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
+    });
 });
-
-
 
 test.serial('affected tests run the architecture policy sentinel for changed slow files', async () => {
   changedFiles = ['tests/e2e/toolchain/registry.test.ts'];
