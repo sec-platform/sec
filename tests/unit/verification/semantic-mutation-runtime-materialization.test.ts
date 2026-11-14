@@ -68,45 +68,44 @@ test('runtime materialization scheduler starts exactly eight canonical items at 
   expect(maxInFlight).toBe(8);
 });
 
-test('runtime materialization scheduler reports the lowest canonical rejection after settlement without starting a later batch', async () => {
+test('runtime materialization scheduler settles mixed sync and async failures, reports the lowest canonical error, and stops before the next batch', async () => {
   const releaseLowerFailure = deferred();
-  const started: number[] = [];
-  const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 16 }, (_, index) => index),
-    async (_item, canonicalIndex) => {
-      started.push(canonicalIndex);
-      if (canonicalIndex === 2) {
-        await releaseLowerFailure.promise;
-        throw new Error('canonical failure 2');
-      }
-      if (canonicalIndex === 6) throw new Error('canonical failure 6');
-      return canonicalIndex;
-    }
-  );
-
-  releaseLowerFailure.resolve();
-  await expect(execution).rejects.toThrow('canonical failure 2');
-  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-});
-
-test('runtime materialization scheduler absorbs synchronous throw and settles every started batch item', async () => {
+  const synchronousFailureStarted = deferred();
   const started: number[] = [];
   const settled: number[] = [];
   const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 8 }, (_, index) => index),
+    Array.from({ length: 16 }, (_, index) => index),
     (_item, canonicalIndex) => {
       started.push(canonicalIndex);
-      if (canonicalIndex === 2) throw new Error('synchronous canonical failure 2');
-      return Promise.resolve().then(() => {
+      if (canonicalIndex === 6) {
         settled.push(canonicalIndex);
-        return canonicalIndex;
+        synchronousFailureStarted.resolve();
+        throw new Error('synchronous canonical failure 6');
+      }
+      return Promise.resolve().then(async () => {
+        try {
+          if (canonicalIndex === 2) {
+            await releaseLowerFailure.promise;
+            throw new Error('canonical failure 2');
+          }
+          return canonicalIndex;
+        } finally {
+          settled.push(canonicalIndex);
+        }
       });
     }
   );
 
-  await expect(execution).rejects.toThrow('synchronous canonical failure 2');
-  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-  expect(settled).toEqual([0, 1, 3, 4, 5, 6, 7]);
+  try {
+    await synchronousFailureStarted.promise;
+    releaseLowerFailure.resolve();
+    await expect(execution).rejects.toThrow('canonical failure 2');
+    expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(settled.sort((left, right) => left - right)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  } finally {
+    releaseLowerFailure.resolve();
+    await Promise.allSettled([execution]);
+  }
 });
 
 test('runtime materialization scheduler stops before the next batch when its boundary fence is lost', async () => {
