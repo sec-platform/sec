@@ -565,6 +565,49 @@ test('SM-3 rejected terminals are immutable, ordered, non-destructive, and proje
     }))
       .rejects.toThrow('completion receipt');
     expect(events.filter(({ kind }) => kind === 'terminal-order-scan')).toHaveLength(0);
+
+    const recoveryWorkspace = path.join(workspaceRoot, 'recovery-view');
+    await mkdir(recoveryWorkspace, { recursive: true });
+    const recoveryDraftValue = recoveryDraft('request:public-recovery-view');
+    const recoveryRoot = semanticMutationTransactionRoot(
+      recoveryWorkspace,
+      recoveryDraftValue.requestIdentityDigest
+    );
+    const recoveryPrepared = await appendSemanticMutationRecoveryRecord(
+      recoveryRoot,
+      recoveryDraftValue,
+      allowCommit
+    );
+    const recoveryResult = recoveryRequiredResult(recoveryDraftValue);
+    await appendSemanticMutationRecoveryRecord(
+      recoveryRoot,
+      nextDraft(recoveryPrepared, 'recovery-required', {
+        result: recoveryResult,
+        recoveryState: 'concurrent-write',
+        diagnostics: recoveryResult.diagnostics
+      }),
+      allowCommit
+    );
+    const recoveryOutcome = await recoverSemanticMutationWorkspace(recoveryWorkspace);
+    expect(recoveryOutcome.status).toBe('recovery-required');
+    if (recoveryOutcome.status !== 'recovery-required') {
+      throw new Error(JSON.stringify(recoveryOutcome));
+    }
+    expect(recoveryOutcome.record).toMatchObject({
+      formatRevision: 'semantic-mutation-request-record-view-v1',
+      recordKind: 'transaction',
+      state: 'recovery-required',
+      recoveryState: 'concurrent-write',
+      result: { status: 'recovery-required' }
+    });
+    expect(Object.keys(recoveryOutcome.record)).not.toContain('request');
+    expect(Object.keys(recoveryOutcome.record)).not.toContain('authorization');
+    expect(Object.keys(recoveryOutcome.record)).not.toContain('plan');
+    expect(Object.keys(recoveryOutcome.record)).not.toContain('relativePath');
+    expect(Object.keys(recoveryOutcome.record)).not.toContain('beforeByteDigest');
+    expect(Object.keys(recoveryOutcome.record)).not.toContain('committedByteDigest');
+    expect(JSON.stringify(recoveryOutcome.record)).not.toContain('snapshot');
+    expect(Object.isFrozen(recoveryOutcome.record)).toBe(true);
   }, 'engineering-compiler-sm3-rejected-terminal-');
 });
 
@@ -735,42 +778,6 @@ test('SM-3 terminal allocator requires and advances one durable constant-I/O hea
     )).rejects.toThrow();
     expect(await readFile(collisionPath, 'utf8')).toBe('collision-sentinel');
   }, 'engineering-compiler-sm3-terminal-order-collision-');
-});
-
-test('SM-3 public workspace recovery redacts its durable recovery-required record', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const draft = recoveryDraft();
-    const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
-    const prepared = await appendSemanticMutationRecoveryRecord(transactionRoot, draft, allowCommit);
-    const result = recoveryRequiredResult(draft);
-    await appendSemanticMutationRecoveryRecord(
-      transactionRoot,
-      nextDraft(prepared, 'recovery-required', {
-        result,
-        recoveryState: 'concurrent-write',
-        diagnostics: result.diagnostics
-      }),
-      allowCommit
-    );
-
-    const outcome = await recoverSemanticMutationWorkspace(workspaceRoot);
-    expect(outcome.status).toBe('recovery-required');
-    if (outcome.status !== 'recovery-required') throw new Error(JSON.stringify(outcome));
-    expect(outcome.record).toMatchObject({
-      formatRevision: 'semantic-mutation-request-record-view-v1',
-      recordKind: 'transaction',
-      state: 'recovery-required',
-      result: { status: 'recovery-required' }
-    });
-    expect(Object.keys(outcome.record)).not.toContain('request');
-    expect(Object.keys(outcome.record)).not.toContain('authorization');
-    expect(Object.keys(outcome.record)).not.toContain('plan');
-    expect(Object.keys(outcome.record)).not.toContain('relativePath');
-    expect(Object.keys(outcome.record)).not.toContain('beforeByteDigest');
-    expect(Object.keys(outcome.record)).not.toContain('committedByteDigest');
-    expect(JSON.stringify(outcome.record)).not.toContain('snapshot');
-    expect(Object.isFrozen(outcome.record)).toBe(true);
-  }, 'engineering-compiler-sm3-public-recovery-view-');
 });
 
 test('SM-3 recovery fails closed before mutating either of multiple unfinished transactions', async () => {
