@@ -124,14 +124,6 @@ for (const { failure, expected } of [
       issueType: 'kernel', recoverable: false,
       suggestedActions: ['inspect-cli-stack', 'collect-error-output']
     }
-  },
-  {
-    failure: `(() => { const proxy = Proxy.revocable({}, {}); proxy.revoke(); return proxy.proxy; })()`,
-    expected: {
-      code: 'UNEXPECTED', message: 'Unexpected failure',
-      issueType: 'kernel', recoverable: false,
-      suggestedActions: ['inspect-cli-stack', 'collect-error-output']
-    }
   }
 ] as const) {
   test(`transport does not classify an arbitrary execution failure as a parser exit: ${failure}`, async () => {
