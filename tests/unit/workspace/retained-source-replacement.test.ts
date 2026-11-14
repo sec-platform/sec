@@ -73,9 +73,12 @@ async function fixture(run: (value: {
   });
 }
 
-test.skipIf(!supported)('retained replacement snapshots caller bytes before its commit fence, publishes and restores exact bytes without temporary residue', async () => {
+test.skipIf(!supported)('retained replacement snapshots caller bytes, preserves native metadata, and restores exact bytes without temporary residue', async () => {
   await fixture(async ({ target, sourceRoot, replace }) => {
     const initial = statSync(target, { bigint: true }).ino;
+    const windowsAttributes = { readOnly: true, hidden: true, system: true, archive: true };
+    if (process.platform === 'linux') chmodSync(target, 0o444);
+    else await applySemanticMutationWindowsFileAttributes(target, windowsAttributes);
     const mutable = Buffer.from(successor);
     await replace(undefined, {
       bytes: mutable,
@@ -83,32 +86,31 @@ test.skipIf(!supported)('retained replacement snapshots caller bytes before its 
     });
     expect(readFileSync(target)).toEqual(successor);
     expect(statSync(target, { bigint: true }).ino).not.toBe(initial);
+    if (process.platform === 'linux') {
+      expect(statSync(target).mode & 0o7777).toBe(0o444);
+    } else {
+      expect(await readSemanticMutationWindowsFileAttributes(target)).toEqual(windowsAttributes);
+      await applySemanticMutationWindowsFileAttributes(target, {
+        readOnly: false, hidden: true, system: true, archive: true
+      });
+    }
     expect(readdirSync(sourceRoot)).toEqual([]);
     await replace(undefined, { expectedBytes: successor, bytes: original, direction: 'restore' });
     expect(readFileSync(target)).toEqual(original);
+    if (process.platform === 'linux') {
+      expect(statSync(target).mode & 0o7777).toBe(0o444);
+    } else {
+      expect(await readSemanticMutationWindowsFileAttributes(target)).toEqual({
+        readOnly: false, hidden: true, system: true, archive: true
+      });
+    }
     expect(readdirSync(sourceRoot)).toEqual([]);
   });
 });
 
-test.skipIf(process.platform !== 'linux')('retained replacement preserves readonly POSIX permissions on its new inode', async () => {
-  await fixture(async ({ target, replace }) => {
-    chmodSync(target, 0o444);
-    await replace();
-    expect(statSync(target).mode & 0o7777).toBe(0o444);
-    expect(readFileSync(target)).toEqual(successor);
-  });
-});
 
-test.skipIf(process.platform !== 'win32')('retained replacement preserves all four Windows attributes and flushes after readonly', async () => {
-  await fixture(async ({ target, sourceRoot, replace }) => {
-    const attributes = { readOnly: true, hidden: true, system: true, archive: true };
-    await applySemanticMutationWindowsFileAttributes(target, attributes);
-    await replace();
-    expect(readFileSync(target)).toEqual(successor);
-    expect(await readSemanticMutationWindowsFileAttributes(target)).toEqual(attributes);
-    expect(readdirSync(sourceRoot)).toEqual([]);
-  });
-});
+
+
 
 test.skipIf(!supported)('replacement rejects wrong byte preimages before publication', async () => {
   await fixture(async ({ target, sourceRoot, replace }) => {
