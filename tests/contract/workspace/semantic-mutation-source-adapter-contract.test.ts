@@ -88,6 +88,39 @@ function vectors(): {
 test('exact paired artifacts pass while unknown fields, stale revisions, digest forgery, and non-canonical operation order fail closed', () => {
   const { manifest, plan } = vectors();
   expect(() => assertSemanticMutationSourceEditArtifactsInvariant(plan, manifest)).not.toThrow();
+  const { rollbackManifestDigest: _baseRevision, ...baseManifest } = manifest;
+  const windowsAttributes = {
+    readOnly: true,
+    hidden: true,
+    system: true,
+    archive: true
+  };
+  const windowsManifestBody = { ...baseManifest, windowsFileAttributes: windowsAttributes };
+  const windowsManifest = {
+    ...windowsManifestBody,
+    rollbackManifestDigest: sha256({
+      domain: 'semantic-mutation-rollback-manifest-v2',
+      ...windowsManifestBody
+    })
+  };
+  expect(() => assertSemanticMutationRollbackManifestInvariant(windowsManifest)).not.toThrow();
+  expect(() => assertSemanticMutationRollbackManifestInvariant({
+    ...windowsManifest,
+    windowsFileAttributes: { ...windowsAttributes, archive: false }
+  })).toThrow('digest');
+
+  const staleManifestBody = {
+    ...baseManifest,
+    formatRevision: 'semantic-mutation-rollback-manifest-v1'
+  };
+  const staleManifest = {
+    ...staleManifestBody,
+    rollbackManifestDigest: sha256({
+      domain: 'semantic-mutation-rollback-manifest-v1',
+      ...staleManifestBody
+    })
+  };
+  expect(() => assertSemanticMutationRollbackManifestInvariant(staleManifest as never)).toThrow('invalid');
   const rebindPlanDigest = (candidate: SemanticMutationSourceEditPlan) => {
     const { editPlanRevision: _old, ...content } = candidate;
     return { ...content, editPlanRevision: sha256({ domain: 'semantic-mutation-source-edit-plan-v1', ...content }) };

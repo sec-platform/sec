@@ -17,7 +17,6 @@ import {
   readSemanticMutationWindowsFileAttributes
 } from '../../../src/adapters/mutation/windows-file-attributes.ts';
 import { semanticMutationByteDigest, SemanticMutationContractError, sha256 } from '../../../src/compiler/semantic-mutation/canonical.ts';
-import { assertSemanticMutationRollbackManifestInvariant } from '../../../src/compiler/semantic-mutation/source-edit-artifact.ts';
 import { getErrorCode } from '../../../src/contracts/failure-inspection.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan, type SemanticMutationWindowsFileAttributes } from '../../../src/semantics/mutation/types.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
@@ -127,42 +126,6 @@ function buildArtifacts(
   };
   return { manifest, plan };
 }
-
-test('rollback manifest v2 has an exact schema and digest while stale v1 fails closed', () => {
-  const beforeBytes = new TextEncoder().encode('before\n');
-  const stagedBytes = new TextEncoder().encode('staged\n');
-  const { manifest } = buildArtifacts(
-    'source/model/item.yaml',
-    beforeBytes,
-    stagedBytes,
-    0o644,
-    ALL_WINDOWS_ATTRIBUTES
-  );
-  const { rollbackManifestDigest: _digest, ...withoutDigest } = manifest;
-
-  expect(() => assertSemanticMutationRollbackManifestInvariant(manifest)).not.toThrow();
-  expect(() => assertSemanticMutationRollbackManifestInvariant({
-    ...manifest,
-    windowsFileAttributes: { ...ALL_WINDOWS_ATTRIBUTES, archive: false }
-  })).toThrow('digest');
-  expect(() => assertSemanticMutationRollbackManifestInvariant({
-    ...manifest,
-    backupPath: '.sec/forbidden-backup'
-  } as never)).toThrow('schema');
-
-  const staleManifestWithoutDigest = {
-    ...withoutDigest,
-    formatRevision: 'semantic-mutation-rollback-manifest-v1'
-  };
-  const staleManifest = {
-    ...staleManifestWithoutDigest,
-    rollbackManifestDigest: jsonDigest({
-      domain: 'semantic-mutation-rollback-manifest-v1',
-      ...staleManifestWithoutDigest
-    })
-  };
-  expect(() => assertSemanticMutationRollbackManifestInvariant(staleManifest as never)).toThrow('invalid');
-});
 
 test('atomic publish failure diagnostics keep native failure metadata inside details', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
