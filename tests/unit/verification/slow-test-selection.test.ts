@@ -99,7 +99,7 @@ test('owner-issued projection resolves configuration, source and managed-hook su
   const hookSelection = selectSlowTestRiskClosure(['.githooks/post-merge']);
   expect(hookSelection).toMatchObject({ resolved: true });
   expect(hookSelection.owners).toContain('adapters.self-hosting.development.hooks');
-  expect(hookSelection.affectedSlowTests).toContain('tests/e2e/development/install-git-hooks.test.ts');
+  expect(hookSelection.affectedSlowTests).toContain('tests/e2e/development/install-git-hooks-marker-digest.test.ts');
   expect(hookSelection.suites).toContain('e2e-install-git-hooks');
 
   const mixed = selectSlowTestRiskClosure([

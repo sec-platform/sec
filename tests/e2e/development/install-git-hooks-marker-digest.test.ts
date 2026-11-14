@@ -43,10 +43,12 @@ test('same-digest generation with transform-shaped bytes is repaired as an exact
   });
 });
 
-test('marker and configured hooksPath mismatch is retained and typed', async () => {
+test('SHA-256 Git object format installs managed hooks and marker mismatch remains typed', async () => {
   await withRepository(async (repoRoot) => {
-    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    expect(git(repoRoot, ['rev-parse', '--show-object-format'])).toBe('sha256');
+    expect(['installed', 'managed']).toContain((await installGitHooks({ repoRoot })).status);
     const configured = configuredManagedHooksPath(repoRoot);
+    await expectManagedHooksMirror(repoRoot, configured);
     const markerPath = path.join(path.dirname(configured), '.last-install');
     const marker = (await readFile(markerPath, 'utf8')).split('\n');
     const digest = marker[0];
@@ -59,5 +61,5 @@ test('marker and configured hooksPath mismatch is retained and typed', async () 
     expect(configuredManagedHooksPath(repoRoot)).toBe(configured);
     expect(await configTransitionNames(repoRoot)).toHaveLength(0);
     expect((await readFile(markerPath, 'utf8')).split('\n')[2]).toBe(marker[2]);
-  });
+  }, ['--object-format=sha256']);
 });

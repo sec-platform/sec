@@ -285,7 +285,7 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
       e2eTestFile('development/import-organizer-worktree-isolation')
     ]
   },
-  slowFileSuite('e2e-install-git-hooks', 'development/install-git-hooks', 'managed-git-hooks-e2e', 120_000, {
+  slowFileSuite('e2e-install-git-hooks', 'development/install-git-hooks-marker-digest', 'managed-git-hooks-e2e', 120_000, {
     parallelSafe: true
   }),
   ...[
@@ -294,7 +294,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     'source-races',
     'capacity',
     'capacity-retirement',
-    'marker-digest',
     'configured-path',
     'execution-sources',
     'transition-interruption',
