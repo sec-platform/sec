@@ -89,7 +89,7 @@ test('staging edits only the isolated copy and preserves source bytes and exact 
   }, 0o444);
 });
 
-test('staging retires an old snapshot through the bounded metadata route before rebuilding', async () => {
+test('staging retires old snapshots through bounded metadata without traversing aliases or failing on read-only descendants', async () => {
   await fixture(async f => {
     const retainedBackup = path.join(f.transactionRoot, 'original.backup');
     writeFileSync(retainedBackup, 'retained backup');
@@ -101,8 +101,21 @@ test('staging retires an old snapshot through the bounded metadata route before 
     const residue = path.join(previous, 'old', 'large-sparse-residue');
     writeFileSync(residue, '');
     truncateSync(residue, 128 * 1024 * 1024);
+    if (process.platform === 'linux') {
+      const outside = path.join(f.transactionRoot, 'outside');
+      mkdirSync(outside);
+      writeFileSync(path.join(outside, 'keep'), 'outside');
+      // This alias points at a transaction-root sibling, never a child of the retired tree.
+      symlinkSync(outside, path.join(previous, 'old', 'alias'), 'dir');
+      chmodSync(residue, 0o444);
+      chmodSync(path.join(previous, 'old'), 0o555);
+    }
     const root = await prepare(f);
+    expect(existsSync(previous)).toBe(false);
     expect(existsSync(path.join(root, 'old'))).toBe(false);
+    if (process.platform === 'linux') {
+      expect(readFileSync(path.join(f.transactionRoot, 'outside', 'keep'), 'utf8')).toBe('outside');
+    }
     expect(readFileSync(path.join(root, f.plan.relativePath))).toEqual(f.stagedBytes);
     expect(readFileSync(retainedBackup, 'utf8')).toBe('retained backup');
     expect(readFileSync(path.join(pathProof, 'proof'), 'utf8')).toBe('retained path proof');

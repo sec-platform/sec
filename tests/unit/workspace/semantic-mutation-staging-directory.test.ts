@@ -1,6 +1,6 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -132,35 +132,5 @@ test.skipIf(process.platform !== 'linux')('staging retirement rejects a replaced
     })).rejects.toThrow();
     expect(readFileSync(path.join(f.stage, 'foreign'), 'utf8')).toBe('foreign');
     expect(readFileSync(path.join(`${f.stage}-displaced`, 'original'), 'utf8')).toBe('original');
-  });
-});
-
-test.skipIf(process.platform !== 'linux')('staging retirement unlinks descendant aliases but never traverses them', async () => {
-  await fixture(async f => {
-    const transaction = await create(f);
-    const outside = path.join(f.workspace, 'outside');
-    mkdirSync(outside);
-    writeFileSync(path.join(outside, 'keep'), 'outside');
-    mkdirSync(f.stage);
-    symlinkSync(outside, path.join(f.stage, 'alias'));
-    await retireSemanticMutationStagingWorkspace(transaction, fence);
-    expect(readFileSync(path.join(outside, 'keep'), 'utf8')).toBe('outside');
-    expect(existsSync(f.stage)).toBe(false);
-    symlinkSync(outside, f.stage);
-    await expect(retireSemanticMutationStagingWorkspace(transaction, fence)).rejects.toThrow();
-    expect(readFileSync(path.join(outside, 'keep'), 'utf8')).toBe('outside');
-  });
-});
-
-test.skipIf(process.platform !== 'linux')('staging retirement restores only owned directory permissions required for deletion', async () => {
-  await fixture(async f => {
-    const transaction = await create(f);
-    const nested = path.join(f.stage, 'nested');
-    mkdirSync(nested, { recursive: true });
-    writeFileSync(path.join(nested, 'readonly.yaml'), 'source');
-    chmodSync(path.join(nested, 'readonly.yaml'), 0o444);
-    chmodSync(nested, 0o555);
-    await retireSemanticMutationStagingWorkspace(transaction, fence);
-    expect(existsSync(f.stage)).toBe(false);
   });
 });
