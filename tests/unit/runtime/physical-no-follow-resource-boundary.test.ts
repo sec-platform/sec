@@ -11,6 +11,7 @@ import {
   deleteRetainedNoFollowEntry,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
+  PhysicalNoFollowError,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
   scanNoFollowDirectoryTree,
@@ -83,7 +84,22 @@ test.skipIf(process.platform !== 'win32')('Windows failed directory identity adm
   expect(inspectNoFollowDirectoryChain(moved).target.inode).toBe(chain.target.inode);
 }));
 
-test('retained deletion rejects dot and traversal components anywhere, not only at the end', () => withFixture(f => {
+test('retained deletion rejects traversal and preserves typed native failure metadata', () => withFixture(f => {
+  const nativeFailure = Object.freeze({
+    namespace: 'win32' as const,
+    code: 5,
+    failureClass: 'access-denied' as const
+  });
+  const typedFailure = new PhysicalNoFollowError(
+    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+    'unsafe',
+    { nativeFailure }
+  );
+  expect(typedFailure.name).toBe('PhysicalNoFollowError');
+  expect(typedFailure.code).toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
+  expect(typedFailure.nativeFailure).toEqual(nativeFailure);
+
+
   const sibling = path.join(f.workspace, 'sibling');
   mkdirSync(sibling);
   writeFileSync(path.join(sibling, 'keep'), 'foreign to source');

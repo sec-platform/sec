@@ -90,22 +90,7 @@ test('no-follow directory inspection returns an ordered physical chain and only 
   expect(inspectExactNoFollowDirectoryPresence(path.join(root, 'missing'))).toEqual({ state: 'absent' });
 }));
 
-test('no-follow inspection rejects symlink/junctions and preserves the typed native failure contract', () => withFixtureRoot(root => {
-  const nativeFailure = Object.freeze({
-    namespace: 'win32' as const,
-    code: 5,
-    failureClass: 'access-denied' as const
-  });
-  const typedFailure = new PhysicalNoFollowError(
-    'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
-    'unsafe',
-    { nativeFailure }
-  );
-  expect(typedFailure.name).toBe('PhysicalNoFollowError');
-  expect(typedFailure.code).toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
-  expect(typedFailure.nativeFailure).toEqual(nativeFailure);
-
-  const ordinary = path.join(root, 'ordinary');
+test('no-follow inspection rejects a symlink/junction target and a symlink/junction ancestor', () => withFixtureRoot(root => {  const ordinary = path.join(root, 'ordinary');
   const external = path.join(root, 'external');
   const alias = path.join(root, 'alias');
   const dangling = path.join(root, 'dangling');
