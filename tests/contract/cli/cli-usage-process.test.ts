@@ -172,7 +172,8 @@ for (const { args, mode, status } of [
   { args: ['deps', 'status', '--unsupported', '--json', '--compact'], mode: 'json', status: 2 },
   { args: ['init', '--json'], mode: 'json', status: 2 },
   { args: ['unknown'], mode: 'text', status: 2 },
-  { args: ['verify', '--lane', 'slow'], mode: 'text', status: 1 }
+  { args: ['verify', '--lane', 'slow'], mode: 'text', status: 1 },
+  { args: ['upgrade'], mode: 'text', status: 1 }
 ] as const) {
   test(`production CLI rejects ${args.join(' ')} with a safe ${mode} usage result`, async () => {
     const result = await invoke(args);
@@ -194,7 +195,8 @@ for (const { args, mode, status } of [
     expect(protocol).toMatchObject({ code: 'CLI-USAGE-001', issueType: 'usage', recoverable: true });
     expect(protocol.suggestedActions).toEqual(['retry-with-supported-arguments']);
     expect(protocol.artifactPaths).toEqual([]);
-    expect(String(protocol.message)).toContain(args[0] === 'verify' ? 'Lane must be' : 'unknown');
+    const diagnostic = result.stderr.replace(/\u001b\[[0-9;]*m/gu, '');
+    expect(diagnostic).toContain(args[0] === 'verify' ? 'Lane must be' : args[0] === 'upgrade' ? 'Usage: sec upgrade' : 'unknown');
   }, 10_000);
 }
 
