@@ -90,7 +90,8 @@ test('no-follow directory inspection returns an ordered physical chain and only 
   expect(inspectExactNoFollowDirectoryPresence(path.join(root, 'missing'))).toEqual({ state: 'absent' });
 }));
 
-test('no-follow inspection rejects a symlink/junction target and a symlink/junction ancestor', () => withFixtureRoot(root => {  const ordinary = path.join(root, 'ordinary');
+test('no-follow inspection rejects a symlink/junction target and a symlink/junction ancestor', () => withFixtureRoot(root => {
+  const ordinary = path.join(root, 'ordinary');
   const external = path.join(root, 'external');
   const alias = path.join(root, 'alias');
   const dangling = path.join(root, 'dangling');
