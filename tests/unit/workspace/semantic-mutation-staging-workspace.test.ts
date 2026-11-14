@@ -91,6 +91,11 @@ test('staging edits only the isolated copy and preserves source bytes and exact 
 
 test('staging retires an old snapshot through the bounded metadata route before rebuilding', async () => {
   await fixture(async f => {
+    const retainedBackup = path.join(f.transactionRoot, 'original.backup');
+    writeFileSync(retainedBackup, 'retained backup');
+    const pathProof = path.join(f.transactionRoot, 'path-proof');
+    mkdirSync(pathProof);
+    writeFileSync(path.join(pathProof, 'proof'), 'retained path proof');
     const previous = path.join(f.transactionRoot, 'workspace');
     mkdirSync(path.join(previous, 'old'), { recursive: true });
     const residue = path.join(previous, 'old', 'large-sparse-residue');
@@ -99,6 +104,8 @@ test('staging retires an old snapshot through the bounded metadata route before 
     const root = await prepare(f);
     expect(existsSync(path.join(root, 'old'))).toBe(false);
     expect(readFileSync(path.join(root, f.plan.relativePath))).toEqual(f.stagedBytes);
+    expect(readFileSync(retainedBackup, 'utf8')).toBe('retained backup');
+    expect(readFileSync(path.join(pathProof, 'proof'), 'utf8')).toBe('retained path proof');
   });
 });
 

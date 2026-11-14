@@ -1,6 +1,6 @@
 import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 import { expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -97,23 +97,6 @@ test.skipIf(process.platform !== 'linux')(
     });
   }
 );
-
-test('staging retirement removes its exact child including a large sparse leaf and preserves artifacts and path proof', async () => {
-  await fixture(async f => {
-    const transaction = await create(f);
-    await createSemanticMutationPathProofDirectory(transaction, fence);
-    writeFileSync(path.join(f.transactionRoot, 'original.backup'), 'retained backup');
-    mkdirSync(path.join(f.stage, 'nested'), { recursive: true });
-    writeFileSync(path.join(f.stage, 'nested', 'source.yaml'), 'source: before');
-    const large = path.join(f.stage, 'large.bin');
-    writeFileSync(large, '');
-    truncateSync(large, 128 * 1024 * 1024);
-    await retireSemanticMutationStagingWorkspace(transaction, fence);
-    expect(existsSync(f.stage)).toBe(false);
-    expect(readFileSync(path.join(f.transactionRoot, 'original.backup'), 'utf8')).toBe('retained backup');
-    expect(existsSync(path.join(f.transactionRoot, 'path-proof'))).toBe(true);
-  });
-});
 
 test('a failed staging retirement fence preserves the admitted tree', async () => {
   await fixture(async f => {
