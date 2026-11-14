@@ -2208,7 +2208,7 @@ test.serial('affected base ref validation rejects option-like, NUL, and oversize
 
 test.serial('affected tests combine multiple tracked fast-test facts with policy coverage', async () => {
   changedFiles = [
-    'tests/contract/cli/usage.test.ts',
+    'tests/contract/cli/cli-usage-process.test.ts',
     'tests/unit/workspace/path-containment.test.ts',
     'tests/unit/verification/test-runner.test.ts'
   ];
@@ -2227,7 +2227,7 @@ test.serial('affected tests combine multiple tracked fast-test facts with policy
   expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
     FAST_TEST_PROCESS_POLICY_TEST_FILE,
     TEST_ARCHITECTURE_POLICY_TEST_FILE,
-    'tests/contract/cli/usage.test.ts',
+    'tests/contract/cli/cli-usage-process.test.ts',
     'tests/unit/workspace/path-containment.test.ts',
     'tests/unit/verification/test-runner.test.ts'
   ].sort());
