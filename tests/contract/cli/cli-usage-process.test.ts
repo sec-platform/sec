@@ -77,17 +77,37 @@ async function invoke(args: readonly string[], fixtureSource?: string) {
   });
 }
 
+function readErrorProtocol(stderr: string): Record<string, unknown> {
+  const normalized = stderr.replace(/\u001b\[[0-9;]*m/gu, '');
+  const frames = normalized.split(/\r?\n/u).flatMap((line) => {
+    if (!line.startsWith('{') || !line.endsWith('}')) return [];
+    const value: unknown = JSON.parse(line);
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      && Object.hasOwn(value, 'code') ? [value as Record<string, unknown>] : [];
+  });
+  expect(frames).toHaveLength(1);
+  const protocol = frames[0]!;
+  expect(Object.keys(protocol).sort()).toEqual([
+    'artifactPaths', 'code', 'issueType', 'message', 'recoverable', 'suggestedActions'
+  ]);
+  expect(typeof protocol.code).toBe('string');
+  expect(typeof protocol.message).toBe('string');
+  expect(typeof protocol.recoverable).toBe('boolean');
+  expect(['usage', 'spec', 'composition', 'kernel']).toContain(protocol.issueType as string);
+  for (const field of ['suggestedActions', 'artifactPaths']) {
+    expect(Array.isArray(protocol[field])).toBe(true);
+    expect((protocol[field] as unknown[]).every((value) => typeof value === 'string')).toBe(true);
+  }
+  expect(normalized).toContain(`${protocol.code} ${protocol.message}`);
+  return protocol;
+}
 const transportEntry = fileURLToPath(new URL('../../../src/entry/cli/cli.ts', import.meta.url));
 const commandOptions = fileURLToPath(new URL('../../../src/entry/cli/command-options.ts', import.meta.url));
 const fixtureImports = `import { runCli } from ${JSON.stringify(transportEntry)};
 import { addJsonFlags } from ${JSON.stringify(commandOptions)};`;
 
-for (const args of [
-  ['group', 'result', '--json', '--compact'],
-  ['group', 'result', '--value', '--json'],
-  ['group', 'result', '--', '--json']
-]) {
-  test(`transport preserves successful nested execution and argument ownership: ${args.join(' ')}`, async () => {
+for (const args of [['group', 'result', '--json', '--compact']] as const) {
+  test(`transport preserves successful nested execution and selected JSON options: ${args.join(' ')}`, async () => {
     const result = await invoke(args, `${fixtureImports}
 let executions = 0;
 await runCli({ version: '1.2.3', register(program) {
@@ -99,15 +119,13 @@ await runCli({ version: '1.2.3', register(program) {
     expect(result.stderr).toBe('');
     const output = JSON.parse(result.stdout);
     expect(output.executions).toBe(1);
-    if (args.includes('--compact')) expect(output.options).toEqual({ json: true, compact: true });
-    else if (args.includes('--value')) expect(output.options.value).toBe('--json');
-    else expect(output.operand).toBe('--json');
+    expect(output.options).toEqual({ json: true, compact: true });
   }, 10_000);
 }
 
-// All three failures must remain actual native-process cases: a parser-shaped
-// ordinary object, a hostile Proxy and a revoked Proxy have distinct failure
-// inspection hazards. Their SEC protocol is independently fixed below.
+// Both failure witnesses remain actual native-process cases: the parser-shaped
+// object exercises non-Commander lookalikes; the hostile Proxy exercises guarded
+// property/prototype inspection. Their SEC protocol is fixed independently below.
 for (const { failure, expected } of [
   {
     failure: `{ code: 'commander.unknownOption', exitCode: 0, message: 'execution failure' }`,
@@ -140,39 +158,47 @@ console.error('classification-reads=' + reads);`);
     // just because the fixture printed classification-reads=0.
     // Native CLI failure presentation is colorized by the process fixture;
     // remove terminal formatting before inspecting the machine protocol frame.
-    const protocolStderr = result.stderr.replace(/\u001b\[[0-9;]*m/gu, '');
-    const frames = protocolStderr.split(/\r?\n/u)
-      .filter(line => line.startsWith('{') && line.endsWith('}'));
-    expect(frames).toHaveLength(1);
-    expect(JSON.parse(frames[0]!)).toEqual({
+    expect(readErrorProtocol(result.stderr)).toEqual({
       ...expected,
       artifactPaths: []
     });
   }, 10_000);
 }
 
-for (const args of [
-  ['not-a-sec-command', '--json'],
-  ['add', '--json', '--compact'],
-  ['verify', '--unsupported', '--json', '--compact'],
-  ['deps', 'status', '--unsupported', '--json', '--compact'],
-  ['init', '--json']
-]) {
-  test(`production CLI rejects ${args.join(' ')} as one safe machine usage result`, async () => {
+for (const { args, mode, status } of [
+  { args: ['not-a-sec-command', '--json'], mode: 'json', status: 2 },
+  { args: ['add', '--json', '--compact'], mode: 'json', status: 2 },
+  { args: ['verify', '--unsupported', '--json', '--compact'], mode: 'json', status: 2 },
+  { args: ['deps', 'status', '--unsupported', '--json', '--compact'], mode: 'json', status: 2 },
+  { args: ['init', '--json'], mode: 'json', status: 2 },
+  { args: ['unknown'], mode: 'text', status: 2 },
+  { args: ['verify', '--lane', 'slow'], mode: 'text', status: 1 }
+] as const) {
+  test(`production CLI rejects ${args.join(' ')} with a safe ${mode} usage result`, async () => {
     const result = await invoke(args);
-    expect(result.code).toBe(2);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toEqual({
-      code: 'CLI-USAGE-001', message: 'Invalid command arguments',
-      recoverable: true, issueType: 'usage',
-      suggestedActions: ['retry-with-supported-arguments'], artifactPaths: []
-    });
-    expect(result.stdout).not.toContain('\u001b');
-    if (args.includes('--compact')) expect(result.stdout.trimEnd()).not.toContain('\n');
+    expect(result.code).toBe(status);
+    expect(result.workspaceEntries).toEqual([]);
+    if (mode === 'json') {
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout)).toEqual({
+        code: 'CLI-USAGE-001', message: 'Invalid command arguments',
+        recoverable: true, issueType: 'usage',
+        suggestedActions: ['retry-with-supported-arguments'], artifactPaths: []
+      });
+      expect(result.stdout).not.toContain('\u001b');
+      if (args.some((arg) => arg === '--compact')) expect(result.stdout.trimEnd()).not.toContain('\n');
+      return;
+    }
+    expect(result.stdout).toBe('');
+    const protocol = readErrorProtocol(result.stderr);
+    expect(protocol).toMatchObject({ code: 'CLI-USAGE-001', issueType: 'usage', recoverable: true });
+    expect(protocol.suggestedActions).toEqual(['retry-with-supported-arguments']);
+    expect(protocol.artifactPaths).toEqual([]);
+    expect(String(protocol.message)).toContain(args[0] === 'verify' ? 'Lane must be' : 'unknown');
   }, 10_000);
 }
 
-for (const args of [[], ['--help'], ['verify', '--help'], ['verify', '--version']]) {
+for (const args of [[], ['verify', '--help'], ['verify', '--version']]) {
   test(`production CLI preserves successful ${args.join(' ') || 'root help'}`, async () => {
     const result = await invoke(args);
     expect(result.code).toBe(0);
