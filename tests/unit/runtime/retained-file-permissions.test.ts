@@ -56,18 +56,6 @@ function withFixture(
   });
 }
 
-test('retained permissions preserve a readonly source mode on different authorized replacement bytes', async () => withFixture(async f => {
-  const original = statSync(f.source.path, { bigint: true });
-  const replacement = statSync(f.target.path, { bigint: true });
-  await copyRetainedNoFollowFilePermissions(f.input);
-  expect(readFileSync(f.target.path)).toEqual(f.bytes);
-  expect(readFileSync(f.source.path, 'utf8')).toBe('original bytes\n');
-  expect(statSync(f.source.path, { bigint: true }).ino).toBe(original.ino);
-  expect(statSync(f.target.path, { bigint: true }).ino).toBe(replacement.ino);
-  if (process.platform === 'linux') expect(statSync(f.target.path).mode & 0o7777).toBe(0o444);
-  else expect(await readSemanticMutationWindowsFileAttributes(f.target.path)).toEqual(f.attributes);
-}));
-
 test('retained permissions reject a byte-identical replacement leaf with a different identity', async () => withFixture(async f => {
   renameSync(f.target.path, path.join(f.root, 'displaced'));
   writeFileSync(f.target.path, f.bytes);

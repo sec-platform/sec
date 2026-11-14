@@ -6,7 +6,7 @@ import { PhysicalNoFollowError } from '../../../src/adapters/runtime-state/physi
 import { readOptionalRetainedJson, readOptionalRetainedJsonLeaf, readOptionalRetainedOrdinaryFile, retainOptionalDirectory } from '../../../src/adapters/runtime-state/physical/runtime/retained-file-read.ts';
 import { withTempWorkspace } from '../../testkit/workspace.ts';
 
-test('retained ordinary-file read maps only physical absence to null', async () => {
+test('retained ordinary-file reads distinguish physical absence from directory and linked-ancestor failures', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     expect(readOptionalRetainedOrdinaryFile(
       path.join(workspaceRoot, 'missing.json'),
@@ -17,11 +17,7 @@ test('retained ordinary-file read maps only physical absence to null', async () 
     await fs.mkdir(directoryPath);
     expect(() => readOptionalRetainedOrdinaryFile(directoryPath, 'directory fixture'))
       .toThrow(PhysicalNoFollowError);
-  });
-});
 
-test('retained ordinary-file read rejects a linked ancestor instead of following external authority', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
     const externalRoot = path.join(workspaceRoot, 'external');
     const linkedRoot = path.join(workspaceRoot, 'linked');
     await fs.mkdir(externalRoot);
@@ -39,34 +35,7 @@ test('retained ordinary-file read rejects a linked ancestor instead of following
   });
 });
 
-test('shared retained parent binding still rejects directory substitution before every sibling read', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const parentPath = path.join(workspaceRoot, 'workflow');
-    const movedPath = path.join(workspaceRoot, 'workflow-old');
-    await fs.mkdir(parentPath);
-    await fs.writeFile(path.join(parentPath, 'first.json'), '{"value":1}\n', 'utf8');
-    const parent = retainOptionalDirectory(parentPath, 'workflow fixture');
-    if (parent === null) throw new Error('workflow fixture parent unexpectedly absent');
-
-    expect(readOptionalRetainedJsonLeaf<{ value: number }>(
-      parent,
-      'first.json',
-      'first sibling fixture'
-    )).toEqual({ value: 1 });
-
-    await fs.rename(parentPath, movedPath);
-    await fs.mkdir(parentPath);
-    await fs.writeFile(path.join(parentPath, 'second.json'), '{"value":2}\n', 'utf8');
-
-    expect(() => readOptionalRetainedJsonLeaf(
-      parent,
-      'second.json',
-      'substituted sibling fixture'
-    )).toThrow(PhysicalNoFollowError);
-  });
-});
-
-test('retained JSON read distinguishes invalid JSON and UTF-8 from absence', async () => {
+test('retained JSON reads distinguish invalid JSON and UTF-8 from absence while revalidating shared parents', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const invalidPath = path.join(workspaceRoot, 'invalid.json');
     const parent = retainOptionalDirectory(workspaceRoot, 'JSON fixture parent');
@@ -84,7 +53,6 @@ test('retained JSON read distinguishes invalid JSON and UTF-8 from absence', asy
     }
 
     await fs.writeFile(invalidPath, '{not-json}\n', 'utf8');
-
     expect(() => readOptionalRetainedJson(invalidPath, 'invalid JSON fixture'))
       .toThrow('not valid JSON');
 
@@ -101,5 +69,28 @@ test('retained JSON read distinguishes invalid JSON and UTF-8 from absence', asy
       'absent JSON fixture'
     )).toBeNull();
     expect(readOptionalRetainedJsonLeaf(parent, 'absent.json', 'absent JSON sibling')).toBeNull();
+
+    const sharedParentPath = path.join(workspaceRoot, 'workflow');
+    const movedParentPath = path.join(workspaceRoot, 'workflow-old');
+    await fs.mkdir(sharedParentPath);
+    await fs.writeFile(path.join(sharedParentPath, 'first.json'), '{"value":1}\n', 'utf8');
+    const sharedParent = retainOptionalDirectory(sharedParentPath, 'workflow fixture');
+    if (sharedParent === null) throw new Error('workflow fixture parent unexpectedly absent');
+
+    expect(readOptionalRetainedJsonLeaf<{ value: number }>(
+      sharedParent,
+      'first.json',
+      'first sibling fixture'
+    )).toEqual({ value: 1 });
+
+    await fs.rename(sharedParentPath, movedParentPath);
+    await fs.mkdir(sharedParentPath);
+    await fs.writeFile(path.join(sharedParentPath, 'second.json'), '{"value":2}\n', 'utf8');
+
+    expect(() => readOptionalRetainedJsonLeaf(
+      sharedParent,
+      'second.json',
+      'substituted sibling fixture'
+    )).toThrow(PhysicalNoFollowError);
   });
 });
