@@ -335,50 +335,6 @@ test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced r
   expect(readFileSync(path.join(moved, 'ordinary.json'), 'utf8')).toBe('{"safe":true}\n');
 }));
 
-test('retained child-process directory reads the authorized inode after lexical replacement', () => withFixtureRoot(root => {
-  const target = path.join(root, 'target');
-  const displaced = path.join(root, 'target-displaced');
-  mkdirSync(target);
-  writeFileSync(path.join(target, 'value.txt'), 'authorized\n', 'utf8');
-  const capability = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(target, 'retained child directory'),
-    3,
-    'retained child directory'
-  );
-  try {
-    if (process.platform === 'linux') {
-      expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
-      expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
-    }
-    if (process.platform === 'linux') {
-      renameSync(target, displaced);
-      mkdirSync(target);
-      writeFileSync(path.join(target, 'value.txt'), 'replacement\n', 'utf8');
-    } else if (process.platform === 'win32') {
-      expect(() => renameSync(target, displaced)).toThrow();
-    }
-    const stdio: Array<'ignore' | 'pipe' | number> = [
-      'ignore',
-      'pipe',
-      'pipe',
-      capability.stdioSourceDescriptor ?? 'ignore'
-    ];
-    const child = spawnSync(rawExecutable.command, [
-      '-e',
-      'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
-      path.join(capability.childPath, 'value.txt')
-    ], {
-      encoding: 'utf8',
-      stdio
-    });
-    expect(child.status).toBe(0);
-    expect(child.stdout).toBe('authorized\n');
-    capability.assertCurrent();
-  } finally {
-    capability.dispose();
-  }
-}));
-
 test('sealed directory generation excludes membership and byte writers for its child lifetime', async () => {
   const root = fixtureRoot();
   let repositoryRoot: string | undefined;
@@ -515,25 +471,6 @@ test.skipIf(process.platform !== 'win32')(
     });
   }
 );
-
-test.skipIf(process.platform !== 'win32')('Windows retained child-process boundary blocks relocation above its pinned parent', () => withFixtureRoot(root => {
-  const ancestor = path.join(root, 'ancestor');
-  const parent = path.join(ancestor, 'parent');
-  const target = path.join(parent, 'target');
-  const displaced = path.join(root, 'ancestor-displaced');
-  mkdirSync(target, { recursive: true });
-  const capability = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(target, 'retained descendant boundary'),
-    3,
-    'retained descendant boundary'
-  );
-  try {
-    expect(() => renameSync(ancestor, displaced)).toThrow();
-    capability.assertCurrent();
-  } finally {
-    capability.dispose();
-  }
-}));
 
 test('retained child-process file reads the observed inode after leaf replacement', () => withFixtureRoot(root => {
   const filePath = path.join(root, 'index');

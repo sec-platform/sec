@@ -30,38 +30,77 @@ async function isolatedCase(body: string): Promise<void> {
 
 test.skipIf(process.platform !== 'win32')('session command pins the actual Windows cwd chain against ancestor replacement', async () => {
   await isolatedCase(`
+    const physical = await import(${physicalModule});
+    const originalRetain = physical.retainNoFollowDirectoryForChildProcess;
+    let retainedChildPath = '';
+    mock.module(${physicalModule}, () => ({ ...physical,
+      retainNoFollowDirectoryForChildProcess(...args) {
+        const retained = originalRetain(...args);
+        retainedChildPath = retained.childPath;
+        if (process.platform === 'linux') {
+          assert.equal(typeof retained.stdioSourceDescriptor, 'number');
+          assert.ok(retained.stdioSourceDescriptor >= 5);
+        } else {
+          assert.equal(retained.stdioSourceDescriptor, null);
+        }
+        return retained;
+      }
+    }));
     const child = await import('node:child_process');
     const originalSpawn = child.spawnSync;
-    const parent = path.join(root, 'ancestor');
+    const ancestor = path.join(root, 'ancestor');
+    const parent = path.join(ancestor, 'parent');
     const working = path.join(parent, 'working');
-    const moved = path.join(root, 'replacement');
+    const movedAncestor = path.join(root, 'ancestor-replacement');
+    const movedParent = path.join(root, 'parent-replacement');
     fs.mkdirSync(working, { recursive: true });
     fs.writeFileSync(path.join(working, 'identity'), 'owned');
     let attempts = 0;
     mock.module('node:child_process', () => ({ ...child, spawnSync(command, args, options) {
       attempts++;
       assert.equal(command, 'bun');
-      assert.throws(() => fs.renameSync(parent, moved));
+      assert.throws(() => fs.renameSync(parent, movedParent));
+      assert.throws(() => fs.renameSync(ancestor, movedAncestor));
       assert.equal(options.cwd, working);
-      return originalSpawn(process.execPath, args, options);
+      assert.notEqual(retainedChildPath, '');
+      return originalSpawn(process.execPath, [...args, path.join(retainedChildPath, 'identity')], options);
     }}));
     const { runVerificationSessionCommand } = await import(${commandModule});
     const result = runVerificationSessionCommand({ repositoryRoot: working }, 'bun', [
-      '-e', "const fs=require('node:fs');process.stdout.write(fs.readFileSync('identity'));fs.writeFileSync('effect','owned');"
+      '-e', "const fs=require('node:fs');const direct=fs.readFileSync(process.argv[1],'utf8');const relative=fs.readFileSync('identity','utf8');process.stdout.write(relative+':'+direct);fs.writeFileSync('effect','owned');"
     ]);
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.equal(result.stdout.toString(), 'owned');
+    assert.equal(result.stdout.toString(), 'owned:owned');
     assert.equal(attempts, 1);
     assert.equal(fs.readFileSync(path.join(working, 'effect'), 'utf8'), 'owned');
-    assert.equal(fs.existsSync(moved), false);
-    // Successful rename after the call independently observes release of the pins.
-    fs.renameSync(parent, moved);
-    assert.equal(fs.readFileSync(path.join(moved, 'working', 'effect'), 'utf8'), 'owned');
+    assert.equal(fs.existsSync(movedParent), false);
+    assert.equal(fs.existsSync(movedAncestor), false);
+    // Successful ancestor and parent renames after the call observe release of every pin.
+    fs.renameSync(ancestor, movedAncestor);
+    assert.equal(fs.readFileSync(path.join(movedAncestor, 'parent', 'working', 'effect'), 'utf8'), 'owned');
+    fs.renameSync(path.join(movedAncestor, 'parent'), movedParent);
+    assert.equal(fs.readFileSync(path.join(movedParent, 'working', 'effect'), 'utf8'), 'owned');
   `);
 });
 
 test.skipIf(process.platform !== 'linux')('session command stays on its actual retained inode after pathname rebind', async () => {
   await isolatedCase(`
+    const physical = await import(${physicalModule});
+    const originalRetain = physical.retainNoFollowDirectoryForChildProcess;
+    let retainedChildPath = '';
+    mock.module(${physicalModule}, () => ({ ...physical,
+      retainNoFollowDirectoryForChildProcess(...args) {
+        const retained = originalRetain(...args);
+        retainedChildPath = retained.childPath;
+        if (process.platform === 'linux') {
+          assert.equal(typeof retained.stdioSourceDescriptor, 'number');
+          assert.ok(retained.stdioSourceDescriptor >= 5);
+        } else {
+          assert.equal(retained.stdioSourceDescriptor, null);
+        }
+        return retained;
+      }
+    }));
     const child = await import('node:child_process');
     const originalSpawn = child.spawnSync;
     const working = path.join(root, 'working');
@@ -71,14 +110,15 @@ test.skipIf(process.platform !== 'linux')('session command stays on its actual r
     mock.module('node:child_process', () => ({ ...child, spawnSync(command, args, options) {
       fs.renameSync(working, moved); fs.mkdirSync(working);
       fs.writeFileSync(path.join(working, 'identity'), 'replacement');
-      return originalSpawn(process.execPath, args, options);
+      assert.notEqual(retainedChildPath, '');
+      return originalSpawn(process.execPath, [...args, path.join(retainedChildPath, 'identity')], options);
     }}));
     const { runVerificationSessionCommand } = await import(${commandModule});
     const result = runVerificationSessionCommand({ repositoryRoot: working }, 'bun', [
-      '-e', "const fs=require('node:fs');process.stdout.write(fs.readFileSync('identity'));fs.writeFileSync('effect','owned');"
+      '-e', "const fs=require('node:fs');const direct=fs.readFileSync(process.argv[1],'utf8');const relative=fs.readFileSync('identity','utf8');process.stdout.write(relative+':'+direct);fs.writeFileSync('effect','owned');"
     ]);
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.equal(result.stdout.toString(), 'owned');
+    assert.equal(result.stdout.toString(), 'owned:owned');
     assert.equal(fs.readFileSync(path.join(moved, 'effect'), 'utf8'), 'owned');
     assert.equal(fs.existsSync(path.join(working, 'effect')), false);
     assert.equal(fs.readFileSync(path.join(working, 'identity'), 'utf8'), 'replacement');
