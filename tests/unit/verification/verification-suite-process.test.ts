@@ -204,13 +204,18 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
   'sealed fast suite denies source writes and out-of-generation reads across sync and async paths',
   async () => {
-    const outsideRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-outside-'));
-    const outside = path.join(outsideRoot, 'outside.ts');
+    const outsideRoot = process.platform === 'linux'
+      ? await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-outside-'))
+      : null;
+    const outside = outsideRoot === null ? null : path.join(outsideRoot, 'outside.ts');
+    const outsideSpecifier = outside === null ? null : pathToFileURL(outside).href;
     return settleWorkspaceCallback(async () => {
-      await writeFile(outside, 'export const foreign = 1;\n', 'utf8');
-      expect(existsSync(outside)).toBe(true);
-      const outsideModule = await import(pathToFileURL(outside).href);
-      expect(outsideModule.foreign).toBe(1);
+      if (outside !== null) {
+        await writeFile(outside, 'export const foreign = 1;\n', 'utf8');
+        expect(existsSync(outside)).toBe(true);
+        const outsideModule = await import(pathToFileURL(outside).href);
+        expect(outsideModule.foreign).toBe(1);
+      }
       await withFastSuiteCandidate(
         `import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
          import { writeFile } from 'node:fs/promises';
@@ -236,7 +241,7 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
              try { await writeFile(source, 'export const mutated = true;\\n'); }
              catch { asyncWriteDenied = true; }
              outsideReadDenied = false;
-             try { await import(${JSON.stringify(pathToFileURL(outside).href)}); }
+             try { await import(${JSON.stringify(outsideSpecifier)}); }
              catch { outsideReadDenied = true; }
            }
            const sourceUnchanged = readFileSync(source, 'utf8') === original;
@@ -287,6 +292,8 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
           expect(observations.sourceUnchanged).toBe(true);
         }
       );
-    }, () => rm(outsideRoot, { recursive: true, force: true }));
+    }, async () => {
+      if (outsideRoot !== null) await rm(outsideRoot, { recursive: true, force: true });
+    });
   }
 );
