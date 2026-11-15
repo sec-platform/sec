@@ -1270,7 +1270,7 @@ test('proposal-only recovery preserves its PROPOSED identity, rejects the activa
   });
 }, 30_000);
 
-test('proposal-only live readback rejects identity drift and remains idempotent only in its lane', async () => {
+test('proposal-only live readback rejects identity drift and publishes idempotent and revised generations only in its lane', async () => {
   await withProposalFreezeFixture(async (prepared) => {
     const { fixture, proposalBytes, proposalFile, proposalPath } = prepared;
     const proposed = await freezeDocumentControlPlane({
@@ -1279,6 +1279,12 @@ test('proposal-only live readback rejects identity drift and remains idempotent 
       reviewedOn: '2026-08-09',
       proposalOnly: true
     });
+    expect(proposed).toMatchObject({
+      status: 'PROPOSED',
+      manifestPath: proposalPath,
+      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(proposalBytes)
+    });
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(proposed.candidateTreeSha);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     const pointerFile = path.join(fixture.repositoryRoot, POINTER_PATH);
     const pointerBytes = await readFile(pointerFile);
@@ -1320,9 +1326,29 @@ test('proposal-only live readback rejects identity drift and remains idempotent 
       manifestDigest: proposed.manifestDigest
     });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  });
-}, 60_000);
 
+    const revisedBytes = Buffer.concat([
+      await readFile(proposalFile), Buffer.from('\nRevised production proposal.\n')
+    ]);
+    await writeFile(proposalFile, revisedBytes);
+    const revised = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    });
+    expect(revised.status).toBe('PROPOSED');
+    expect(revised.operationId).not.toBe(proposed.operationId);
+    expect(revised.manifestPath).toBe(proposalPath);
+    expect(revised.manifestDigest).not.toBe(proposed.manifestDigest);
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(revised.candidateTreeSha);
+    expect(readGitBlob(fixture.repositoryRoot, `:${proposalPath}`)).toEqual(revisedBytes);
+    expect(parseActivePointer(
+      await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
+    )).toMatchObject({ manifest: proposalPath, manifestDigest: revised.manifestDigest });
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  });
+}, 150_000);
 
 test('pre-evidence replan replaces one staged manifest generation in the same worktree', async () => {
   await withFreezeFixture(async (fixture) => {
@@ -1914,40 +1940,6 @@ bunTest.skipIf(process.platform !== 'linux')('production recovery preserves obse
   });
 }, 90_000);
 
-bunTest('production first and revised proposals publish exact state and retire their terminal transactions', async () => {
-  await withProposalFreezeFixture(async ({ fixture, proposalPath, proposalFile }) => {
-    const first = await freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: proposalPath,
-      reviewedOn: '2026-08-09',
-      proposalOnly: true
-    });
-    expect(first.status).toBe('PROPOSED');
-    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(first.candidateTreeSha);
-    await expectFreezeTransactionRetired(fixture.repositoryRoot);
-
-    const revisedBytes = Buffer.concat([
-      await readFile(proposalFile), Buffer.from('\nRevised production proposal.\n')
-    ]);
-    await writeFile(proposalFile, revisedBytes);
-    const revised = await freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: proposalPath,
-      reviewedOn: '2026-08-09',
-      proposalOnly: true
-    });
-    expect(revised.status).toBe('PROPOSED');
-    expect(revised.operationId).not.toBe(first.operationId);
-    expect(revised.manifestPath).toBe(proposalPath);
-    expect(revised.manifestDigest).not.toBe(first.manifestDigest);
-    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(revised.candidateTreeSha);
-    expect(readGitBlob(fixture.repositoryRoot, `:${proposalPath}`)).toEqual(revisedBytes);
-    expect(parseActivePointer(
-      await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
-    )).toMatchObject({ manifest: proposalPath, manifestDigest: revised.manifestDigest });
-    await expectFreezeTransactionRetired(fixture.repositoryRoot);
-  });
-}, 90_000);
 
 bunTest('terminal retirement preserves its journal when the manifest changes between sessions', async () => {
   await withProposalFreezeFixture(async ({ fixture, proposalFile, proposalJournalPath, proposalPath }) => {
