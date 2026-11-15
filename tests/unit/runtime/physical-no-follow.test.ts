@@ -150,9 +150,19 @@ test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')('retai
   mkdirSync(parentPath);
   const parent = inspectNoFollowDirectoryChain(parentPath).target;
 
+  for (const mode of [-1, 0o1000, 1.5, Number.NaN]) {
+    expectPhysicalCode(
+      () => createExclusiveNoFollowDirectory(parent, 'invalid-mode', undefined, mode),
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+    );
+    expect(lstatSync(path.join(parentPath, 'invalid-mode'), { throwIfNoEntry: false })).toBeUndefined();
+  }
   expect(inspectNoFollowDirectoryChild(parent, 'child')).toBeNull();
   expect(lstatSync(path.join(parentPath, 'child'), { throwIfNoEntry: false })).toBeUndefined();
   const child = createExclusiveNoFollowDirectory(parent, 'child');
+  if (process.platform === 'linux') {
+    expect(statSync(child.path).mode & 0o777).toBe(0o700 & ~process.umask());
+  }
   expect(inspectNoFollowDirectoryChild(parent, 'child')).toEqual(child);
   expectPhysicalCode(
     () => createExclusiveNoFollowDirectory(parent, 'child'),

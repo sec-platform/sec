@@ -9,12 +9,14 @@ import { copyRecursive } from '../../../src/adapters/filesystem/discovery.ts';
 import { readJson } from "../../../src/adapters/filesystem/files.ts";
 import { loadRuntimeDependencySpec } from '../../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { compilerRuntimeResources } from '../../../src/adapters/toolchain/runtime/layout.ts';
-import { getWorkspacePaths } from "../../../src/adapters/workspace-context.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { ensureProjectBase, RUNTIME_DATABASE_TEMPLATE_PATH } from '../../../src/adapters/workspace/project-base.ts';
+import { CI_ARTIFACT_FILES } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { LockFile } from '../../../src/compiler/contract.ts';
 import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
 
 type RuntimePackageJson = {
+  name: string;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
   scripts: Record<string, string>;
@@ -23,8 +25,22 @@ type RuntimePackageJson = {
 test('project base emits the canonical TypeScript runtime package', async () => {
   await withRetainedBunTestWorkspace('engineering-compiler-runtime-library-', async (workspaceRoot, run) => {
     await ensureProjectBase(workspaceRoot);
-    const runtimeSpec = await loadRuntimeDependencySpec();
     const paths = getWorkspacePaths(workspaceRoot);
+    const optionalAuthorFiles = [
+      path.join(paths.prismaRoot, 'schema.prisma'),
+      path.join(paths.policiesRoot, 'policy.spec.yaml'),
+      path.join(paths.overridesRoot, 'override-manifest.yaml'),
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance)
+    ];
+    for (const file of optionalAuthorFiles) {
+      await writeFile(file, 'owned author contents\n');
+    }
+    await writeFile(paths.packageJsonPath, 'replaceable scaffold contents\n');
+    await ensureProjectBase(workspaceRoot);
+    for (const file of optionalAuthorFiles) {
+      expect(await readFile(file, 'utf8')).toBe('owned author contents\n');
+    }
+    const runtimeSpec = await loadRuntimeDependencySpec();
     const projectPackage = await readJson<RuntimePackageJson>(paths.packageJsonPath);
     const generatedDatabasePath = path.join(paths.srcRoot, 'runtime', 'database.ts');
     const [generatedDatabaseBytes, templateBytes] = await Promise.all([
@@ -39,6 +55,7 @@ test('project base emits the canonical TypeScript runtime package', async () => 
       };
     };
 
+    expect(projectPackage.name).toBe('generated-customer-admin');
     expect(projectPackage.dependencies).toEqual(runtimeSpec.dependencies);
     expect(projectPackage.devDependencies).toEqual(runtimeSpec.devDependencies);
     expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run test:unit');

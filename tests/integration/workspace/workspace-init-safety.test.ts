@@ -8,11 +8,10 @@ import {
   withWorkspaceWriteLease,
   WorkspaceWriteLeaseError
 } from '../../../src/adapters/filesystem/write-lease.ts';
-import { createExclusiveNoFollowDirectory, createRetainedNoFollowFileTransactionTestActorForTests, inspectNoFollowDirectoryChain, type RetainedNoFollowFileTransactionTestActor } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createRetainedNoFollowFileTransactionTestActorForTests, inspectNoFollowDirectoryChain, type RetainedNoFollowFileTransactionTestActor } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../../src/adapters/workspace-context.ts";
 import { openWorkspaceCreateSession } from '../../../src/adapters/workspace/create-generation.ts';
 import { readLockFile } from "../../../src/adapters/workspace/lock.ts";
-import { ensureProjectBase } from '../../../src/adapters/workspace/project-base.ts';
 import { readOptionalProvenanceFile } from '../../../src/adapters/workspace/provenance-reader.ts';
 import { loadPlan } from '../../../src/adapters/workspace/sources/load-plan.ts';
 import { prepareWorkspaceCreate } from '../../../src/application/workspace-create.ts';
@@ -516,28 +515,6 @@ test('current generation sessions close every real nested transaction and preser
   expect(stdout.trim()).toBe('current generation transactions settled');
 }));
 
-test('project-base recipe retains each original only-if-absent author surface', async () => {
-  const root = await createWorkspace('workspace-create-recipe-preservation-');
-  await ensureProjectBase(root);
-  const optional = ['prisma/schema.prisma', 'model/policies/policy.spec.yaml', 'model/patches/override-manifest.yaml', CI_ARTIFACT_FILES.provenance];
-  for (const relative of optional) await fs.writeFile(path.join(root, relative), 'owned author contents\n');
-  await fs.writeFile(path.join(root, 'package.json'), 'replaceable scaffold contents\n');
-  await ensureProjectBase(root);
-  for (const relative of optional) expect(await fs.readFile(path.join(root, relative), 'utf8')).toBe('owned author contents\n');
-  expect(await fs.readFile(path.join(root, 'package.json'), 'utf8')).toContain('generated-customer-admin');
-});
-
-
-test('exclusive directory birth rejects invalid modes before creating a destination', async () => {
-  const root = await createWorkspace('workspace-create-invalid-mode-');
-  const retained = inspectNoFollowDirectoryChain(root, 'Create mode fixture').target;
-  for (const mode of [-1, 0o1000, 1.5, Number.NaN]) {
-    expect(() => createExclusiveNoFollowDirectory(retained, 'target', undefined, mode)).toThrow('creation mode is invalid');
-    await expect(fs.lstat(path.join(root, 'target'))).rejects.toMatchObject({ code: 'ENOENT' });
-  }
-  createExclusiveNoFollowDirectory(retained, 'private');
-  if (process.platform === 'linux') expect((await fs.stat(path.join(root, 'private'))).mode & 0o777).toBe(0o700 & ~process.umask());
-});
 
 for (const changed of ['file', 'directory', 'stage'] as const) {
   test.skipIf(process.platform !== 'linux')(`Create refuses a same-inode ${changed} mode change between birth and intent`, async () => {
