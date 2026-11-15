@@ -1270,10 +1270,10 @@ test('proposal-only recovery preserves its PROPOSED identity, rejects the activa
   });
 }, 30_000);
 
-test('proposal-only live readback rejects pointer and manifest identity drift', async () => {
+test('proposal-only live readback rejects identity drift and remains idempotent only in its lane', async () => {
   await withProposalFreezeFixture(async (prepared) => {
     const { fixture, proposalBytes, proposalFile, proposalPath } = prepared;
-    await freezeDocumentControlPlane({
+    const proposed = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
       reviewedOn: '2026-08-09',
@@ -1300,24 +1300,14 @@ test('proposal-only live readback rejects pointer and manifest identity drift', 
       });
     await writeFile(proposalFile, proposalBytes);
     runGit(fixture.repositoryRoot, ['add', proposalPath]);
-  });
-}, 30_000);
 
-test('a completed proposal is idempotent only through the proposal-only lane', async () => {
-  await withProposalFreezeFixture(async (prepared) => {
-    const { fixture, proposalPath } = prepared;
-    const proposed = await freezeDocumentControlPlane({
-      cwd: fixture.repositoryRoot,
-      manifestPath: proposalPath,
-      reviewedOn: '2026-08-09',
-      proposalOnly: true
-    });
-    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    // The restored terminal proposal must reject the activation lane and remain
+    // idempotent only through the proposal-only lane.
     await expect(freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
       reviewedOn: '2026-08-09'
-    })).rejects.toThrow();
+    })).rejects.toThrow('belongs to another authoring disposition');
     const repeated = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
@@ -1331,7 +1321,8 @@ test('a completed proposal is idempotent only through the proposal-only lane', a
     });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   });
-}, 30_000);
+}, 60_000);
+
 
 test('pre-evidence replan replaces one staged manifest generation in the same worktree', async () => {
   await withFreezeFixture(async (fixture) => {
