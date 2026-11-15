@@ -304,7 +304,6 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     'config-fencing',
     'ambient-budget',
     'lifecycle-bootstrap',
-    'bootstrap-lineage',
     'bootstrap-tracking',
     'bootstrap-remote-lineage'
   ].map((part) => slowFileSuite(
