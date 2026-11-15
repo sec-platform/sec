@@ -296,11 +296,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'src/adapters/providers/docker/runtime/launcher-lock.test.ts',
-    reason: 'process-global-environment-and-isolated-provider-lease',
-    resourceClass: 'independent-process'
-  },
-  {
     file: 'src/adapters/providers/docker/runtime/command-provider.test.ts',
     reason: 'process-global-environment-and-isolated-provider-capability',
     resourceClass: 'independent-process'

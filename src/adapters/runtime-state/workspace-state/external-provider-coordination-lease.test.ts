@@ -76,6 +76,7 @@ test.skipIf(process.platform !== 'win32')(
         localAppData: root.target.path,
         repositoryRoot: process.cwd()
       });
+      const displacedCoordinationDirectory = `${expectedDirectory}-displaced`;
       let observedNames: string[] = [];
       let firstCoordinationDigest: `sha256:${string}` | null = null;
       const first = await withExternalProviderCoordinationLeaseAtOwnerIssuedRoot({
@@ -98,6 +99,9 @@ test.skipIf(process.platform !== 'win32')(
             operation: async () => 'unexpected'
           });
           expect(contender).toBeNull();
+          // The retained child directory, not only its owner root, stays pinned during the lease.
+          expect(() => renameSync(expectedDirectory, displacedCoordinationDirectory))
+            .toThrow(expect.objectContaining({ code: 'EBUSY' }));
           return 'settled';
         }
       });

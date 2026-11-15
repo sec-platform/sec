@@ -23,6 +23,7 @@ import {
   compileObservedContainerEngineProviderIdentity,
   observeBeforeDockerDesktopLifecycleAdmission
 } from './container-engine-session.ts';
+import { dockerDesktopCoordinationInput } from './launcher-lock.ts';
 
 const endpoint = createDockerEndpointIdentity({
   architecture: 'x86_64',
@@ -252,6 +253,20 @@ test('a non-authority resource envelope cannot open a provider settlement scope'
     contractDigest,
     providerIdentityDigest: resourceEnvelopeIdentityDigest
   })]);
+  const coordinationInput = dockerDesktopCoordinationInput({
+    endpointHost: endpoint.endpointHost,
+    providerOperation: resourceEnvelope,
+    repositoryRoot: process.cwd(),
+    requirementId: 'external.container-engine-process'
+  });
+  expect(coordinationInput).toEqual({
+    endpointIdentity: endpoint.endpointHost,
+    operation: resourceEnvelope,
+    providerId: 'docker.desktop',
+    requirementId: 'external.container-engine-process',
+    repositoryRoot: process.cwd()
+  });
+  expect(coordinationInput.operation).toBe(resourceEnvelope);
   expect(() => assertContainerEngineOperationScopeAdmission({
     operation: resourceEnvelope,
     requirementId: 'external.container-engine-process',
