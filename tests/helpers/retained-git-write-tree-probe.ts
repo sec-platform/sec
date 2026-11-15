@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -81,6 +81,28 @@ export function runRetainedGitWriteTreeProbe(): string {
       inspectNoFollowDirectoryChain(objectPath, 'original Git objects'),
       3
     ), 'original Git objects');
+    if (process.platform === 'linux') {
+      // The child must read the retained object directory through its inherited
+      // descriptor, not through the now-empty lexical .git/objects path.
+      renameSync(objectPath, `${objectPath}-displaced`);
+      mkdirSync(objectPath);
+    } else if (process.platform === 'win32') {
+      // Windows children receive absolute paths, so every ancestor stays pinned
+      // until the capability is disposed.
+      const ancestor = path.join(root, 'child-process-boundary-ancestor');
+      const target = path.join(ancestor, 'parent', 'target');
+      const displaced = `${ancestor}-displaced`;
+      mkdirSync(target, { recursive: true });
+      const boundary = own(retainNoFollowDirectoryForChildProcess(
+        inspectNoFollowDirectoryChain(target, 'child-process directory boundary'),
+        6,
+        'child-process directory boundary'
+      ), 'child-process directory boundary');
+      assert.throws(() => renameSync(ancestor, displaced));
+      boundary.assertCurrent();
+      boundary.dispose();
+      renameSync(ancestor, displaced);
+    }
     const scratchObjects = own(retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(scratchObjectsPath, 'scratch Git objects'),
       4
