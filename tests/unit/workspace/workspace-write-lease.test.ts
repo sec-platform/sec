@@ -336,14 +336,14 @@ test('a complete V2 ledger remains an external typed migration boundary', async 
   }, 'engineering-compiler-workspace-lease-v2-boundary-');
 });
 
-test('stale legacy owners remain unverified regardless of PID probe and original owner can settle', async () => {
+test('stale workspace lease owners remain unverified across acquisition and initialization', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     let clock = 1_000;
     const original = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 1_000,
       staleAfterMs: 2_000,
-      hostname: 'lease-test-host',
-      pid: 100,
+      hostname: os.hostname(),
+      pid: 2_147_483_646,
       processNonce: 'process:original',
       now: () => clock,
       createId: ids('original'),
@@ -355,7 +355,7 @@ test('stale legacy owners remain unverified regardless of PID probe and original
     const liveContender = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 1_000,
       staleAfterMs: 2_000,
-      hostname: 'lease-test-host',
+      hostname: os.hostname(),
       pid: 200,
       processNonce: 'process:live',
       now: () => clock,
@@ -369,7 +369,7 @@ test('stale legacy owners remain unverified regardless of PID probe and original
     const foreignContender = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 1_000,
       staleAfterMs: 2_000,
-      hostname: 'foreign-host',
+      hostname: `${os.hostname()}-foreign`,
       pid: 300,
       processNonce: 'process:foreign',
       now: () => clock,
@@ -383,7 +383,7 @@ test('stale legacy owners remain unverified regardless of PID probe and original
     const unknownContender = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 1_000,
       staleAfterMs: 2_000,
-      hostname: 'lease-test-host',
+      hostname: os.hostname(),
       pid: 400,
       processNonce: 'process:unknown',
       now: () => clock,
@@ -397,7 +397,7 @@ test('stale legacy owners remain unverified regardless of PID probe and original
     const deadContender = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 1_000,
       staleAfterMs: 2_000,
-      hostname: 'lease-test-host',
+      hostname: os.hostname(),
       pid: 500,
       processNonce: 'process:dead',
       now: () => clock,
@@ -409,32 +409,18 @@ test('stale legacy owners remain unverified regardless of PID probe and original
       code: 'WORKSPACE-WRITE-LEASE-003', details: { reason: 'effect-quiescence-unproven' }
     });
     expect(await inspectWorkspaceWriteLease(workspaceRoot)).toEqual(before);
+    // The public initializer must not turn a dead PID into authority to replace
+    // the same unqualified generation; this is the same physical lease state.
+    await expect(initWorkspace(workspaceRoot)).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-003'
+    });
+    expect(await inspectWorkspaceWriteLease(workspaceRoot)).toEqual(before);
     await abandoned.assertOwned();
     await abandoned.release();
     const legitimateSuccessor = await deadContender.acquire(workspaceRoot);
     expect(legitimateSuccessor.token.generation).toBe(2);
     await legitimateSuccessor.release();
   }, 'engineering-compiler-workspace-lease-reclaim-');
-});
-
-test('workspace initialization preserves an unqualified abandoned lease namespace', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const abandonedManager = createWorkspaceWriteLeaseManager({
-      heartbeatIntervalMs: 1_000_000,
-      staleAfterMs: 1_000_001,
-      hostname: os.hostname(),
-      pid: 2_147_483_646,
-      processNonce: 'process:init-abandoned',
-      now: () => 0,
-      createId: ids('init-abandoned'),
-      processAlive: () => 'alive'
-    });
-    const abandoned = await abandonedManager.acquire(workspaceRoot);
-    const before = await inspectWorkspaceWriteLease(workspaceRoot);
-    await expect(initWorkspace(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-003' });
-    expect(await inspectWorkspaceWriteLease(workspaceRoot)).toEqual(before);
-    await abandoned.release();
-  }, 'engineering-compiler-workspace-init-reclaim-');
 });
 
 test('an empty protocol root is completed without ever exposing an incomplete owner', async () => {
