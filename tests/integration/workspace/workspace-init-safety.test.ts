@@ -21,30 +21,49 @@ import { initWorkspace } from '../../../src/bootstrap/engineering/workspace-orch
 import { withAcquiredResource } from '../../../src/execution/resource-settlement.ts';
 import { snapshotWorkspaceCreateRequest, type WorkspaceCreateSession } from '../../../src/execution/workspace-create.ts';
 import { withRetainedBunTestWorkspace } from '../../testkit/process-resource.ts';
-import { createWorkspace } from '../../testkit/workspace.ts';
+import { createWorkspace, withTempWorkspace } from '../../testkit/workspace.ts';
 
-test('init creates the minimal workspace on an empty root', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-init-empty-');
-  const result = await initWorkspace(workspaceRoot);
-  const paths = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(result.planPath);
+test('init creates the minimal workspace and writer lease beneath a missing root', async () => {
+  await withTempWorkspace(async (outerRoot) => {
+    const workspaceRoot = path.join(outerRoot, 'workspace');
+    await expect(fs.lstat(workspaceRoot)).rejects.toMatchObject({ code: 'ENOENT' });
 
-  expect(result.planPath).toBe(paths.workspaceConfigPath);
-  expect(plan.app.id).toBe('app');
-  expect(plan.blocks).toEqual([]);
-  expect(plan.acceptance).toEqual([]);
-  expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
-  expect((await fs.lstat(paths.srcRoot)).isDirectory()).toBe(true);
-  // The initial pending report is intentionally not a complete Verification
-  // artifact set. Remove that optional observation so this assertion reaches
-  // the first real provenance publication without fabricating Verification.
-  await fs.rm(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport));
-  const provenance = await writeProvenance(workspaceRoot, readLockFile(workspaceRoot));
-  const persisted = readOptionalProvenanceFile(
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance),
-    'Minimal workspace provenance readback'
-  );
-  expect(persisted).toEqual(provenance);
+    const result = await initWorkspace(workspaceRoot);
+    expect((await fs.lstat(workspaceRoot)).isDirectory()).toBe(true);
+    expect((await fs.readdir(outerRoot)).sort()).toEqual(['workspace']);
+    const paths = getWorkspacePaths(workspaceRoot);
+    const plan = await loadPlan(result.planPath);
+
+    expect(result.planPath).toBe(paths.workspaceConfigPath);
+    expect(plan.app.id).toBe('app');
+    expect(plan.blocks).toEqual([]);
+    expect(plan.acceptance).toEqual([]);
+    expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
+    expect((await fs.lstat(paths.srcRoot)).isDirectory()).toBe(true);
+    const leaseRoot = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
+    const leaseEntries = await fs.readdir(leaseRoot);
+    expect(leaseEntries.filter((entry) => entry.endsWith('.owner.json'))).toHaveLength(1);
+    expect(leaseEntries.filter((entry) => entry.endsWith('.terminal.json'))).toHaveLength(1);
+    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+    try {
+      await lease.assertOwned();
+      await expect(initWorkspace(workspaceRoot)).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-001'
+      });
+    } finally {
+      await lease.release();
+    }
+    // The initial pending report is intentionally not a complete Verification
+    // artifact set. Remove that optional observation so this assertion reaches
+    // the first real provenance publication without fabricating Verification.
+    await fs.rm(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport));
+    const provenance = await writeProvenance(workspaceRoot, readLockFile(workspaceRoot));
+    const persisted = readOptionalProvenanceFile(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance),
+      'Minimal workspace provenance readback'
+    );
+    expect(persisted).toEqual(provenance);
+  }, 'engineering-compiler-init-empty-');
 });
 
 test('unsupported create template fails before lifecycle publication', async () => {

@@ -25,33 +25,6 @@ async function activeOwnerPath(leaseRoot: string): Promise<string> {
   return path.join(leaseRoot, active);
 }
 
-test('initWorkspace creates a missing workspace root before acquiring its writer lease', async () => {
-  await withTempWorkspace(async (outerRoot) => {
-    const workspaceRoot = path.join(outerRoot, 'workspace');
-    expect(await pathExists(workspaceRoot)).toBe(false);
-
-    const initialized = await initWorkspace(workspaceRoot);
-
-    expect(await pathExists(workspaceRoot)).toBe(true);
-    expect(await pathExists(initialized.planPath)).toBe(true);
-    expect(await pathExists(initialized.lockPath)).toBe(true);
-    expect((await fs.readdir(outerRoot)).sort()).toEqual(['workspace']);
-    const leaseRoot = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
-    expect(await pathExists(leaseRoot)).toBe(true);
-    expect((await fs.readdir(leaseRoot)).filter((entry) => entry.endsWith('.owner.json'))).toHaveLength(1);
-    expect((await fs.readdir(leaseRoot)).filter((entry) => entry.endsWith('.terminal.json'))).toHaveLength(1);
-    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
-    try {
-      await lease.assertOwned();
-      await expect(initWorkspace(workspaceRoot)).rejects.toMatchObject({
-        code: 'WORKSPACE-WRITE-LEASE-001'
-      });
-    } finally {
-      await lease.release();
-    }
-  }, 'engineering-compiler-init-missing-workspace-');
-});
-
 test('a child cannot reuse or release a live holder token copied from owner.json', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot);
