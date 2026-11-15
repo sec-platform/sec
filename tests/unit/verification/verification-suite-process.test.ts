@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -202,86 +202,91 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
 );
 
 test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
-  'sealed fast suite keeps its generation non-writable to candidate code',
+  'sealed fast suite denies source writes and out-of-generation reads across sync and async paths',
   async () => {
-    await withFastSuiteCandidate(
-      `import { chmodSync, writeFileSync } from 'node:fs';
-       export function runSuite() {
-         const source = import.meta.file;
-         chmodSync(source, 0o600);
-         writeFileSync(source, 'export function runSuite() {}\\n');
-       }`,
-      async ({ root, file }) => {
-        const passed: string[] = [];
-        await expect(runSuiteProcesses({
-          workspaceRoot: root,
-          suiteRoot: path.join(root, 'tests', 'unit'),
-          files: [file],
-          workspaceInputMode: 'sealed-generation',
-          onSuitePassed: value => { passed.push(value); }
-        })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
-        expect(passed).toEqual([]);
-      }
-    );
-  }
-);
-
-
-
-
-test.skipIf(process.platform !== 'linux')(
-  'sealed fast suite denies dynamic imports outside the exact execution generation',
-  async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-read-sandbox-'));
-    return settleWorkspaceCallback(async () => {
     const outsideRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-fast-suite-outside-'));
-    const suiteRoot = path.join(root, 'tests', 'unit');
-    const file = path.join(suiteRoot, 'candidate.test.ts');
     const outside = path.join(outsideRoot, 'outside.ts');
     return settleWorkspaceCallback(async () => {
-      await mkdir(suiteRoot, { recursive: true });
       await writeFile(outside, 'export const foreign = 1;\n', 'utf8');
-      await writeFile(
-        file,
-        `export async function runSuite() {
-           const specifier = ${JSON.stringify(pathToFileURL(outside).href)};
-           await import(specifier);
-         }\n`,
-        'utf8'
+      expect(existsSync(outside)).toBe(true);
+      const outsideModule = await import(pathToFileURL(outside).href);
+      expect(outsideModule.foreign).toBe(1);
+      await withFastSuiteCandidate(
+        `import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+         import { writeFile } from 'node:fs/promises';
+         export async function runSuite() {
+           const source = import.meta.file;
+           const original = readFileSync(source, 'utf8');
+           const sourceModeBefore = process.platform === 'linux'
+             ? statSync(source).mode & 0o777
+             : null;
+           const sourceModeWritable = sourceModeBefore === null
+             ? null
+             : (sourceModeBefore & 0o200) !== 0;
+           if (process.platform === 'win32') {
+             try { chmodSync(source, 0o600); } catch {}
+           }
+           let syncWriteDenied = false;
+           try { writeFileSync(source, 'export const mutated = true;\\n'); }
+           catch { syncWriteDenied = true; }
+           let asyncWriteDenied = null;
+           let outsideReadDenied = null;
+           if (process.platform === 'linux') {
+             asyncWriteDenied = false;
+             try { await writeFile(source, 'export const mutated = true;\\n'); }
+             catch { asyncWriteDenied = true; }
+             outsideReadDenied = false;
+             try { await import(${JSON.stringify(pathToFileURL(outside).href)}); }
+             catch { outsideReadDenied = true; }
+           }
+           const sourceUnchanged = readFileSync(source, 'utf8') === original;
+           const sourceModeAfter = process.platform === 'linux'
+             ? statSync(source).mode & 0o777
+             : null;
+           throw new Error('sandbox-observations:' + JSON.stringify({
+             sourceModeBefore, sourceModeAfter, sourceModeWritable,
+             syncWriteDenied, asyncWriteDenied, outsideReadDenied, sourceUnchanged
+           }));
+         }`,
+        async ({ root, suiteRoot, file }) => {
+          if (process.platform === 'linux') await chmod(file, 0o600);
+          const passed: string[] = [];
+          let observedFailure: unknown;
+          try {
+            await runSuiteProcesses({
+              workspaceRoot: root,
+              suiteRoot,
+              files: [file],
+              workspaceInputMode: 'sealed-generation',
+              onSuitePassed: value => { passed.push(value); }
+            });
+          } catch (error) {
+            observedFailure = error;
+          }
+          expect(observedFailure).toMatchObject({ code: 'VERIFY-BUILD-007' });
+          expect(passed).toEqual([]);
+          const failure = (observedFailure as { details?: { failure?: unknown } }).details?.failure;
+          expect(typeof failure).toBe('string');
+          const prefix = 'sandbox-observations:';
+          expect((failure as string).startsWith(prefix)).toBe(true);
+          const observations = JSON.parse((failure as string).slice(prefix.length)) as {
+            sourceModeBefore: number | null;
+            sourceModeAfter: number | null;
+            sourceModeWritable: boolean | null;
+            syncWriteDenied: boolean;
+            asyncWriteDenied: boolean | null;
+            outsideReadDenied: boolean | null;
+            sourceUnchanged: boolean;
+          };
+          expect(observations.sourceModeBefore).toBe(process.platform === 'linux' ? 0o600 : null);
+          expect(observations.sourceModeAfter).toBe(process.platform === 'linux' ? 0o600 : null);
+          expect(observations.sourceModeWritable).toBe(process.platform === 'linux' ? true : null);
+          expect(observations.syncWriteDenied).toBe(true);
+          expect(observations.asyncWriteDenied).toBe(process.platform === 'linux' ? true : null);
+          expect(observations.outsideReadDenied).toBe(process.platform === 'linux' ? true : null);
+          expect(observations.sourceUnchanged).toBe(true);
+        }
       );
-      const passed: string[] = [];
-      await expect(runSuiteProcesses({
-        workspaceRoot: root,
-        suiteRoot,
-        files: [file],
-        workspaceInputMode: 'sealed-generation',
-        onSuitePassed: value => { passed.push(value); }
-      })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
-      expect(passed).toEqual([]);
     }, () => rm(outsideRoot, { recursive: true, force: true }));
-    }, () => rm(root, { recursive: true, force: true }));
-  }
-);
-
-test.skipIf(process.platform !== 'linux')(
-  'sealed fast suite denies asynchronous source writes from runtime worker threads',
-  async () => {
-    await withFastSuiteCandidate(
-      `import { writeFile } from 'node:fs/promises';
-       export async function runSuite() {
-         await writeFile(import.meta.file, 'export function runSuite() {}\\n');
-       }`,
-      async ({ root, file }) => {
-        const passed: string[] = [];
-        await expect(runSuiteProcesses({
-          workspaceRoot: root,
-          suiteRoot: path.join(root, 'tests', 'unit'),
-          files: [file],
-          workspaceInputMode: 'sealed-generation',
-          onSuitePassed: value => { passed.push(value); }
-        })).rejects.toMatchObject({ code: 'VERIFY-BUILD-007' });
-        expect(passed).toEqual([]);
-      }
-    );
   }
 );
