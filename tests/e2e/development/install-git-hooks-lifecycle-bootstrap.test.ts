@@ -38,15 +38,6 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
     git(repoRoot, ['add', '--chmod=+x', '.githooks']);
     git(repoRoot, ['-c', 'user.name=SEC Tests', '-c', 'user.email=tests@example.com', 'commit', '--quiet', '-m', 'initial']);
     git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-fixture', linkedRoot]);
-
-    // The linked bootstrap must reject a non-default primary before any config effect.
-    git(repoRoot, ['branch', '--move', 'candidate-primary']);
-    expect(await installGitHooks({ repoRoot: linkedRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
-    expect(() => git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toThrow();
-    expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
-    git(repoRoot, ['branch', '--move', 'main']);
-
     const linkedPostMerge = path.join(linkedRoot, '.githooks', 'post-merge');
     await writeFile(linkedPostMerge, `${managedHookSource('post-merge')}# linked-branch-hook\n`, 'utf8');
     await chmod(linkedPostMerge, 0o755);
@@ -65,4 +56,24 @@ test('hook installer keeps primary bootstrap and linked worktree generations ind
     expect(await readFile(path.join(linkedGeneration, 'post-merge'), 'utf8')).toContain('# linked-branch-hook');
     expect(await readFile(path.join(bootstrapGeneration, 'post-merge'), 'utf8')).not.toContain('# linked-branch-hook');
   }, () => rm(root, { recursive: true, force: true }));
+});
+
+test('hook installer refuses a non-default primary as linked bootstrap', async () => {
+  await withRepository(async (repoRoot) => {
+    git(repoRoot, ['branch', '--move', 'candidate-primary']);
+    git(repoRoot, ['remote', 'add', 'origin', path.join(repoRoot, 'origin.git')]);
+    git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+    const linkedParent = await mkdtemp(path.join(tmpdir(), 'sec-hooks-non-default-'));
+    await settleWorkspaceCallback(async () => {
+      const linkedRoot = path.join(linkedParent, 'linked');
+      git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-non-default', linkedRoot]);
+
+      expect(await installGitHooks({ repoRoot: linkedRoot, lifecycle: true }))
+        .toMatchObject({ status: 'conflict' });
+      expect(() => git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toThrow();
+      expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
+    }, async () => {
+      await rm(linkedParent, { recursive: true, force: true });
+    });
+  });
 });
