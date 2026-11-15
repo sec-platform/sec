@@ -213,57 +213,6 @@ test('copied or forged guardless journal bytes do not create birth or recovery a
   } finally { await lease.release(); }
 });
 
-test('publication interrupted in a settled predecessor process resumes in a new process', async () => withRetainedBunTestWorkspace('workspace-create-process-recovery-', async (root, runCommand) => {
-  const app = new URL('../../../src/application/workspace-initialize.ts', import.meta.url).href;
-  const recipe = new URL('../../../src/application/workspace-create.ts', import.meta.url).href;
-  const lease = new URL('../../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
-  const generation = new URL('../../../src/adapters/workspace/create-generation.ts', import.meta.url).href;
-  const physical = new URL('../../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
-  const script = (interrupt: boolean) => `
-    import path from 'node:path';
-    import { initializePreparedWorkspace } from ${JSON.stringify(app)};
-    import { prepareWorkspaceCreate } from ${JSON.stringify(recipe)};
-    import { withWorkspaceWriteLease } from ${JSON.stringify(lease)};
-    import { openWorkspaceCreateSession } from ${JSON.stringify(generation)};
-    import { createRetainedNoFollowFileTransactionTestActorForTests } from ${JSON.stringify(physical)};
-    const root = ${JSON.stringify(root)};
-    const interrupt = ${JSON.stringify(interrupt)};
-    try {
-      await withWorkspaceWriteLease(root, undefined, token => initializePreparedWorkspace(
-        prepareWorkspaceCreate(undefined, { officialRegistryRelativePath: 'registry' }), {
-          loadTemplate: () => ({ directories: ['src', '.sec/workspace-write-lease'], files: [] }),
-          renderControls: () => ({ directories: [], files: Object.entries(${JSON.stringify(fixtureFiles)}).map(([relativePath, bytes]) => ({ relativePath, bytes: Buffer.from(bytes) })) }),
-          openSession: () => openWorkspaceCreateSession({ workspaceRoot: root, token,
-            ...(interrupt ? { testOnlyActor: createRetainedNoFollowFileTransactionTestActorForTests({
-              afterNamespaceMutationBeforeFlush: ({ targetPath }) => {
-                if (targetPath === path.join(root, 'sec.yaml')) throw new Error('settled-process-interruption');
-              }
-            }) } : {}) })
-        }
-      ));
-      if (interrupt) throw new Error('expected interruption');
-      console.log('recovered');
-    } catch (error) {
-      if (!interrupt || error.message !== 'settled-process-interruption') throw error;
-      // The acquired scope has already joined and settled its writer lease.
-      console.log('interrupted-settled');
-    }
-  `;
-  const run = async (interrupt: boolean) => {
-    const { code, stdout, stderr } = await runCommand(
-      ['--no-env-file', '-e', script(interrupt)], { cwd: process.cwd(), timeoutMs: 180_000, envMode: 'inherit' }
-    );
-    expect(code, stderr).toBe(0); expect(stdout.trim()).toBe(interrupt ? 'interrupted-settled' : 'recovered');
-  };
-  await run(true);
-  const before = await fs.stat(path.join(root, 'sec.yaml'));
-  await run(false);
-  expect((await fs.stat(path.join(root, 'sec.yaml'))).ino).toBe(before.ino);
-  for (const [relative, bytes] of Object.entries(fixtureFiles)) expect(await fs.readFile(path.join(root, relative), 'utf8')).toBe(bytes);
-  expect((await fs.readdir(path.join(root, '.sec'))).filter(name => name.startsWith('.workspace-create-'))).toEqual([]);
-  expect(JSON.parse(await fs.readFile(path.join(root, '.sec/workspace-create.json'), 'utf8')).phase).toBe('completed');
-}));
-
 test('unpublished stage birth without a journal stays unknown and is preserved', async () => {
   const root = await createWorkspace('workspace-create-unjournaled-stage-');
   await expect(createFixtureGeneration(root, {

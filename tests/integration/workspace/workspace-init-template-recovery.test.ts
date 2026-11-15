@@ -40,7 +40,13 @@ const observations = `
   }
 `;
 
-for (const template of ['minimal', 'reference-customer'] as const) {
+// The two public templates represent different payload shapes; the two
+// failure cuts are independent of template identity. Keep both cuts while
+// avoiding a third registration for the same settled-process recovery.
+for (const { template, failureCut } of [
+  { template: 'minimal', failureCut: 'before-rename' },
+  { template: 'reference-customer', failureCut: 'after-namespace-mutation-before-flush' }
+] as const) {
   test(`public ${template} init recovers its original generation and retains completed author work`, async () => withRetainedBunTestWorkspace('workspace-real-template-recovery-', async (container, run) => {
     async function runChild(script: string): Promise<void> {
       const { code, stdout, stderr } = await run(
@@ -56,6 +62,7 @@ for (const template of ['minimal', 'reference-customer'] as const) {
       import path from 'node:path';
       const root = ${JSON.stringify(root)};
       const template = ${JSON.stringify(template)};
+      const failureCut = ${JSON.stringify(failureCut)};
       const evidencePath = ${JSON.stringify(evidencePath)};
       ${observations}
     `;
@@ -63,13 +70,16 @@ for (const template of ['minimal', 'reference-customer'] as const) {
       import { mock } from 'bun:test';
       const physical = await import(${JSON.stringify(physicalModule)});
       const retain = physical.retainNoFollowFileTransaction;
-      const interrupted = new Error('real-template-before-plan-publication');
+      const interrupted = new Error('real-template-publication-interruption');
       let interruptions = 0;
-      const actor = physical.createRetainedNoFollowFileTransactionTestActorForTests({
-        beforeRename({ targetPath }) {
-          if (targetPath === path.join(root, 'sec.yaml')) { interruptions++; throw interrupted; }
-        }
-      });
+      const interruptSecYaml = ({ targetPath }) => {
+        if (targetPath === path.join(root, 'sec.yaml')) { interruptions++; throw interrupted; }
+      };
+      const actor = physical.createRetainedNoFollowFileTransactionTestActorForTests(
+        failureCut === 'before-rename'
+          ? { beforeRename: interruptSecYaml }
+          : { afterNamespaceMutationBeforeFlush: interruptSecYaml }
+      );
       // Replace only the function binding; original retained capabilities and
       // private issuance records are returned unchanged by their actual owner.
       mock.module(${JSON.stringify(physicalModule)}, () => ({ ...physical,
@@ -87,7 +97,15 @@ for (const template of ['minimal', 'reference-customer'] as const) {
       assert.deepEqual(stages, [journal.stageName]);
       const published = await snapshot(root, await controlNames());
       const staged = await snapshot(path.join(root, '.sec', stages[0]), new Set(['.sec/workspace-write-lease']));
-      assert.equal(published.has('sec.yaml'), false); assert.ok(staged.has('sec.yaml'));
+      if (failureCut === 'before-rename') {
+        assert.equal(published.has('sec.yaml'), false);
+        assert.ok(staged.has('sec.yaml'));
+      } else {
+        // The rename has happened but its durability barrier has not. The
+        // fresh process must adopt this exact inode/bytes rather than republish.
+        assert.ok(published.has('sec.yaml'));
+        assert.equal(staged.has('sec.yaml'), false);
+      }
       assert.ok(published.has('src') && published.has('tests'));
       assert.ok(published.has(CI_ARTIFACT_FILES.graphLock));
       assert.ok(published.has(CI_ARTIFACT_FILES.verificationReport));
