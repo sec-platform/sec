@@ -666,10 +666,6 @@ test('fast process policy covers default-excluded files and rejects stale or dup
     assert.equal(isDefaultFastTestFile('tests/unit/unregistered.test.ts'), true);
   }
 
-  {
-    // Identity rejection precedes resource classification; each spelling needs one witness.
-    const file = 'tests/unit/development/command-runner.test.ts';
-  }
 
   {
     const independent = 'tests/unit/development/command-runner.test.ts';
