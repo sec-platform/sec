@@ -30,6 +30,7 @@ import type { VerificationSessionHostedEnvelope, VerificationSessionHostedFacts,
 import type { MergeGateResult } from '../../../src/execution/verification/integration.ts';
 import type { GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, GitHubWorkflowRunObservation, ScopeAuthorization, SessionDigest, VerificationSession } from '../../../src/execution/verification/session.ts';
 import { createRawTestExecutableFixture } from '../../testkit/raw-process.ts';
+import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 export const HEAD = '2222222222222222222222222222222222222222';
 export const BASE = '1111111111111111111111111111111111111111';
@@ -289,19 +290,38 @@ function expectTypedProviderSchemaUnsupported(observation: GitHubReviewBarrierOb
 }
 
 let privateGhProxySuiteRoot = '';
+let privateGhProxyRetentionReason: string | undefined;
+const unsettledCompilationRuntimes: ReturnType<typeof createRawTestExecutableFixture>[] = [];
 
 function privateGhProxyRoot(): string {
+  if (privateGhProxyRetentionReason !== undefined) throw new Error(privateGhProxyRetentionReason);
   if (privateGhProxySuiteRoot !== '') return privateGhProxySuiteRoot;
-  privateGhProxySuiteRoot = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-token-'));
-  const source = path.join(privateGhProxySuiteRoot, 'credential.ts');
-  const output = path.join(privateGhProxySuiteRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
-  writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
-  const runtime = createRawTestExecutableFixture();
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-token-'));
   try {
-    const compiled = spawnSync(runtime.command, ['build','--compile',`--compile-executable-path=${runtime.command}`,source,'--outfile',output],
-      {cwd:privateGhProxySuiteRoot,encoding:'utf8',windowsHide:true,timeout:30_000});
-    if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
-  } finally { runtime.dispose(); }
+    const source = path.join(root, 'credential.ts');
+    const output = path.join(root, process.platform === 'win32' ? 'gh.exe' : 'gh');
+    writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
+    const runtime = createRawTestExecutableFixture();
+    try {
+      const compiled = spawnSync(runtime.command, ['build','--compile',`--compile-executable-path=${runtime.command}`,source,'--outfile',output],
+        {cwd:root,encoding:'utf8',windowsHide:true,timeout:30_000});
+      if (compiled.status !== 0 || compiled.error !== undefined) {
+        throw new Error('Private credential fixture compilation failed', { cause: compiled.error });
+      }
+    } catch (error) {
+      unsettledCompilationRuntimes.push(runtime);
+      privateGhProxyRetentionReason = `Credential compilation did not establish successful completion; retained ${root}`;
+      throw new Error(privateGhProxyRetentionReason, { cause: error });
+    }
+    runtime.dispose();
+  } catch (error) {
+    if (privateGhProxyRetentionReason !== undefined) throw error;
+    settleResources({ primary: { label: 'private-credential-fixture-construction', error },
+      cleanup: [{ label: 'private-credential-fixture-root',
+        settle: () => rmSync(root, { recursive: true, force: true }) }] });
+    throw error;
+  }
+  privateGhProxySuiteRoot = root;
   return privateGhProxySuiteRoot;
 }
 
@@ -309,26 +329,39 @@ async function withPrivateGitHubHttp<T>(
   respond: (url: URL, init: RequestInit | undefined) => unknown,
   operation: (root: string) => Promise<T>
 ): Promise<T> {
+  const proxyRoot = privateGhProxyRoot();
   const root = mkdtempSync(path.join(tmpdir(), 'sec-private-github-http-'));
   const previousPath = process.env.PATH;
   const previousFetch = globalThis.fetch;
-  process.env.PATH = `${privateGhProxyRoot()}${path.delimiter}${previousPath ?? ''}`;
-  globalThis.fetch = (async (target: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(typeof target === 'string' || target instanceof URL ? target : target.url);
-    if (url.origin !== 'https://api.github.com') throw new Error('Fixture received a foreign host');
-    const value = url.pathname === '/user'
-      ? {login:'enrollment',node_id:'ENROLLMENT',id:1}
-      : url.pathname.endsWith('/collaborators/enrollment/permission') ? {permission:'maintain'}
-      : respond(url, init);
-    return new Response(typeof value === 'string' ? value : JSON.stringify(value),
-      {status:200,headers:{'content-type':'application/json'}});
-  }) as typeof fetch;
-  try { return await operation(root); }
-  finally {
-    globalThis.fetch = previousFetch;
-    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
-    rmSync(root,{recursive:true,force:true});
-  }
+  return settleWorkspaceCallback(async () => {
+    process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
+    globalThis.fetch = (async (target: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof target === 'string' || target instanceof URL ? target : target.url);
+      if (url.origin !== 'https://api.github.com') throw new Error('Fixture received a foreign host');
+      const value = url.pathname === '/user'
+        ? {login:'enrollment',node_id:'ENROLLMENT',id:1}
+        : url.pathname.endsWith('/collaborators/enrollment/permission') ? {permission:'maintain'}
+        : respond(url, init);
+      return new Response(typeof value === 'string' ? value : JSON.stringify(value),
+        {status:200,headers:{'content-type':'application/json'}});
+    }) as typeof fetch;
+    try {
+      return await operation(root);
+    } catch (error) {
+      privateGhProxyRetentionReason = `Credential operation failed with no exposed settlement witness; retained HTTP cwd ${root} and credential shim ${proxyRoot}`;
+      throw new Error(privateGhProxyRetentionReason, { cause: error });
+    }
+  }, async () => {
+    settleResources({ cleanup: [
+      { label: 'private-github-fetch', settle: () => { globalThis.fetch = previousFetch; } },
+      { label: 'private-github-path', settle: () => {
+        if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+      } },
+      { label: 'private-github-http-root', settle: () => {
+        if (privateGhProxyRetentionReason === undefined) rmSync(root, { recursive: true, force: true });
+      } }
+    ] });
+  });
 }
 
 async function observePrivateGhProviderBarrier(
@@ -547,7 +580,6 @@ async function reducerFixture(options: {
   authorizationExpiresAt?: string;
   consumed?: boolean;
   closeout?: 'completed' | 'protected-pending' | 'blocked' | 'residue';
-  localDefaultSha?: string;
   remoteDefaultSha?: string;
   baseToMerge?: GitHubComparisonObservation;
   mergeToDefault?: GitHubComparisonObservation;
@@ -718,7 +750,7 @@ async function reducerFixture(options: {
         : BASE;
       return { currentHeadSha: BASE, currentBranch: transport.observation.state === 'MERGED' ? '' : 'main',
         localDefaultSha: transport.observation.state === 'MERGED'
-          ? options.localDefaultSha ?? liveDefaultSha
+          ? liveDefaultSha
           : BASE,
         remoteDefaultSha: liveDefaultSha,
         workingTreeClean: true, runtimeEntrypointBlobMatched: true,
@@ -783,6 +815,7 @@ async function reducerFixture(options: {
 
 
 return { BASE, FakeTransport, HEAD, MERGE_AT, PAGE, ReducerTransport, V6_MANIFEST_PATH, VERIFIED_AT, actionDependencyBlobs, actionsIssueComment, botIssueComment, changedTransition, createPureHostedEnvelopeFixture, defaultReviewWakeupBody, expectTypedProviderSchemaUnsupported, fakeGitHubClient, mainHealthCheck, maintainerIssueComment, observe, observePrivateClearReviewBarrier, observePrivateGhProviderBarrier, observePrivateMergedCandidate, page, reducerFixture, workflowRun, dispose: () => {
+  if (privateGhProxyRetentionReason !== undefined) throw new Error(privateGhProxyRetentionReason);
   if (privateGhProxySuiteRoot !== '') {
     rmSync(privateGhProxySuiteRoot, { recursive: true, force: true });
     privateGhProxySuiteRoot = '';

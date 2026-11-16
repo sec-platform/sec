@@ -15,12 +15,15 @@ import {
 } from '../contract/daemon.ts';
 import {
   assertContainerEngineOperationScopeAdmission,
+  assertDockerCommandOperationAvailable,
+  LINUX_DOCKER_OPERATIONS,
   compileContainerEngineAdmissionProviderIdentity,
   compileContainerEngineOperationArguments,
   compileContainerEngineReadyProviderIdentity,
   compileObservedContainerEngineProviderIdentity,
   observeBeforeDockerDesktopLifecycleAdmission
 } from './container-engine-session.ts';
+import { dockerDesktopCoordinationInput } from './launcher-lock.ts';
 
 const endpoint = createDockerEndpointIdentity({
   architecture: 'x86_64',
@@ -31,7 +34,15 @@ const endpoint = createDockerEndpointIdentity({
 });
 const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 
-test('Container Engine projection injects the retained endpoint outside caller arguments', () => {
+test('Container Engine operations bind the retained endpoint and platform capability', () => {
+  expect(LINUX_DOCKER_OPERATIONS).toEqual([]);
+  expect(() => assertDockerCommandOperationAvailable('linux', 'container-list'))
+    .toThrow('linux-cli-plugin-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-build'))
+    .toThrow('linux-buildx-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-bake'))
+    .toThrow('linux-buildx-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('win32', 'container-list')).not.toThrow();
   expect(compileContainerEngineOperationArguments(endpoint, {
     kind: 'container-list',
     arguments: ['--all']
@@ -139,7 +150,7 @@ test('ready daemon observation does not admit Docker Desktop host runtime state'
       lifecycleAdmissions += 1;
       throw new Error('host runtime state must stay unopened');
     }
-  })).resolves.toBe(available);
+  })).resolves.toEqual(available);
   expect(lifecycleAdmissions).toBe(0);
 });
 
@@ -160,7 +171,7 @@ test('only endpoint unavailability admits Docker Desktop host runtime state', as
       lifecycleAdmissions += 1;
       return recovered;
     }
-  })).resolves.toBe(recovered);
+  })).resolves.toEqual(recovered);
   expect(lifecycleAdmissions).toBe(1);
 
   await expect(observeBeforeDockerDesktopLifecycleAdmission({
@@ -242,6 +253,20 @@ test('a non-authority resource envelope cannot open a provider settlement scope'
     contractDigest,
     providerIdentityDigest: resourceEnvelopeIdentityDigest
   })]);
+  const coordinationInput = dockerDesktopCoordinationInput({
+    endpointHost: endpoint.endpointHost,
+    providerOperation: resourceEnvelope,
+    repositoryRoot: process.cwd(),
+    requirementId: 'external.container-engine-process'
+  });
+  expect(coordinationInput).toEqual({
+    endpointIdentity: endpoint.endpointHost,
+    operation: resourceEnvelope,
+    providerId: 'docker.desktop',
+    requirementId: 'external.container-engine-process',
+    repositoryRoot: process.cwd()
+  });
+  expect(coordinationInput.operation).toBe(resourceEnvelope);
   expect(() => assertContainerEngineOperationScopeAdmission({
     operation: resourceEnvelope,
     requirementId: 'external.container-engine-process',

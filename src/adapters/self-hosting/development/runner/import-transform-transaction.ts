@@ -8,7 +8,7 @@ import { CodedFailure } from '../../../../contracts/failure.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../../../workspace/contract/local-state.ts';
 import { ensureDir } from "../../../filesystem/files.ts";
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
-import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectoryAcrossParents, retireNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectoryAcrossParents, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTreeInventory } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 export type ImportTransformWrite = Readonly<{
   relativePath: string;
@@ -98,11 +98,13 @@ const IMPORT_TRANSFORM_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
 // larger limit belongs exclusively to the one-way legacy settlement reader;
 // no current writer or unfinished recovery path may consume it.
 const IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES = 64 * 1024 * 1024;
+const IMPORT_TRANSFORM_TERMINAL_RECEIPT_MAX_BYTES = 4096;
 const IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS = 100_000;
+const IMPORT_TRANSFORM_RETIREMENT_TIMEOUT_MS = 30_000;
 
 class ImportTransformTransactionFailure extends Error {
-  constructor(readonly reasonCode: TransactionReason, message: string) {
-    super(message);
+  constructor(readonly reasonCode: TransactionReason, message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'ImportTransformTransactionFailure';
   }
 }
@@ -965,7 +967,8 @@ async function readRegularTransactionArtifact(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error;
     if (error instanceof ImportTransformTransactionFailure) throw error;
-    recoveryFailure(error instanceof Error ? error.message : String(error));
+    throw new ImportTransformTransactionFailure('journal-failed',
+      error instanceof Error ? error.message : String(error), { cause: error });
   }
 }
 
@@ -1062,7 +1065,7 @@ async function readOptionalTerminalReceipt(
   fileCount: number
 ): Promise<ImportTransformTerminalReceipt | null> {
   try {
-    const bytes = await readRegularTransactionArtifact(receiptPath, 'Import transform terminal receipt', 4096);
+    const bytes = await readRegularTransactionArtifact(receiptPath, 'Import transform terminal receipt', IMPORT_TRANSFORM_TERMINAL_RECEIPT_MAX_BYTES);
     return parseTerminalReceipt(decodeRecoveryUtf8(bytes, 'Import transform terminal receipt'),
       transactionId, bindingDigest, fileCount);
   } catch (error) {
@@ -1107,7 +1110,12 @@ async function readTransactionBinding(
       recoveryFailure('Import transform transaction binding write is invalid.');
     }
     seen.add(write.relativePath);
-    const absolutePath = containedFile(workspaceRoot, write.relativePath);
+    let absolutePath: string;
+    try { absolutePath = containedFile(workspaceRoot, write.relativePath); }
+    catch (error) {
+      if (!(error instanceof CodedFailure) || error.code !== 'IMPORT-TRANSFORM-003') throw error;
+      recoveryFailure('Import transform transaction binding path is invalid.');
+    }
     const preimageCandidatePath = importTransformCandidatePath(absolutePath, transactionId, 'preimage');
     const replacementCandidatePath = importTransformCandidatePath(absolutePath, transactionId, 'replacement');
     const candidateRelative = (candidatePath: string) => path.relative(workspaceRoot, candidatePath).replaceAll('\\', '/');
@@ -1353,42 +1361,59 @@ async function retireTransactionGarbage(
   workspaceRoot: string,
   transactionRoot: string,
   assertLease: () => Promise<void>,
-  testHooks: ImportTransformTransactionTestHooks
+  testHooks: ImportTransformTransactionTestHooks,
+  deadlineAtMonotonicMs = performance.now() + IMPORT_TRANSFORM_RETIREMENT_TIMEOUT_MS
 ): Promise<void> {
   await assertLease();
   const parent = inspectNoFollowDirectoryChain(path.dirname(transactionRoot), 'Import transform garbage parent').target;
   const root = inspectNoFollowDirectoryChain(transactionRoot, 'Import transform garbage root').target;
-  const deadlineAtMonotonicMs = performance.now() + 30_000;
-  const metadata = scanNoFollowDirectoryTreeMetadata(root, { deadlineAtMs: deadlineAtMonotonicMs,
+  const metadata = scanNoFollowDirectoryDirectMetadata(root, { deadlineAtMs: deadlineAtMonotonicMs,
     maximumEntries: IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS * 2 + 3 });
   if (metadata.length !== 0) {
     // This is a garbage-domain inventory, never terminal or publication evidence.
     // The original binding survives payload deletion and is deleted last.
+    if (metadata.some(entry => entry.kind !== 'file'
+      || entry.size > (entry.relativePath === 'journal.jsonl' ? IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES
+        : entry.relativePath === 'terminal-receipt.json' ? IMPORT_TRANSFORM_TERMINAL_RECEIPT_MAX_BYTES : IMPORT_TRANSFORM_JOURNAL_MAX_BYTES))
+      || !metadata.some(entry => entry.relativePath === 'binding.json')) {
+      recoveryFailure('Import transform retirement garbage contains unknown, unbound or oversized objects.');
+    }
     const binding = await readTransactionBinding(workspaceRoot, transactionRoot, path.basename(transactionRoot), assertLease);
     const allowed = new Map<string, string | null>([['binding.json', binding.bindingDigest], ['journal.jsonl', null], ['terminal-receipt.json', null]]);
     for (const file of binding.files) {
       allowed.set(digest(file.relativePath) + '.preimage', file.expectedDigest);
       allowed.set(digest(file.relativePath) + '.replacement', file.replacementDigest);
     }
-    if (metadata.some(entry => entry.kind !== 'file' || !allowed.has(entry.relativePath)
-      || entry.size > (entry.relativePath === 'journal.jsonl' ? IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES : IMPORT_TRANSFORM_JOURNAL_MAX_BYTES))) {
-      recoveryFailure('Import transform retirement garbage contains unknown or oversized objects.');
+    if (metadata.some(entry => !allowed.has(entry.relativePath))) {
+      recoveryFailure('Import transform retirement garbage contains unknown objects.');
     }
     const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: deadlineAtMonotonicMs,
       maximumEntries: metadata.length, maximumBytes: metadata.reduce((bytes, entry) => bytes + entry.size, 0), includeByteDigest: true });
+    const observed = new Map(metadata.map(entry => [entry.relativePath, entry]));
+    if (inventory.length !== metadata.length || inventory.some(entry => {
+      const previous = observed.get(entry.relativePath);
+      return previous === undefined || entry.kind !== previous.kind || entry.device !== previous.device
+        || entry.inode !== previous.inode || entry.size !== previous.size;
+    })) throw new Error('Import transform garbage changed after its metadata inventory.');
     for (const entry of inventory) {
-      if (entry.kind !== 'file' || !allowed.has(entry.relativePath)
-        || (allowed.get(entry.relativePath) !== null && entry.byteDigest !== 'sha256:' + allowed.get(entry.relativePath))) {
-        recoveryFailure('Import transform retirement garbage contains unknown or changed objects.');
+      if (entry.relativePath === 'binding.json' && entry.byteDigest !== 'sha256:' + binding.bindingDigest) {
+        throw new Error('Import transform garbage binding changed after its retained read.');
       }
-      if (entry.relativePath === 'journal.jsonl') {
-        const bytes = await readRegularTransactionArtifact(path.join(transactionRoot, entry.relativePath), 'Import transform retired journal', IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
-        const source = decodeRecoveryUtf8(bytes, 'Import transform retired journal');
-        const first = asRecord(parseRecoveryJson(source.split('\n')[0]!, 'Import transform retired journal'), 'Import transform retired journal');
-        if (first.formatVersion === ImportTransformCompactJournalFormat) parseCompactJournal(source, path.basename(transactionRoot), binding.files.length, binding.bindingDigest);
-        else parseLegacyJournalEntries(source, path.basename(transactionRoot), binding.files);
-      } else if (entry.relativePath === 'terminal-receipt.json') {
-        await readOptionalTerminalReceipt(path.join(transactionRoot, entry.relativePath), path.basename(transactionRoot), binding.bindingDigest, binding.files.length);
+      if (allowed.get(entry.relativePath) !== null && entry.byteDigest !== 'sha256:' + allowed.get(entry.relativePath)) {
+        recoveryFailure('Import transform retirement garbage contains invalid payload bytes.');
+      }
+      if (entry.relativePath === 'journal.jsonl' || entry.relativePath === 'terminal-receipt.json') {
+        const isJournal = entry.relativePath === 'journal.jsonl';
+        const label = isJournal ? 'Import transform retired journal' : 'Import transform terminal receipt';
+        const bytes = await readRegularTransactionArtifact(path.join(transactionRoot, entry.relativePath), label,
+          isJournal ? IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES : IMPORT_TRANSFORM_TERMINAL_RECEIPT_MAX_BYTES);
+        if ('sha256:' + digest(bytes) !== entry.byteDigest) throw new Error('Import transform garbage changed after its byte inventory.');
+        const source = decodeRecoveryUtf8(bytes, label);
+        if (isJournal) {
+          const first = asRecord(parseRecoveryJson(source.split('\n')[0]!, label), label);
+          if (first.formatVersion === ImportTransformCompactJournalFormat) parseCompactJournal(source, path.basename(transactionRoot), binding.files.length, binding.bindingDigest);
+          else parseLegacyJournalEntries(source, path.basename(transactionRoot), binding.files);
+        } else parseTerminalReceipt(source, path.basename(transactionRoot), binding.bindingDigest, binding.files.length);
       }
     }
     const deletionOrder = (name: string) => name === 'binding.json' ? 3 : name === 'journal.jsonl' ? 2 : name === 'terminal-receipt.json' ? 1 : 0;
@@ -1414,7 +1439,7 @@ async function retireTerminalTransaction(
 ): Promise<void> {
   await assertLease();
   const root = inspectNoFollowDirectoryChain(transactionRoot, 'Import transform retirement root').target;
-  const deadlineAtMonotonicMs = performance.now() + 30_000;
+  const deadlineAtMonotonicMs = performance.now() + IMPORT_TRANSFORM_RETIREMENT_TIMEOUT_MS;
   const inventory = scanNoFollowDirectoryTreeInventory(root, { deadlineAtMs: deadlineAtMonotonicMs,
     maximumEntries: transaction.files.length * 2 + 3,
     maximumBytes: IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES + IMPORT_TRANSFORM_JOURNAL_MAX_BYTES * 2
@@ -1432,6 +1457,38 @@ async function retireTerminalTransaction(
   const garbage = presence.state === 'absent' ? createExclusiveNoFollowDirectory(stateRoot, 'import-transform-retired') : presence.directory.target;
   const relocated = relocateRetainedNoFollowDirectoryAcrossParents({ directory: root, destinationParent: garbage, tombstoneName: transaction.transactionId });
   await retireTransactionGarbage(workspaceRoot, relocated.path, assertLease, testHooks);
+}
+
+async function retireImportTransformGarbage(
+  workspaceRoot: string,
+  assertLease: () => Promise<void>,
+  testHooks: ImportTransformTransactionTestHooks
+): Promise<{ retired: number; retained: string[] }> {
+  await assertLease();
+  const garbagePath = path.join(resolveWorkspaceLocalStateRoot(workspaceRoot), 'import-transform-retired');
+  const garbage = inspectExactNoFollowDirectoryPresence(garbagePath, 'Import transform retirement garbage namespace');
+  let retired = 0;
+  const retained: string[] = [];
+  if (garbage.state === 'absent') return { retired, retained };
+
+  // One sweep shares the existing retirement budget. Snapshot direct names
+  // before deletion; foreign subtrees never become recursive work.
+  const deadlineAtMonotonicMs = performance.now() + IMPORT_TRANSFORM_RETIREMENT_TIMEOUT_MS;
+  for (const entry of await fs.readdir(garbagePath, { withFileTypes: true })) {
+    await assertLease();
+    if (performance.now() >= deadlineAtMonotonicMs) throw new Error('Import transform garbage retirement deadline expired.');
+    const candidate = path.join(garbagePath, entry.name);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) { retained.push(candidate); continue; }
+    try { await retireTransactionGarbage(workspaceRoot, candidate, assertLease, testHooks, deadlineAtMonotonicMs); }
+    catch (error) {
+      if (!(error instanceof ImportTransformTransactionFailure)
+        || error.reasonCode !== 'journal-failed' || Object.hasOwn(error, 'cause')) throw error;
+      retained.push(candidate);
+      continue;
+    }
+    retired += 1;
+  }
+  return { retired, retained };
 }
 
 /** Retire only proven terminal recovery carriers; unfinished transactions remain untouched. */
@@ -1463,22 +1520,8 @@ export async function retireTerminalImportTransformTransactions(workspaceRoot: s
       await retireTerminalTransaction(root, transactionRoot, transaction, assertLease, testHooks);
       retired += 1;
     }
-    const garbagePath = path.join(resolveWorkspaceLocalStateRoot(root), 'import-transform-retired');
-    const garbage = inspectExactNoFollowDirectoryPresence(garbagePath, 'Import transform retirement garbage namespace');
-    if (garbage.state === 'present') {
-      for (const entry of await fs.readdir(garbagePath, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.isSymbolicLink()) { retained.push(path.join(garbagePath, entry.name)); continue; }
-        const candidate = path.join(garbagePath, entry.name);
-        try { await retireTransactionGarbage(root, candidate, assertLease, testHooks); }
-        catch (error) {
-          if (!(error instanceof ImportTransformTransactionFailure)) throw error;
-          retained.push(candidate);
-          continue;
-        }
-        retired += 1;
-      }
-    }
-    return Object.freeze({ retired, retained: Object.freeze(retained) });
+    const garbage = await retireImportTransformGarbage(root, assertLease, testHooks);
+    return Object.freeze({ retired: retired + garbage.retired, retained: Object.freeze([...retained, ...garbage.retained]) });
   });
 }
 
@@ -1490,8 +1533,8 @@ async function reconcileUnfinishedImportTransactions(
   const transactionsRoot = path.join(resolveWorkspaceLocalStateRoot(workspaceRoot), 'import-transform-transactions');
   let entries: Dirent[];
   try { entries = await fs.readdir(transactionsRoot, { withFileTypes: true }) as Dirent[]; } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    return recoveryRequiredOutcome('unreadable', transactionsRoot, 'journal-failed');
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') entries = [];
+    else return recoveryRequiredOutcome('unreadable', transactionsRoot, 'journal-failed');
   }
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) {
@@ -1635,6 +1678,7 @@ async function reconcileUnfinishedImportTransactions(
         recoveryOutstanding.map((file) => file.relativePath));
     }
   }
+  await retireImportTransformGarbage(workspaceRoot, assertLease, testHooks);
   return undefined;
 }
 

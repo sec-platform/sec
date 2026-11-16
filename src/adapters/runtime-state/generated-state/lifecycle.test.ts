@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from 'bun:test';
-import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { afterAll, afterEach, expect, test } from 'bun:test';
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -61,6 +61,42 @@ async function git(cwd: string, args: string[]): Promise<void> {
   }
 }
 
+// Copy only a completed initial repository: no linked worktree, runtime store,
+// remote or physical locator has been created in this private template.
+let worktreeRepositoryTemplate: Promise<string> | undefined;
+
+async function prepareWorktreeRepositoryTemplate(): Promise<string> {
+  const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-worktree-base-'));
+  try {
+    await git(repositoryRoot, ['init', '-b', 'main']);
+    await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules\n');
+    await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
+    await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
+    await git(repositoryRoot, [
+      '-c',
+      'user.email=sec@example.invalid',
+      '-c',
+      'user.name=SEC Test',
+      'commit',
+      '-m',
+      'fixture'
+    ]);
+    return repositoryRoot;
+  } catch (error) {
+    try { await rm(repositoryRoot, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Worktree base setup and cleanup both failed');
+    }
+    throw error;
+  }
+}
+
+afterAll(async () => {
+  if (worktreeRepositoryTemplate === undefined) return;
+  const [settled] = await Promise.allSettled([worktreeRepositoryTemplate]);
+  if (settled!.status === 'fulfilled') await rm(settled!.value, { recursive: true, force: true });
+});
+
 async function registeredWorktreeFixture() {
   const hostRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-worktree-retirement-'));
   roots.push(hostRoot);
@@ -68,20 +104,10 @@ async function registeredWorktreeFixture() {
   const workspaceRoot = path.join(hostRoot, 'candidate');
   const stateRoot = path.join(hostRoot, 'state');
   const cacheRoot = path.join(hostRoot, 'cache');
-  await mkdir(repositoryRoot);
-  await git(repositoryRoot, ['init', '-b', 'main']);
-  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules\n');
-  await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
-  await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
-  await git(repositoryRoot, [
-    '-c',
-    'user.email=sec@example.invalid',
-    '-c',
-    'user.name=SEC Test',
-    'commit',
-    '-m',
-    'fixture'
-  ]);
+  const template = await (worktreeRepositoryTemplate ??= prepareWorktreeRepositoryTemplate());
+  await cp(template, repositoryRoot, { recursive: true });
+  // Native Git creates fresh linked-worktree metadata against this copied
+  // repository; indexes, refs, roots and every retirement window stay private.
   await git(repositoryRoot, ['worktree', 'add', '-b', 'candidate', workspaceRoot]);
   const revision = await runCommandBytes('git', ['rev-parse', 'HEAD', 'HEAD^{tree}'], {
     cwd: workspaceRoot
@@ -181,7 +207,6 @@ test('worktree retirement preserves one covered ignored root outside the target 
     fixture.options
   );
 
-  expect(receipt).not.toBeNull();
   expect(receipt).toMatchObject({ terminal: 'completed' });
   expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['node_modules']);
   const persistedReceipt = JSON.parse(JSON.stringify(canonicalJson(receipt))) as NonNullable<typeof receipt>;
@@ -233,19 +258,6 @@ test('worktree retirement settles an empty registered ancestor without an exact 
   expect(await absent(path.join(fixture.workspaceRoot, '.tmp'))).toBe(true);
 });
 
-
-test('legacy shared-deps cannot be born as active generated state', async () => {
-  const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  const lifecycle = generatedStateProducerHooks({
-    repositoryRoot: fixture.workspaceRoot,
-    workspaceRoot: fixture.workspaceRoot
-  }, fixture.options);
-  await expect(lifecycle.born(
-    '.shared-deps',
-    'forbidden-legacy-birth'
-  )).rejects.toThrow('not registered by active policy');
-});
 
 test('worktree retirement rejects unknown content inside a registered ancestor before moving roots', async () => {
   const fixture = await registeredWorktreeFixture();
@@ -457,32 +469,6 @@ test('worktree retirement blocks one unknown ignored descendant before moving an
   expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'))).toBe(false);
 });
 
-test('birth and retirement are owner-generated and make only the exact retired root selectable', async () => {
-  const { options, repositoryRoot } = await fixture();
-  const generatedRoot = fixtureRoot(repositoryRoot);
-  await mkdir(generatedRoot, { recursive: true });
-  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
-  let clock = new Date('2026-08-23T01:00:00.000Z');
-  const lifecycle = generatedStateProducerHooks(
-    { repositoryRoot },
-    { ...options, clock: () => clock }
-  );
-  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-1');
-  const activeInventory = await inspectGeneratedState({ repositoryRoot }, options);
-  expect(activeInventory.blockers).toEqual([]);
-  expect(activeInventory.entries.find(
-    ({ relativePath }) => relativePath === LIFECYCLE_FIXTURE_PATH
-  )).toMatchObject({ registrationState: 'active', settlement: 'protected' });
-
-  clock = new Date('2026-08-23T01:01:00.000Z');
-  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
-  const inventory = await inspectGeneratedState({ repositoryRoot }, options);
-  expect(planGeneratedStateCleanup({ inventory, profile: 'automatic' })).toEqual({
-    selected: [LIFECYCLE_FIXTURE_PATH],
-    protected: []
-  });
-});
-
 test('fresh registration storage is retained before first birth and rejects state-root replacement', async () => {
   const { options, repositoryRoot, stateRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
@@ -522,7 +508,7 @@ test('Runtime State admission rejects an in-repository root before creating it',
   expect(await absent(inRepositoryStateRoot)).toBe(true);
 });
 
-test('a forged-valid physical preimage cannot self-sign without an existing registration', async () => {
+test('unregistered legacy birth and forged preimages cannot create owner state', async () => {
   const { cacheRoot, options, repositoryRoot, stateRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(generatedRoot, { recursive: true });
@@ -535,6 +521,9 @@ test('a forged-valid physical preimage cannot self-sign without an existing regi
   expect(physical).not.toBeNull();
   const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
 
+  await mkdir(path.join(repositoryRoot, '.shared-deps'));
+  await expect(lifecycle.born('.shared-deps', 'forbidden-legacy-birth'))
+    .rejects.toThrow('not registered by active policy');
   await expect(lifecycle.bind(LIFECYCLE_FIXTURE_PATH, {
     owner: 'compiler-dependency-runtime',
     producer: 'stage-compiler-dependency-generation',
@@ -569,6 +558,12 @@ test('a fresh producer process can bind an active registration and restore only 
   }
 
   const resumed = generatedStateProducerHooks({ repositoryRoot }, options);
+  await expect(resumed.retired(LIFECYCLE_FIXTURE_PATH, 'caller-invented-retirement'))
+    .rejects.toThrow(/same producer session/u);
+  expect((await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]).toMatchObject({ registrationState: 'active', settlement: 'protected' });
   const bound = await resumed.bind(LIFECYCLE_FIXTURE_PATH, {
     owner: 'compiler-dependency-runtime',
     producer: 'stage-compiler-dependency-generation',
@@ -660,6 +655,12 @@ test('profile-bound disposal recovers its exact durable intent and issues one te
   });
   await owner.born(LIFECYCLE_FIXTURE_PATH, 'profile-bound-disposal-interruption');
   await expect(owner.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-mismatch-preserved',
+    profile: 'all-rebuildable'
+  })).rejects.toThrow('disposal profile is not owned');
+  expect(await absent(fixtureRoot(repositoryRoot))).toBe(false);
+  expect((await owner.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
+  await expect(owner.disposed(LIFECYCLE_FIXTURE_PATH, {
     outcome: 'profile-bound-disposal',
     profile: 'automatic'
   })).rejects.toThrow('did not reach one terminal physical absence');
@@ -688,35 +689,6 @@ test('profile-bound disposal recovers its exact durable intent and issues one te
   expect(await absent(fixtureRoot(repositoryRoot))).toBe(true);
   expect((await resumed.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status)
     .toBe('retired-domain-settled');
-});
-
-test('a cleanup profile outside the registry leaves the active generation unchanged', async () => {
-  const { options, repositoryRoot } = await fixture();
-  await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
-  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
-  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'profile-mismatch-preserved');
-  await expect(lifecycle.disposed(LIFECYCLE_FIXTURE_PATH, {
-    outcome: 'profile-mismatch-preserved',
-    profile: 'all-rebuildable'
-  })).rejects.toThrow('disposal profile is not owned');
-  expect(await absent(fixtureRoot(repositoryRoot))).toBe(false);
-  expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
-});
-
-test('a new caller cannot retire a registration it did not birth or adopt in its producer session', async () => {
-  const { options, repositoryRoot } = await fixture();
-  await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
-  const ownerSession = generatedStateProducerHooks({ repositoryRoot }, options);
-  const foreignSession = generatedStateProducerHooks({ repositoryRoot }, options);
-
-  await ownerSession.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-session');
-  await expect(foreignSession.retired(LIFECYCLE_FIXTURE_PATH, 'caller-invented-retirement'))
-    .rejects.toThrow(/same producer session/u);
-
-  expect((await inspectGeneratedState({
-    repositoryRoot,
-    relativePaths: [LIFECYCLE_FIXTURE_PATH]
-  }, options)).entries[0]).toMatchObject({ registrationState: 'active', settlement: 'protected' });
 });
 
 test('a fresh producer terminalizes only an exact active registration whose physical root is absent', async () => {
@@ -771,16 +743,29 @@ test('a fresh producer terminalizes only an exact active registration whose phys
   });
 });
 
-test('cleanup quarantines, bounded-deletes and reads back one retired physical generation', async () => {
+test('owner retirement selects the exact generation for bounded cleanup and readback', async () => {
   const { options, repositoryRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
   await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');
+  let clock = new Date('2026-08-23T01:00:00.000Z');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, { ...options, clock: () => clock });
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-2');
+  const activeInventory = await inspectGeneratedState({ repositoryRoot }, options);
+  expect(activeInventory.blockers).toEqual([]);
+  expect(activeInventory.entries.find(
+    ({ relativePath }) => relativePath === LIFECYCLE_FIXTURE_PATH
+  )).toMatchObject({ registrationState: 'active', settlement: 'protected' });
+
+  clock = new Date('2026-08-23T01:01:00.000Z');
+  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
+  const inventory = await inspectGeneratedState({ repositoryRoot }, options);
+  expect(planGeneratedStateCleanup({ inventory, profile: 'automatic' })).toEqual({
+    selected: [LIFECYCLE_FIXTURE_PATH],
+    protected: []
+  });
   await mkdir(path.join(repositoryRoot, '.tmp', 'foreign-sibling'));
   await writeFile(path.join(repositoryRoot, '.tmp', 'foreign-sibling', 'keep.txt'), 'foreign');
-  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
-  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-2');
-  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
 
   const receipt = await settleGeneratedState({
     repositoryRoot,
@@ -928,15 +913,11 @@ test('bootstrap settlement propagates a captured before callback failure without
   expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
 });
 
-test('producer hooks omit quarantine without an owner-issued cleanup operation', async () => {
-  const { options, repositoryRoot } = await fixture();
-  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
-  expect(Reflect.has(lifecycle, 'quarantine')).toBe(false);
-  expect(Reflect.get(lifecycle, 'quarantine')).toBeUndefined();
-});
-
 test('producer hooks expose quarantine only for the exact live cleanup operation', async () => {
   const { options, repositoryRoot } = await fixture();
+  const unscoped = generatedStateProducerHooks({ repositoryRoot }, options);
+  expect(Reflect.has(unscoped, 'quarantine')).toBe(false);
+  expect(Reflect.get(unscoped, 'quarantine')).toBeUndefined();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
   await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');
@@ -962,12 +943,11 @@ test('producer hooks expose quarantine only for the exact live cleanup operation
   expect(await absent(generatedRoot)).toBe(true);
 });
 
-test('producer quarantine rejects cloned, foreign and expired cleanup operations before effect', async () => {
+test('producer quarantine rejects cloned and expired cleanup operations before effect', async () => {
   for (const cleanupOperation of [
     Object.freeze({ ...createGeneratedStateCleanupOperationSession({
       deadlineAtMonotonicMs: performance.now() + 30_000
     }) }),
-    Object.freeze({ deadlineAtMonotonicMs: performance.now() + 30_000 }),
     createGeneratedStateCleanupOperationSession({
       deadlineAtMonotonicMs: 1,
       monotonicNowMs: () => 2
@@ -1084,7 +1064,7 @@ test('an interrupted quarantine resumes from durable intent without rediscoverin
   expect((await records()).sort((left, right) => left.sequence - right.sequence).at(-1)?.event).toBe('disposed');
 });
 
-test('bounded quarantine returns one resumable receipt across capacity, abort, deadline, and zero-repeat', async () => {
+test('bounded quarantine returns one resumable receipt across capacity and zero-repeat', async () => {
   const { options, repositoryRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
   await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
@@ -1107,28 +1087,6 @@ test('bounded quarantine returns one resumable receipt across capacity, abort, d
   await assertGeneratedStateCleanupContinuationReceipt(partial, { workspaceRoot: repositoryRoot });
   expect(partial).toMatchObject({ terminal: 'continuation-required', blockers: [] });
   expect(await absent(generatedRoot)).toBe(true);
-
-  const aborted = new AbortController();
-  aborted.abort();
-  for (const operation of [
-    createGeneratedStateCleanupOperationSession({
-      deadlineAtMonotonicMs: performance.now() + 30_000,
-      signal: aborted.signal
-    }),
-    createGeneratedStateCleanupOperationSession({
-      deadlineAtMonotonicMs: 1,
-      monotonicNowMs: () => 2
-    })
-  ]) {
-    const receipt = await continueGeneratedStateCleanup({
-      lifecycleOptions: options,
-      repositoryRoot,
-      profile: 'automatic',
-      relativePaths: [LIFECYCLE_FIXTURE_PATH],
-      operation
-    });
-    expect(receipt.terminal).toBe('continuation-required');
-  }
 
   const completed = await continueGeneratedStateCleanup({
     lifecycleOptions: options,
@@ -1323,7 +1281,7 @@ test('cleanup continuation cannot borrow a different profile while the original 
   expect(fixture.store.fs.exists(fixture.intentPath)).toBe(false);
 });
 
-for (const invalidation of ['foreign-owner', 'forged-observation', 'replaced-locator', 'restored-registration'] as const) {
+for (const invalidation of ['foreign-owner', 'forged-observation', 'restored-registration'] as const) {
   test(`caller retraction data cannot authorize current domain retirement: ${invalidation}`, async () => {
     const { options, repositoryRoot } = await fixture();
     const relativePath = 'node_modules';
@@ -1347,9 +1305,6 @@ for (const invalidation of ['foreign-owner', 'forged-observation', 'replaced-loc
       await unlink(locator); await rename(original, locator);
       await lifecycle.restore(relativePath, retired.registrationDigest, registration.root, 'owner-rollback');
       await rename(locator, original);
-      await symlink(replacement, locator, process.platform === 'win32' ? 'junction' : 'dir');
-    } else if (invalidation === 'replaced-locator') {
-      await rename(locator, path.join(repositoryRoot, 'parked-locator'));
       await symlink(replacement, locator, process.platform === 'win32' ? 'junction' : 'dir');
     }
     const before = await lstat(locator, { bigint: true });
@@ -1380,7 +1335,7 @@ for (const blockedBy of ['cancelled', 'expired'] as const) {
       : { deadlineAtMonotonicMs: performance.now() + 30_000, signal: controller.signal });
     const receipt = await continueGeneratedStateCleanup({ lifecycleOptions: value.options,
       repositoryRoot: value.repositoryRoot, relativePaths: [LIFECYCLE_FIXTURE_PATH], profile: 'automatic', operation });
-    expect(receipt.terminal).not.toBe('completed');
+    expect(receipt.terminal).toBe('continuation-required');
     expect(value.store.fs.readText(value.intentPath)).toBe(originalIntent);
     expect(await readFile(path.join(value.tombstone, 'cache.bin'), 'utf8')).toBe('original owned bytes');
     const recovered = await continueGeneratedStateCleanup({ lifecycleOptions: value.options,

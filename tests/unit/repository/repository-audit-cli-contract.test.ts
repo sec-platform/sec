@@ -1,0 +1,258 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import {
+  parseRepositoryAuditCliOptions as parse,
+  repositoryAuditDeadline,
+  repositoryAuditInheritedDeadline,
+  repositoryAuditRemainingDuration,
+  repositoryAuditWorkerDeadline,
+  repositoryAuditShouldFail as shouldFail,
+  repositoryModuleTopologyShouldFail as topologyFails,
+  type RepositoryAuditSeverity
+} from '../../../src/adapters/repository/repository-audit/cli-contract.ts';
+
+// Independent command vectors. These checks use the native argument parser and
+// pure decisions, not a mock Git/worker/scan result promoted into authority.
+test('repository defaults preserve high-severity enforcement and no output effect', () => {
+  assert.deepEqual(parse([]), {
+    mode: 'repository', diagnostic: false, enforce: false, full: false,
+    blockingDetails: false, blockingDetailsDomain: 'priority', blockingDetailsPage: 0, includeCandidates: false,
+    failOn: 'high', defaultRef: undefined,
+    outputPath: null, query: null, reductionMode: 'none', supersessionBaseline: 'HEAD',
+    transitionCandidateRoot: null, transitionExpectedHead: null, testAuthorInput: null
+  });
+});
+
+test('the topology and Source Program command modes are selected explicitly', () => {
+  assert.equal(parse(['--worktree-module-topology', '--enforce']).mode, 'module-topology');
+  assert.equal(parse(['--worktree-source-program', '--enforce']).mode, 'source-program');
+  assert.equal(parse(['--enforce'], 'source-program').mode, 'source-program');
+});
+
+// Native strictness, boolean arity and positional admission are separate gates.
+// Alternate unknown spellings and boolean payloads do not add another gate.
+test('native argument admission rejects unknown switches, boolean values and positionals', () => {
+  for (const args of [['--enfroce'], ['--enforce=true'], ['unexpected']]) {
+    assert.throws(() => parse(args));
+  }
+  for (const failOn of ['HIGH', 'constructor']) {
+    assert.throws(() => parse([`--fail-on=${failOn}`]), /fail-on/);
+  }
+});
+
+test('both mode selectors reject rather than selecting the first branch', () => {
+  assert.throws(() => parse(['--worktree-module-topology', '--worktree-source-program']),
+    /exactly one repository audit mode/);
+});
+
+// Every string option reaches the same native parser and token loop. Query is
+// the unmasked witness: empty/NUL values would otherwise be valid query data,
+// unlike mode-specific options that can still fail at a later policy guard.
+test('query operands retain native value admission and the shared nonempty NUL-free boundary', () => {
+  assert.throws(() => parse(['--query']));
+  assert.throws(() => parse(['--query', '--enforce']));
+  for (const value of ['', 'x\0y']) {
+    assert.throws(() => parse(['--query', value]), /requires one non-empty value without NUL/);
+  }
+});
+
+test('duplicate value options reject both separate and equals forms', () => {
+  for (const args of [
+    ['--query', 'a', '--query', 'b'], ['--query=a', '--query=b']
+  ]) assert.throws(() => parse(args), /exactly once/);
+});
+
+test('repeated idempotent boolean switches retain their previous meaning', () => {
+  assert.equal(parse(['--enforce', '--enforce'], 'source-program').enforce, true);
+});
+
+test('an equals-form query value spelling a switch stays data and does not choose a mode or policy', () => {
+  for (const query of ['--enforce', '--worktree-source-program']) {
+    const result = parse([`--query=${query}`]);
+    assert.equal(result.query, query); assert.equal(result.mode, 'repository');
+    assert.equal(result.enforce, false); assert.equal(result.diagnostic, false);
+  }
+});
+
+test('equals syntax and separate arguments select the same valid input', () => {
+  const separate = parse(['--query', 'model', '--fail-on', 'medium', '--output', 'audit.json']);
+  assert.deepEqual({ query: separate.query, failOn: separate.failOn, outputPath: separate.outputPath }, {
+    query: 'model', failOn: 'medium', outputPath: path.resolve('audit.json')
+  });
+  assert.deepEqual(separate, parse(['--query=model', '--fail-on=medium', '--output=audit.json']));
+});
+
+test('an output filename spelling a selector cannot route another operation', () => {
+  const selected = parse(['--output=--worktree-source-program']);
+  assert.equal(selected.mode, 'repository');
+  assert.equal(selected.outputPath, path.resolve('--worktree-source-program'));
+});
+
+test('explicit enforcement cannot be combined with diagnostic softening or a none threshold', () => {
+  for (const args of [['--enforce', '--diagnostic'], ['--enforce', '--fail-on=none']]) assert.throws(() => parse(args));
+  assert.equal(parse(['--diagnostic', '--fail-on=none']).diagnostic, true);
+});
+
+test('non-repository modes reject ignored repository-only options', () => {
+  // Keep each policy-list member, with one member witnessing the other mode.
+  for (const option of ['--diagnostic', '--fail-on=high', '--default-ref=HEAD']) {
+    assert.throws(() => parse(['--worktree-module-topology', option]), /only supported/);
+  }
+  assert.throws(() => parse(['--worktree-source-program', '--diagnostic']), /only supported/);
+});
+
+test('source-only reduction, detail, candidate and baseline options cannot silently run another mode', () => {
+  for (const option of ['--blocking-details', '--blocking-details-domain=priority', '--blocking-details-page=0', '--candidates', '--graph-cuts', '--version-reductions',
+    '--aggregate-import-reductions', '--supersession-baseline=HEAD']) {
+    assert.throws(() => parse([option]), /only supported/);
+  }
+  assert.throws(() => parse(['--worktree-module-topology', '--blocking-details']), /only supported/);
+});
+
+test('blocking details select the bounded source-program diagnostic projection', () => {
+  const parsed = parse([
+    '--blocking-details', '--blocking-details-domain=test-retirement', '--blocking-details-page=2'
+  ], 'source-program');
+  assert.equal(parsed.blockingDetails, true);
+  assert.equal(parsed.blockingDetailsDomain, 'test-retirement');
+  assert.equal(parsed.blockingDetailsPage, 2);
+  assert.equal(parsed.full, false);
+  assert.equal(parsed.includeCandidates, false);
+});
+
+test('blocking detail pages require the bounded projection and reject invalid indices', () => {
+  assert.throws(() => parse(['--blocking-details-page=1'], 'source-program'), /requires --blocking-details/);
+  assert.throws(() => parse(['--blocking-details-domain=priority'], 'source-program'), /requires --blocking-details/);
+  assert.throws(() => parse([
+    '--blocking-details', '--blocking-details-domain=everything'
+  ], 'source-program'), /Unsupported --blocking-details-domain/);
+  for (const value of ['-1', '1.5', '9007199254740992']) {
+    assert.throws(() => parse([
+      '--blocking-details', `--blocking-details-page=${value}`
+    ], 'source-program'), /Unsupported --blocking-details-page/);
+  }
+  assert.throws(() => parse(['--blocking-details', '--full'], 'source-program'), /cannot be combined/);
+});
+
+test('each reduction works alone and conflicting reductions reject', () => {
+  for (const [flag, mode] of [['--aggregate-import-reductions', 'aggregate-import'],
+    ['--version-reductions', 'version']]) {
+    const result = parse([flag!, '--output=changes.patch'], 'source-program');
+    assert.equal(result.reductionMode, mode); assert.equal(result.outputPath, path.resolve('changes.patch'));
+  }
+  for (const flags of [['--graph-cuts', '--version-reductions'],
+    ['--version-reductions', '--aggregate-import-reductions']]) {
+    assert.throws(() => parse(flags, 'source-program'), /one reduction mode/);
+  }
+});
+
+test('graph-cut output is admitted only for the exact-snapshot provider path', () => {
+  assert.equal(parse(['--graph-cuts'], 'source-program').reductionMode, 'graph-cut');
+  assert.equal(parse(['--graph-cuts', '--output=changes.patch'], 'source-program').outputPath,
+    path.resolve('changes.patch'));
+});
+
+test('a source output without a reduction is refused before the producer can be called', () => {
+  assert.throws(() => parse(['--output=report.json'], 'source-program'), /requires one reduction mode/);
+});
+
+test('topology queries reject rather than paying for an ignored query', () => {
+  assert.throws(() => parse(['--worktree-module-topology', '--query=symbol']), /not supported/);
+});
+
+test('revision operands beginning with a switch are refused even in explicit equals form', () => {
+  assert.throws(() => parse(['--default-ref=--enforce']), /Git revision/);
+  assert.throws(() => parse(['--supersession-baseline=-other'], 'source-program'), /Git revision/);
+});
+
+test('later argv edits do not retarget captured output options', () => {
+  const args = ['--output', 'result with spaces.json', '--query', '中文'];
+  const selected = parse(args); args[1] = 'changed.json';
+  assert.equal(selected.outputPath, path.resolve('result with spaces.json'));
+  assert.equal(selected.query, '中文');
+});
+
+test('json is a compatible presentation switch, not an enforcement bypass', () => {
+  assert.deepEqual(parse(['--json']), parse([]));
+  assert.deepEqual(parse(['--json', '--worktree-module-topology', '--enforce']),
+    parse(['--worktree-module-topology', '--enforce']));
+});
+
+test('all original severity thresholds select the same independent ordered findings', () => {
+  const severities: RepositoryAuditSeverity[] = ['critical', 'high', 'medium', 'low'];
+  for (let threshold = 0; threshold < severities.length; threshold++) {
+    for (let found = 0; found < severities.length; found++) {
+      assert.equal(shouldFail({ findings: [{ severity: severities[found]! }], unknowns: [] },
+        { failOn: severities[threshold]! }), found <= threshold);
+    }
+  }
+});
+
+test('unknown observations still fail without diagnostic even when findings are disabled', () => {
+  assert.equal(shouldFail({ findings: [], unknowns: ['unresolved input'] }), true);
+  assert.equal(shouldFail({ findings: [], unknowns: ['unresolved input'] }, { failOn: 'none' }), true);
+  assert.equal(shouldFail({ findings: [], unknowns: ['unresolved input'] }, { diagnostic: true }), false);
+});
+
+test('topology enforcement refuses unresolved files even when there are no known violations', () => {
+  const input = { unresolvedFiles: [{ path: 'src/unparsed.ts' }], topology: { violations: [] } };
+  assert.equal(topologyFails(input, true), true);
+  assert.equal(topologyFails(input, false), false);
+});
+
+test('topology enforcement preserves clean and violated outcomes', () => {
+  assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [] } }, true), false);
+  assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [{ code: 'boundary' }] } }, true), true);
+  assert.equal(topologyFails({ unresolvedFiles: [], topology: { violations: [{ code: 'boundary' }] } }, false), false);
+});
+
+test('each detailed unknown channel independently obeys the diagnostic decision', () => {
+  for (const mask of [0, 1, 2, 4]) {
+    const report = { findings: [], unknowns: [],
+      sourceProgram: { unknowns: mask & 1 ? ['model'] : [] },
+      declarationTopology: { unknowns: mask & 2 ? ['topology'] : [] },
+      contentCoverage: [
+        { status: mask & 4 ? 'unknown' as const : 'scanned' as const },
+        { status: 'excluded' as const }
+      ] };
+    assert.equal(shouldFail(report, { failOn: 'none' }), mask !== 0);
+    assert.equal(shouldFail(report, { diagnostic: true, failOn: 'none' }), false);
+  }
+});
+
+test('audit aggregate deadline follows its declared capacity and preserves shorter admission', () => {
+  assert.equal(repositoryAuditDeadline(undefined, 1_000), 301_000);
+  const deadline = repositoryAuditDeadline(2_000, 1_000);
+  assert.equal(deadline, 3_000);
+  assert.equal(repositoryAuditRemainingDuration(deadline, 1_500), 1_500);
+  assert.equal(repositoryAuditRemainingDuration(deadline, 2_900), 100);
+  for (const duration of [0, -1, 300_001, Infinity, NaN, 1.5]) {
+    assert.throws(() => repositoryAuditDeadline(duration, 1_000), /canonical bound/);
+  }
+  assert.throws(() => repositoryAuditRemainingDuration(deadline, 3_000), /exhausted/);
+});
+
+test('audit worker deadline is clipped to the same remaining parent without consuming settlement reserve', () => {
+  const parent = repositoryAuditDeadline(undefined, 1_000);
+  const workDeadline = parent - 5_000;
+  const workerDeadline = repositoryAuditWorkerDeadline(workDeadline, 1_000);
+  assert.ok(Number.isSafeInteger(workerDeadline));
+  assert.ok(workerDeadline > 1_000 && workerDeadline <= 296_000);
+  assert.equal(repositoryAuditWorkerDeadline(workDeadline, 295_999), 296_000);
+  assert.throws(() => repositoryAuditWorkerDeadline(workDeadline, workDeadline), /exhausted/);
+  const shortParent = repositoryAuditDeadline(2_000, 1_000);
+  const narrowed = repositoryAuditWorkerDeadline(shortParent - 100, 1_500);
+  assert.ok(Number.isSafeInteger(narrowed));
+  assert.ok(narrowed > 1_500 && narrowed <= 2_900);
+});
+
+
+test('source inherited deadline is a clipped cap and never renews an exhausted attempt', () => {
+  assert.equal(repositoryAuditInheritedDeadline(undefined, 1_000), 301_000);
+  assert.equal(repositoryAuditInheritedDeadline('1500', 1_000), 1_500);
+  assert.equal(repositoryAuditInheritedDeadline('900000', 1_000), 301_000);
+  for (const value of ['0', '999', '1000', '001500', '-1', '1.2', 'NaN']) {
+    assert.throws(() => repositoryAuditInheritedDeadline(value, 1_000));
+  }
+});

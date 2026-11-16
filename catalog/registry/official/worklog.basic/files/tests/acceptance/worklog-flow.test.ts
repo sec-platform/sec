@@ -10,14 +10,23 @@ export async function runSuite() {
     assigneeId: 'support-owner'
   });
 
-  recordWorklog(db, tenantA, {
+  const worklog = recordWorklog(db, tenantA, {
     ticketId: ticket.id,
-    minutes: 30,
+    minutes: 17,
     note: 'Triage call'
   });
+  assert.equal(worklog.authorId, 'user-tenant-a-admin');
+  assert.equal(worklog.minutes, 17);
+  assert.equal(worklog.note, 'Triage call');
+  assert.equal(summarizeWorklogMinutes(db, tenantA, ticket.id), 17);
+  assert.throws(() => recordWorklog(db, tenantA, { ticketId: ticket.id, minutes: 0 }), /Worklog minutes must be positive/);
+  assert.throws(
+    () => recordWorklog(db, tenantA, { ticketId: ticket.id, minutes: Number.NaN }),
+    /Worklog minutes must be positive/
+  );
   recordWorklog(db, tenantA, {
     ticketId: ticket.id,
-    minutes: 15,
+    minutes: 28,
     note: 'Follow-up notes'
   });
 

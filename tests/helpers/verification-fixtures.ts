@@ -29,7 +29,7 @@ type VerificationArtifactFixtureOptions = {
   lane?: VerificationReport['summary']['requestedLane'];
 };
 
-function emptyPolicyReport(): PolicyReport {
+export function emptyPolicyReport(): PolicyReport {
   return {
     status: 'skipped',
     official: { policies: [], sources: [], violations: [] },
@@ -141,11 +141,9 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     verificationReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport)
   };
   await fs.mkdir(path.dirname(paths.verificationReportPath), { recursive: true });
-  await Promise.all([
-    writeJson(paths.runtimeReportPath, runtime),
-    writeJson(paths.policyReportPath, policyReport),
-    writeJson(paths.acceptanceCoveragePath, acceptanceCoverage),
-    writeJson(paths.verificationReportPath, report)
-  ]);
+  await writeJson(paths.runtimeReportPath, runtime);
+  await writeJson(paths.policyReportPath, policyReport);
+  await writeJson(paths.acceptanceCoveragePath, acceptanceCoverage);
+  await writeJson(paths.verificationReportPath, report);
   return report;
 }

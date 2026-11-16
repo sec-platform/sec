@@ -11,6 +11,8 @@ export interface TicketSummary {
   };
 }
 
+/** Reference/demo summary at 2026-04-26, with a due-soon window through
+ * 2026-05-03. This fixed reporting profile does not consult the current time. */
 export function summarizeTickets(tickets: TicketRecord[]): TicketSummary {
   const byStatus: Record<TicketStatus, number> = {
     open: 0,

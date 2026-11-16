@@ -23,7 +23,7 @@ import {
 import {
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { issueRetainedCommandBoundary, RetainedCommandTransportError } from '../../../runtime-state/physical/runtime/process.ts';
+import { issueRetainedCommandBoundary, retainedCommandFailureTreeClosed, RetainedCommandTransportError } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   openRetainedWindowsRuntimeStateDirectory,
   type RetainedRuntimeStateDirectory
@@ -683,6 +683,9 @@ export async function openContainerEngineSession(
   let closing = false;
   let closed = false;
   let terminalCloseFailure: unknown;
+  // Scope receipts describe semantic accounting; only the physical process
+  // owner can qualify release of inputs after a started transport fails.
+  let nativeTransportUnknown = false;
   let runtimeState: DockerDesktopLifecycleEnvironment | null = null;
   let independentProvider: IndependentProviderProcessCapability | null = null;
   let admissionProviderIdentityDigest: OperationDigest = providerAuthorityIdentityDigest;
@@ -745,6 +748,7 @@ export async function openContainerEngineSession(
     }
     options = Object.freeze({ ...options, input: ownedInput, acceptedCodes });
     if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
+    if (nativeTransportUnknown) fail('native process termination is unproven; provider resources are retained');
     if (retained.platform === 'linux') {
       if (commandOwner === 'docker') {
         // Help/error paths can execute unqualified system plugin metadata.
@@ -801,6 +805,7 @@ export async function openContainerEngineSession(
     active += 1;
     let transportSettled = false;
     let transportAttempted = false;
+    let nativeTransportSettled = false;
     try {
       await retained.linuxCli?.assertCurrent();
       runtimeState?.assertCurrent();
@@ -816,6 +821,7 @@ export async function openContainerEngineSession(
         if (currentScope !== scope || scope.transportUnknown) fail('provider settlement scope lost its current physical admission');
         if (Date.now() >= scope.operation.plan.attempt.deadlineAtUnixMs) fail('provider settlement scope deadline is exhausted');
       }
+      if (nativeTransportUnknown) fail('native process termination is unproven; provider resources are retained');
       transportAttempted = true;
       const { ordinal, result } = await processSession.run(boundary,
         invocation.arguments, {
@@ -835,6 +841,7 @@ export async function openContainerEngineSession(
           independentProvider: providerCapability
         })
       });
+      nativeTransportSettled = true;
       await retained.linuxCli?.assertCurrent();
       runtimeState?.assertCurrent();
       retained.privateState?.assertCurrent();
@@ -873,6 +880,10 @@ export async function openContainerEngineSession(
       }
       return commandResult;
     } catch (error) {
+      if (transportAttempted && !nativeTransportSettled
+          && retainedCommandFailureTreeClosed(error) !== true) {
+        nativeTransportUnknown = true;
+      }
       if (scope !== null && !transportSettled && transportAttempted) {
         scope.processCount += 1;
         scope.inputBytes += commandInputBytes;
@@ -1114,6 +1125,7 @@ export async function openContainerEngineSession(
         scopeInput: Parameters<ContainerEngineSession['openOperationScope']>[0]
       ): ContainerEngineOperationScope {
         if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
+        if (nativeTransportUnknown) fail('native process termination is unproven; provider resources are retained');
         if (active > 0) fail('provider settlement scope cannot open during an active operation');
         if (currentScope !== null) fail('provider settlement scopes cannot nest or overlap');
         if (retained.linuxCli !== undefined) {
@@ -1215,6 +1227,7 @@ export async function openContainerEngineSession(
           return;
         }
         if (active > 0) fail('session cannot close with an active operation');
+        if (nativeTransportUnknown) fail('native process termination is unproven; provider resources are retained');
         if (currentScope !== null) fail('session cannot close with an unsettled operation scope');
         closing = true;
         try {
@@ -1254,12 +1267,13 @@ export async function openContainerEngineSession(
     });
     issuedSessions.set(session, { qualifiedLinux: retained.linuxCli !== undefined,
       signal: processSession.signal,
-      observeCloseState: () => !closed ? 'open' : terminalCloseFailure === undefined ? 'settled' : 'unknown',
+      observeCloseState: () => nativeTransportUnknown ? 'unknown' : !closed ? 'open' : terminalCloseFailure === undefined ? 'settled' : 'unknown',
       originIdentityDigest: retained.linuxCli?.originIdentityDigest ?? null,
       assertIdle: () => {
-        if (closed || closing || active !== 0 || currentScope !== null) fail('session is not idle and transferable');
+        if (closed || closing || nativeTransportUnknown || active !== 0 || currentScope !== null) fail('session is not idle and transferable');
       }, assertCurrent: async () => {
       if (closed || closing) fail('retained session has closed');
+      if (nativeTransportUnknown) fail('native process termination is unproven; provider resources are retained');
       if (Date.now() >= processSession.deadlineAtUnixMs) fail('retained session original deadline expired');
       await retained.linuxCli?.assertCurrent();
       retained.linuxEndpoint?.assertCurrent();
@@ -1271,7 +1285,10 @@ export async function openContainerEngineSession(
   } catch (error) {
     settlePhysicalResources({
       primary: Object.freeze({ label: 'provider-admission', error }),
-      cleanup: [
+      cleanup: nativeTransportUnknown ? [{
+        label: 'unproven-native-transport',
+        settle: () => fail('native process termination is unproven; provider resources are retained')
+      }] : [
         { label: 'process-session-close', settle: () => { processSession.close(); } },
         { label: 'runtime-state-close', settle: () => { runtimeState?.close(); } },
         providerCleanup()

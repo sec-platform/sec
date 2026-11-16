@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
-import { settleResources, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
+import { withAcquiredResource } from '../../../execution/resource-settlement.ts';
 import {
   createTcbClosureCandidateSnapshot,
   finalizeTcbClosureCandidateSnapshot,
@@ -16,7 +16,6 @@ import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/platform/trust/contract/root.ts';
 import { isSourceProgramInputPath, type SourceProgramFileInput } from '../source-program-model/contract.ts';
-import { captureRepositoryAnalysisPolicy } from '../source-program-model/repository-analysis-policy.ts';
 import {
   compileReviewedProcessDispatcherProjection,
   resolveImmutableRevisionProcessDispatchers,
@@ -68,33 +67,18 @@ function fixture() {
   }
 }
 
-test('the production projection interprets candidate B bytes with adopted compiler A and exact raw read identities', async () => {
-  const subject = fixture();
-  try {
-    const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
-    // An accidental no-argument trustedRuntimeClosure reads the real interpreter
-    // tree and returns many dispatchers, so it cannot satisfy this independent oracle.
-    expect(projection.reviewedProcessDispatchers).toEqual([dispatcher]);
-    expect(Object.keys(projection.sourceInputDigests)).toEqual([
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints, leafPath
-    ].sort());
-    expect(projection.sourceInputDigests[leafPath]).toBe(rawSha256('export const leaf = 1;\r\n'));
-    expect(projection.compilerInputDigest).toBe(compilerInputDigest);
-    expect(projection.sourceInputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH]).toBeUndefined();
-    expect(projection.sourceInputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH]).toBeUndefined();
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest,
-      JSON.parse(JSON.stringify(projection)))).toEqual([dispatcher]);
-    expect(Object.isFrozen(projection)).toBe(true);
-    expect(Object.isFrozen(projection.sourceInputDigests)).toBe(true);
-  } finally {
-    subject.cleanup();
-  }
-});
+async function usingFixture<T>(run: (subject: ReturnType<typeof fixture>) => Promise<T>): Promise<T> {
+  return withAcquiredResource({
+    operationLabel: 'dispatcher-projection',
+    resourceLabel: 'dispatcher-projection-fixture',
+    acquire: fixture,
+    use: run,
+    release: subject => subject.cleanup()
+  });
+}
 
 test('production dispatcher projection binds both opaque resources through the exact candidate census', async () => {
-  const subject = fixture();
-  let primary: ResourceSettlementFailure | undefined;
-  try {
+  return usingFixture(async subject => {
     const owners = [
       { owner: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.ts',
         helper: 'src/adapters/verification/platform/ci/runtime/hosted-sut-supervisor.py',
@@ -136,34 +120,11 @@ test('production dispatcher projection binds both opaque resources through the e
       expect(recomputed.sourceInputDigests[helper]).toBe(rawSha256('# changed bytes\n'));
       subject.write(resource);
     }
-  } catch (error) {
-    primary = { label: 'runtime-resource-projection', error };
-  } finally {
-    settleResources({ primary, cleanup: [{ label: 'runtime-resource-projection-fixture', settle: subject.cleanup }] });
-  }
+  });
 });
 
 test('unread candidate compiler, registry and unrelated edits cannot replace adopted policy or change dispatcher facts', async () => {
-  const subject = fixture();
-  try {
-    const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
-    const changed = subject.files.map(input => [unrelatedPath, SEC_TCB_CLOSURE_RUNTIME_PATH,
-      SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH].includes(input.path)
-      ? file(input.path, 'throw new Error("candidate data is not the adopted compiler");\n') : input);
-    for (const input of changed) subject.write(input);
-    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toEqual([dispatcher]);
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
-    expect(recomputed.reviewedProcessDispatchers).toEqual([dispatcher]);
-    expect(captureRepositoryAnalysisPolicy(recomputed.reviewedProcessDispatchers))
-      .toEqual(captureRepositoryAnalysisPolicy([dispatcher]));
-  } finally {
-    subject.cleanup();
-  }
-});
-
-test('compiler identity changes and legacy single-domain payloads cannot reuse candidate dispatcher facts', async () => {
-  const subject = fixture();
-  try {
+  return usingFixture(async subject => {
     const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
     const changedCompiler = rawSha256('changed adopted compiler or dependency generation');
     expect(reviewedProcessDispatchersFromExactProjection(subject.files, changedCompiler, projection)).toBeNull();
@@ -171,19 +132,22 @@ test('compiler identity changes and legacy single-domain payloads cannot reuse c
       inputDigests: projection.sourceInputDigests, reviewedProcessDispatchers: [dispatcher]
     })).toBeNull();
     expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, null)).toBeNull();
-    // Same-root ordinary editing conservatively changes the compiler key. Cold
-    // recomputation still preserves policy, rather than treating a miss as empty.
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, changedCompiler);
-    expect(recomputed.reviewedProcessDispatchers).toEqual([dispatcher]);
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, changedCompiler, recomputed)).toEqual([dispatcher]);
-  } finally {
-    subject.cleanup();
-  }
-});
-
-test('producer rejects cross-root relabeling and absent census inputs instead of stamping caller digests', async () => {
-  const subject = fixture();
-  try {
+    // An accidental no-argument trustedRuntimeClosure reads the real interpreter
+    // tree and returns many dispatchers, so it cannot satisfy this independent oracle.
+    expect(projection.reviewedProcessDispatchers).toEqual([dispatcher]);
+    expect(Object.keys(projection.sourceInputDigests)).toEqual([
+      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints, leafPath
+    ].sort());
+    expect(projection.sourceInputDigests[leafPath]).toBe(rawSha256('export const leaf = 1;\r\n'));
+    expect(projection.compilerInputDigest).toBe(compilerInputDigest);
+    expect(projection.sourceInputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH]).toBeUndefined();
+    expect(projection.sourceInputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH]).toBeUndefined();
+    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest,
+      JSON.parse(JSON.stringify(projection)))).toEqual([dispatcher]);
+    expect(Object.isFrozen(projection)).toBe(true);
+    expect(Object.isFrozen(projection.sourceInputDigests)).toBe(true);
+    // Check both rejected census claims against this same pristine read-only source.
+    // Neither probe may write a candidate file or grant a dispatcher identity.
     const relabeled = subject.files.map(input => input.path === runtimePath
       ? file(runtimePath, 'export {};\n') : input);
     await expect(compileReviewedProcessDispatcherProjection(subject.root, relabeled, compilerInputDigest))
@@ -191,65 +155,63 @@ test('producer rejects cross-root relabeling and absent census inputs instead of
     await expect(compileReviewedProcessDispatcherProjection(subject.root,
       subject.files.filter(input => input.path !== leafPath), compilerInputDigest))
       .rejects.toThrow('read set does not match the exact candidate census');
-  } finally {
-    subject.cleanup();
-  }
-});
 
-test('changed candidate runtime bytes invalidate baseline reuse and cold compilation observes the changed dispatchers', async () => {
-  const subject = fixture();
-  try {
-    const projection = await compileReviewedProcessDispatcherProjection(subject.root, subject.files, compilerInputDigest);
-    const changed = subject.files.map(input => input.path === runtimePath
-      ? file(runtimePath, "import './fixture-leaf.ts';\nexport {};\n") : input);
+    const changed = subject.files.map(input => [unrelatedPath, SEC_TCB_CLOSURE_RUNTIME_PATH,
+      SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH].includes(input.path)
+      ? file(input.path, 'throw new Error("candidate data is not the adopted compiler");\n') : input);
     for (const input of changed) subject.write(input);
-    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toBeNull();
-    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, compilerInputDigest);
-    expect(recomputed.reviewedProcessDispatchers).toEqual([]);
-    expect(reviewedProcessDispatchersFromExactProjection(subject.files, compilerInputDigest, recomputed)).toBeNull();
-    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, recomputed)).toEqual([]);
-  } finally {
-    subject.cleanup();
-  }
+    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, projection)).toEqual([dispatcher]);
+    const recomputed = await compileReviewedProcessDispatcherProjection(subject.root, changed, changedCompiler);
+    expect(recomputed.reviewedProcessDispatchers).toEqual([dispatcher]);
+    expect(recomputed.compilerInputDigest).toBe(changedCompiler);
+    expect(reviewedProcessDispatchersFromExactProjection(changed, changedCompiler, recomputed)).toEqual([dispatcher]);
+    expect(reviewedProcessDispatchersFromExactProjection(changed, compilerInputDigest, recomputed)).toBeNull();
+  });
 });
 
-test('a cold formal transition obtains baseline A from its actual root while current B has different dispatchers', async () => {
-  const baseline = fixture();
-  try {
-    const candidate = fixture();
-    try {
+test('a cold formal transition rechecks same-root candidate drift and obtains baseline A from its actual root', async () => {
+  return usingFixture(async baseline => {
+    return usingFixture(async candidate => {
+      // Observe A in this exact candidate root before editing it to B.
+      // The same-root transition must not authorize a stale A projection.
+      const pristineProjection = await compileReviewedProcessDispatcherProjection(
+        candidate.root, candidate.files, compilerInputDigest
+      );
       const candidateFiles = candidate.files.map(input => input.path === runtimePath
         ? file(runtimePath, "import './fixture-leaf.ts';\nexport {};\n") : input);
       for (const input of candidateFiles) candidate.write(input);
-      const baselineProjection = await compileReviewedProcessDispatcherProjection(
-        baseline.root, baseline.files, compilerInputDigest
-      );
+      expect(reviewedProcessDispatchersFromExactProjection(
+        candidateFiles, compilerInputDigest, pristineProjection
+      )).toBeNull();
       const currentProjection = await compileReviewedProcessDispatcherProjection(
         candidate.root, candidateFiles, compilerInputDigest
       );
-      expect(baselineProjection.reviewedProcessDispatchers).toEqual([dispatcher]);
+      expect(pristineProjection.reviewedProcessDispatchers).toEqual([dispatcher]);
       expect(currentProjection.reviewedProcessDispatchers).toEqual([]);
-      expect(baselineProjection.sourceInputDigests[runtimePath]).toBe(rawSha256(runtimeSource));
+      expect(pristineProjection.sourceInputDigests[runtimePath]).toBe(rawSha256(runtimeSource));
       expect(currentProjection.sourceInputDigests[runtimePath])
         .toBe(rawSha256("import './fixture-leaf.ts';\nexport {};\n"));
-      expect(reviewedProcessDispatchersFromExactProjection(candidateFiles, compilerInputDigest, baselineProjection)).toBeNull();
-      expect(reviewedProcessDispatchersFromExactProjection(baseline.files, compilerInputDigest, currentProjection)).toBeNull();
+      expect(reviewedProcessDispatchersFromExactProjection(
+        baseline.files, compilerInputDigest, pristineProjection
+      )).toEqual([dispatcher]);
+      expect(reviewedProcessDispatchersFromExactProjection(
+        baseline.files, compilerInputDigest, currentProjection
+      )).toBeNull();
+      expect(reviewedProcessDispatchersFromExactProjection(
+        candidateFiles, compilerInputDigest, currentProjection
+      )).toEqual([]);
+      // A's live root remains independent of the edited B root: fallback must
+      // compile actual A, not relabel candidate B or reuse stale projection A.
       expect(await resolveImmutableRevisionProcessDispatchers(
         baseline.files, currentProjection, baseline.root
       )).toEqual([dispatcher]);
       await expect(resolveImmutableRevisionProcessDispatchers(baseline.files, currentProjection))
         .rejects.toThrow('require an exact cached trusted-runtime projection');
-      // Matching current/baseline input reuses the same observation without
-      // attempting to read the optional, deliberately unavailable fallback root.
       expect(await resolveImmutableRevisionProcessDispatchers(
         candidateFiles, currentProjection, path.join(candidate.root, 'unread-root')
       )).toEqual([]);
-    } finally {
-      candidate.cleanup();
-    }
-  } finally {
-    baseline.cleanup();
-  }
+    });
+  });
 });
 
 test('the source owner finalizes raw reads and observed absences once, and rejects later appearance', () => {

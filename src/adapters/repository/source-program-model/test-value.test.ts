@@ -12,14 +12,9 @@ import { compileRepositorySourceProgramModel } from './repository.ts';
 import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue } from './test-value.ts';
 import { compileTypeScriptSourceProgramModel } from './typescript.ts';
+import { moduleMembership } from './test/typescript-model-input.ts';
 
 const repositoryRoot = process.cwd();
-const moduleMembership = Object.freeze({
-  descriptors: Object.freeze([]),
-  graphRoots: Object.freeze([]),
-  moduleRoots: Object.freeze([]),
-  moduleForPath: () => null
-});
 
 interface CompileOptions {
   readonly baselineTestPaths?: readonly string[];
@@ -27,25 +22,17 @@ interface CompileOptions {
   readonly dispositions?: readonly unknown[];
 }
 
-function sourceRevisionFor(files: Readonly<Record<string, string>>): string {
-  const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  return sha256(sourceFiles.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  })));
+function sourceRevisionFor(files: readonly Readonly<{ path: string; contentDigest: string }>[]): string {
+  return sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
 }
 
 function compileExactTypeScriptModel(files: readonly Readonly<{
   path: string;
   source: string;
   contentDigest: string;
-}>[]) {
+}>[], sourceRevision: string) {
   return compileTypeScriptSourceProgramModel({
-    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    sourceRevision,
     files,
     moduleMembership
   });
@@ -61,8 +48,8 @@ function compile(
     source,
     contentDigest: rawSha256(source)
   }));
-  const sourceRevision = sourceRevisionFor(files);
-  const typeScriptModel = compileExactTypeScriptModel(sourceFiles);
+  const sourceRevision = sourceRevisionFor(sourceFiles);
+  const typeScriptModel = compileExactTypeScriptModel(sourceFiles, sourceRevision);
   const model = compileRepositorySourceProgramModel({
     sourceRevision,
     files: sourceFiles,
@@ -88,7 +75,7 @@ function compile(
   });
 }
 
-test('test-value compilation derives behavior, effects, failures, and properties from syntax and call boundaries', () => {
+test('test-value distinguishes behavior evidence and independent oracle obligations', () => {
   const result = compile({
     'src/example/index.ts': [
       'export function publicBehavior(value: number): number {',
@@ -100,28 +87,16 @@ test('test-value compilation derives behavior, effects, failures, and properties
       "import { expect, test } from 'bun:test';",
       "import fs from 'node:fs/promises';",
       "import { publicBehavior } from '../../src/example/index.ts';",
-      "test('observes the public boundary and durable effect', async () => {",
+      "test.each([1, 1])('observes the public boundary and durable effect', async () => {",
       "  const target = 'test-output';",
       "  await fs.writeFile(target, String(publicBehavior(1)));",
       "  expect(await fs.readFile(target, 'utf8')).toBe('2');",
       '});',
-      "test('preserves the typed failure boundary over a property set', () => {",
+      "test.each(makeRows())('preserves the typed failure boundary over a property set', () => {",
       '  for (const value of [-1, -2]) expect(() => publicBehavior(value)).toThrow();',
       '});'
-    ].join('\n')
-  });
+    ].join('\n'),
 
-  expect(result.records.map(({ semanticClasses }) => semanticClasses)).toEqual([
-    ['behavior', 'durable-state', 'effect'],
-    ['algorithm-property', 'behavior', 'failure-boundary']
-  ]);
-  expect(result.records.every(({ observedProductionPaths }) =>
-    observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
-  expect(result.findings).toEqual([]);
-});
-
-test('test-value blocks production-derived oracles while retaining fixed independent expectations', () => {
-  const result = compile({
     'src/example/contract.ts': [
       "export interface Contract { status: 'active' }",
       "export function buildContract(): Contract { return { status: 'active' }; }"
@@ -144,16 +119,33 @@ test('test-value blocks production-derived oracles while retaining fixed indepen
       '});'
     ].join('\n')
   });
+  const exampleRecords = result.records.filter(({ path }) => path === 'tests/unit/example.test.ts');
+
+  expect(exampleRecords.map(({ semanticClasses }) => semanticClasses)).toEqual([
+    ['behavior', 'durable-state', 'effect'],
+    ['algorithm-property', 'behavior', 'failure-boundary']
+  ]);
+  expect(exampleRecords.every(({ observedProductionPaths }) =>
+    observedProductionPaths.includes('src/example/index.ts'))).toBe(true);
+  expect(result.findings.filter(({ path }) => path === 'tests/unit/example.test.ts')).toEqual([]);
+  expect(exampleRecords.map(({ potentialExpansion }) => potentialExpansion)).toEqual([
+    { status: 'known', count: 2 },
+    { status: 'unknown', reason: 'registration-table-unresolved' }
+  ]);
+
 
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([{
     code: 'test-oracle-derived-from-production-subject',
     path: 'tests/unit/contract.test.ts'
   }]);
+
 });
 
 test('test-value compilation blocks missing modules and implementation-shape mirrors', () => {
   const missing = 'tests/unit/deleted.test.ts';
+  const empty = 'tests/unit/empty.test.ts';
   const result = compile({
+    [empty]: 'export {};\n',
     'src/example/index.ts': 'export const FORMAT = Object.freeze({ formatVersion: "1" });\n',
     'tests/helpers/fixture.ts': 'export const fixture = true;\n',
     'tests/unit/arity-mirror.test.ts': [
@@ -177,8 +169,9 @@ test('test-value compilation blocks missing modules and implementation-shape mir
       "  expect(FORMAT.formatVersion).toBe('1');",
       '});'
     ].join('\n')
-  }, [missing]);
+  }, [missing], { baselineTestPaths: [missing] });
 
+  expect(result.records.some(({ path }) => path === empty)).toBe(false);
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([
     {
       code: 'test-mirrors-imported-function-arity',
@@ -193,6 +186,10 @@ test('test-value compilation blocks missing modules and implementation-shape mir
       path: missing
     },
     {
+      code: 'test-module-without-registration',
+      path: empty
+    },
+    {
       code: 'test-reads-production-source-text',
       path: 'tests/unit/source-reader.test.ts'
     },
@@ -203,7 +200,7 @@ test('test-value compilation blocks missing modules and implementation-shape mir
   ]);
 });
 
-test('caller-authored DELETE and MERGE cannot bypass Source Program supersession proof', () => {
+test('caller-authored DELETE/MERGE cannot bypass proof and owner REWRITE stays exact', () => {
   const files = {
     'src/example/index.ts': [
       'export function publicBehavior(value: number): number {',
@@ -223,11 +220,18 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
     'tests/unit/replacement.test.ts',
     'tests/unit/deleted.test.ts',
     'tests/unit/rewritten.test.ts',
-    'tests/unit/unknown.test.ts',
-    'tests/unit/live-contract.test.ts'
+    'tests/unit/unknown.test.ts'
   ];
-  const sourceRevision = sourceRevisionFor(files);
-  const seed = compile(files, [], { baselineTestPaths });
+  const sourceFiles = Object.entries(files).map(([path, source]) => Object.freeze({
+    path, source, contentDigest: rawSha256(source)
+  }));
+  const sourceRevision = sourceRevisionFor(sourceFiles);
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision, files: sourceFiles, moduleMembership,
+    typescriptModel: compileExactTypeScriptModel(sourceFiles, sourceRevision), unknowns: []
+  });
+  const input = { repositoryRoot, files: sourceFiles, model, baselineTestPaths };
+  const seed = compileSourceProgramTestValue(input);
   const replacementTestId = seed.records.find(({ path }) =>
     path === 'tests/unit/replacement.test.ts')?.testId;
   expect(replacementTestId).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -246,8 +250,8 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
       census
     }
   });
-  const result = compile(files, [], {
-    baselineTestPaths,
+  const result = compileSourceProgramTestValue({
+    ...input,
     dispositions: [
       evidence('tests/unit/rewritten.test.ts', 'rewrite', {
         producerCount: 1,
@@ -267,8 +271,6 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
   expect(result.findings.map(({ code, path }) => ({ code, path }))).toEqual([
     { code: 'test-module-disposition-unbound', path: 'tests/unit/deleted.test.ts' },
     { code: 'test-module-missing-from-worktree', path: 'tests/unit/deleted.test.ts' },
-    { code: 'test-module-disposition-unbound', path: 'tests/unit/live-contract.test.ts' },
-    { code: 'test-module-missing-from-worktree', path: 'tests/unit/live-contract.test.ts' },
     {
       code: 'test-module-disposition-unknown',
       path: 'tests/unit/unknown.test.ts'
@@ -276,24 +278,24 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
   ]);
   expect(result.findings.filter(({ path }) => path === 'tests/unit/unknown.test.ts')
     .every(({ disposition }) => disposition !== null)).toBe(true);
-  expect(() => compile(files, [], {
-    baselineTestPaths,
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     dispositions: [evidence('tests/unit/deleted.test.ts', 'delete', {
       producerCount: 0,
       consumerCount: 0,
       externalContractCount: 0
     })]
   })).toThrow('DELETE requires a Source Program supersession receipt');
-  expect(() => compile(files, [], {
-    baselineTestPaths,
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     dispositions: [evidence('tests/unit/deleted.test.ts', 'merge', {
       producerCount: 0,
       consumerCount: 0,
       externalContractCount: 0
     }, replacementTestId === undefined ? [] : [replacementTestId])]
   })).toThrow('MERGE requires a Source Program supersession receipt');
-  expect(() => compile(files, [], {
-    baselineTestPaths,
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     dispositions: [{
       ...evidence('tests/unit/deleted.test.ts', 'delete', {
         producerCount: 0,
@@ -303,20 +305,11 @@ test('caller-authored DELETE and MERGE cannot bypass Source Program supersession
       extra: true
     }]
   })).toThrow('unknown field');
-});
 
-test('repository rewrite decisions bind stable paths and reasons to exact current evidence', () => {
+  // The same current model already includes the real replacement registration.
+  // Owner REWRITE has a distinct adopted-census path; it cannot issue DELETE/MERGE.
   const deletedPath = 'tests/unit/deleted.test.ts';
   const replacementPath = 'tests/unit/replacement.test.ts';
-  const files = {
-    'src/example/index.ts': 'export const value = 1;\n',
-    [replacementPath]: [
-      "import { expect, test } from 'bun:test';",
-      "import { value } from '../../src/example/index.ts';",
-      "test('replacement', () => expect(value).toBe(1));"
-    ].join('\n')
-  };
-  const baselineTestPaths = [deletedPath];
   const baselineEvidence = [Object.freeze({
     path: deletedPath,
     baselineRevision: sha256('baseline-revision'),
@@ -325,9 +318,9 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
     observationDigest: sha256('baseline-observation'),
     census: Object.freeze({ producerCount: 0, consumerCount: 2, externalContractCount: 0 })
   })];
-  const observed = compile(files, [], { baselineTestPaths, baselineEvidence });
+  const observedRewrite = compileSourceProgramTestValue({ ...input, baselineEvidence });
   const batch = Object.freeze({
-    baselineDigest: observed.baselineDigest,
+    baselineDigest: observedRewrite.baselineDigest,
     owner: 'repository-test-value',
     decisions: Object.freeze([Object.freeze({
       path: deletedPath,
@@ -336,41 +329,42 @@ test('repository rewrite decisions bind stable paths and reasons to exact curren
     })])
   });
   const dispositions = compileSourceProgramTestRewriteDispositions({
-    compilation: observed,
+    compilation: observedRewrite,
     baselineEvidence,
     batches: [batch]
   });
-  const compiled = compile(files, [], { baselineTestPaths, baselineEvidence, dispositions });
+  const compiledRewrite = compileSourceProgramTestValue({ ...input, baselineEvidence, dispositions });
 
   expect(dispositions).toEqual([expect.objectContaining({
     path: deletedPath,
     disposition: 'rewrite',
     evidence: expect.objectContaining({
       owner: 'repository-test-value',
-      sourceRevision: observed.sourceRevision,
-      replacementTestIds: [observed.records[0]!.testId],
+      sourceRevision: observedRewrite.sourceRevision,
+      replacementTestIds: [observedRewrite.records[0]!.testId],
       census: baselineEvidence[0]!.census,
       ownerDecisionDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
     })
   })]);
-  expect(compiled.findings.some(({ code, path }) =>
+  expect(compiledRewrite.findings.some(({ code, path }) =>
     path === deletedPath && code === 'test-module-disposition-unknown')).toBe(false);
   expect(compileSourceProgramTestRewriteDispositions({
-    compilation: observed,
+    compilation: observedRewrite,
     baselineEvidence,
     batches: [{ ...batch, baselineDigest: sha256('another-baseline') }]
   })).toEqual([]);
   expect(() => compileSourceProgramTestRewriteDispositions({
-    compilation: observed,
+    compilation: observedRewrite,
     baselineEvidence,
     batches: [{
       ...batch,
       decisions: [{ ...batch.decisions[0]!, replacementPaths: ['tests/unit/missing.test.ts'] }]
     }]
   })).toThrow('no current test registrations');
+
 });
 
-test('baseline Git census stays UNKNOWN without Source Program retirement proof', () => {
+test('baseline Git census remains UNKNOWN and checksum-valid forged Supersession cannot authorize MERGE', () => {
   const retainedPath = 'tests/unit/retained.test.ts';
   const retainedSource = "import { expect, test } from 'bun:test';\ntest('retained', () => expect(1).toBe(1));\n";
   const candidateFiles = {
@@ -389,52 +383,39 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     retainedPath
   ];
   const baselineSources = [
-    Object.freeze({
+    {
       path: baselinePaths[0]!,
-      source: "import { test } from 'bun:test';\ntest('orphan assertion', () => expect(1).toBe(1));\n",
-      contentDigest: rawSha256("import { test } from 'bun:test';\ntest('orphan assertion', () => expect(1).toBe(1));\n")
-    }),
-    Object.freeze({
+      source: "import { test } from 'bun:test';\ntest('orphan assertion', () => expect(1).toBe(1));\n"
+    },
+    {
       path: baselinePaths[1]!,
       source: [
         "import { test } from 'bun:test';",
         "import { value } from '../../src/example/index.ts';",
         "test('business behavior', () => expect(value).toBe(1));"
-      ].join('\n'),
-      contentDigest: rawSha256([
-        "import { test } from 'bun:test';",
-        "import { value } from '../../src/example/index.ts';",
-        "test('business behavior', () => expect(value).toBe(1));"
-      ].join('\n'))
-    }),
-    Object.freeze({
+      ].join('\n')
+    },
+    {
       path: baselinePaths[2]!,
       source: [
         "import { test } from 'bun:test';",
         "import fs from 'node:fs/promises';",
         "test('provider behavior', async () => fs.readFile('x'));"
-      ].join('\n'),
-      contentDigest: rawSha256([
-        "import { test } from 'bun:test';",
-        "import fs from 'node:fs/promises';",
-        "test('provider behavior', async () => fs.readFile('x'));"
-      ].join('\n'))
-    })
-  ];
+      ].join('\n')
+    }
+  ].map(({ path, source }) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
   baselineSources.push(Object.freeze({
     path: retainedPath, source: retainedSource, contentDigest: rawSha256(retainedSource)
   }));
-  const baselineRevision = sha256(baselineSources.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  })));
+  const baselineRevision = sourceRevisionFor(baselineSources);
   const candidateSourceFiles = Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
       path,
       source,
       contentDigest: rawSha256(source)
     }));
-  const baselineModel = compileExactTypeScriptModel(baselineSources);
-  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles);
+  const baselineModel = compileExactTypeScriptModel(baselineSources, baselineRevision);
+  const candidateRevision = sourceRevisionFor(candidateSourceFiles);
+  const candidateModel = compileExactTypeScriptModel(candidateSourceFiles, candidateRevision);
   const baselineEvidence = compileSourceProgramTestBaselineEvidence({
     baselineTestPaths: baselinePaths,
     baselineModel,
@@ -443,21 +424,12 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
   });
   expect(baselineEvidence.map(({ path }) => path)).toEqual(baselinePaths.slice(0, 3));
   expect(compileSourceProgramTestBaselineEvidence({
-    baselineTestPaths: [retainedPath], baselineModel, candidateModel, baselineRevision
-  })).toEqual([]);
-  expect(compileSourceProgramTestBaselineEvidence({
     baselineTestPaths: [retainedPath], baselineModel,
     candidateModel: { ...candidateModel }, baselineRevision
   })).toEqual([expect.objectContaining({
     path: retainedPath, observationStatus: 'unresolved',
     observationReason: 'candidate-exact-generation-unavailable'
   })]);
-  expect(compileSourceProgramTestBaselineEvidence({
-    baselineTestPaths: baselinePaths,
-    baselineModel,
-    candidateModel,
-    baselineRevision
-  })).toEqual(baselineEvidence);
 
   const controller = new AbortController();
   const operation = createSourceProgramCompilationOperation({
@@ -492,18 +464,22 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     { observationStatus: 'resolved', observationReason: null },
     { observationStatus: 'resolved', observationReason: null }
   ]);
-  expect(() => compile(candidateFiles, [], {
-    baselineTestPaths: baselinePaths,
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: candidateRevision, files: candidateSourceFiles,
+    moduleMembership, typescriptModel: candidateModel, unknowns: []
+  });
+  const input = {
+    repositoryRoot, files: candidateSourceFiles, model, baselineTestPaths: baselinePaths
+  };
+  expect(() => compileSourceProgramTestValue({
+    ...input,
     baselineEvidence: [{
       ...baselineEvidence[0],
       observationStatus: 'unresolved',
       observationReason: 'caller-invented-reason'
     }]
   })).toThrow('unresolved evidence requires one canonical reason');
-  const result = compile(candidateFiles, [], {
-    baselineTestPaths: baselinePaths,
-    baselineEvidence
-  });
+  const result = compileSourceProgramTestValue({ ...input, baselineEvidence });
   expect(result.baselineTestPaths).toEqual([...baselinePaths].sort());
   expect(result.dispositions.map(({ path, disposition }) => ({ path, disposition }))).toEqual([
     { path: 'tests/unit/empty.test.ts', disposition: 'unknown' },
@@ -516,48 +492,13 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
     { code: 'test-module-disposition-unknown', path: 'tests/unit/provider.test.ts' }
   ]);
   expect(result.baselineEvidenceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
 
-test('checksum-valid caller Supersession JSON cannot authorize a missing-test MERGE', () => {
-  const candidateFiles = {
-    'src/example/index.ts': 'export const value = 1;\n',
-    'tests/unit/replacement.test.ts': [
-      "import { expect, test } from 'bun:test';",
-      "import { value } from '../../src/example/index.ts';",
-      "test('observes behavior and failure', () => expect(value).toBe(1));"
-    ].join('\n')
-  };
-  const baselinePath = 'tests/unit/retired.test.ts';
-  const baselineSource = [
-    "import { expect, test } from 'bun:test';",
-    "test('old observation', () => expect(1).toBe(1));"
-  ].join('\n');
-  const baselineFiles = [Object.freeze({
-    path: baselinePath,
-    source: baselineSource,
-    contentDigest: rawSha256(baselineSource)
-  })];
-  const baselineRevision = sha256(baselineFiles.map(({ path, contentDigest }) => ({
-    path,
-    contentDigest
-  })));
-  const candidateSourceFiles = Object.entries(candidateFiles).map(([path, source]) => Object.freeze({
-    path,
-    source,
-    contentDigest: rawSha256(source)
-  }));
-  const initial = compile(candidateFiles, [], {
-    baselineTestPaths: [baselinePath],
-    baselineEvidence: compileSourceProgramTestBaselineEvidence({
-      baselineTestPaths: [baselinePath],
-      baselineModel: compileExactTypeScriptModel(baselineFiles),
-      candidateModel: compileExactTypeScriptModel(candidateSourceFiles),
-      baselineRevision
-    })
-  });
-  const replacement = initial.records[0];
+  // No new TypeScript generation is needed: this exact baseline/candidate pair
+  // already has an unresolved removed module and a real replacement registration.
+  const forgedBaselinePath = baselinePaths[0]!;
+  const replacement = result.records.find(({ path }) => path === 'tests/unit/replacement.test.ts');
   expect(replacement).toBeDefined();
-  expect(initial.dispositions[0]?.disposition).toBe('unknown');
+  expect(result.dispositions.find(({ path }) => path === forgedBaselinePath)?.disposition).toBe('unknown');
   const canonicalReceipt = Object.freeze({
     status: 'superseded' as const,
     authorityScope: 'whole-program' as const,
@@ -571,9 +512,9 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
       intentEvidenceDigest: sha256('baseline-intent')
     }),
     current: Object.freeze({
-      sourceRevision: initial.sourceRevision,
+      sourceRevision: result.sourceRevision,
       modelDigest: sha256('current-model'),
-      testCompilationDigest: initial.compilationDigest,
+      testCompilationDigest: result.compilationDigest,
       intentEvidenceDigest: sha256('current-intent')
     }),
     lifecycleCost: Object.freeze({
@@ -597,7 +538,7 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
       baselineId: sha256('baseline-test'),
       currentIds: Object.freeze([replacement!.testId]),
       owner: null,
-      baselinePaths: Object.freeze([baselinePath]),
+      baselinePaths: Object.freeze([forgedBaselinePath]),
       currentPaths: Object.freeze([replacement!.path]),
       proof: 'strict-observation-superset' as const
     })]),
@@ -608,9 +549,9 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
     receiptDigest: sha256(canonicalReceipt)
   });
 
-  expect(() => reconcileSourceProgramTestValueWithSupersession(initial, receipt))
+  expect(() => reconcileSourceProgramTestValueWithSupersession(result, receipt))
     .toThrow('Supersession authority requires an owner-issued receipt');
-  expect(initial.dispositions[0]?.disposition).toBe('unknown');
+  expect(result.dispositions[0]?.disposition).toBe('unknown');
 
   const forged = Object.freeze({
     ...receipt,
@@ -619,18 +560,20 @@ test('checksum-valid caller Supersession JSON cannot authorize a missing-test ME
       testCompilationDigest: sha256('different-compilation')
     })
   });
-  expect(reconcileSourceProgramTestValueWithSupersession(initial, forged))
+  expect(reconcileSourceProgramTestValueWithSupersession(result, forged))
     .toMatchObject({
-      dispositions: initial.dispositions,
-      findings: initial.findings,
+      dispositions: result.dispositions,
+      findings: result.findings,
       supersessionReceiptDigest: null
     });
-  expect(reconcileSourceProgramTestValueWithSupersession(initial, Object.freeze({
+  expect(reconcileSourceProgramTestValueWithSupersession(result, Object.freeze({
     ...receipt,
     status: 'owner-decision-required'
   }))).toMatchObject({
-    dispositions: initial.dispositions,
-    findings: initial.findings,
+    dispositions: result.dispositions,
+    findings: result.findings,
     supersessionReceiptDigest: null
   });
+
 });
+

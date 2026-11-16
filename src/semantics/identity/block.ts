@@ -33,37 +33,14 @@ export function isCanonicalBlockId(value: unknown): value is string {
  * Because canonical Block segments cannot contain '.', joining with '.' is
  * injective over the accepted logical identity set. Invalid logical identities
  * never acquire a new physical output path.
+ * This is not a reverse decoder: historical physical names alone cannot prove
+ * logical identity. Readers bind the known Manifest/Lock identity to its key.
  */
 export function encodeCanonicalBlockPhysicalKey(blockId: string): string {
   if (!isCanonicalBlockId(blockId)) {
     throw new TypeError(`Block id is not canonical and cannot be encoded: ${JSON.stringify(blockId)}`);
   }
   return blockId.split('/').join('.');
-}
-
-/**
- * Validate one physical key only when its logical identity is already known
- * from a canonical owner such as a Manifest/Lock binding.
- *
- * Deliberately no physical-key-only decoder exists: a historical key such as
- * `a.b` may have represented a now-invalid legacy logical ID `a.b`, while the
- * current canonical codec would encode `a/b` to the same bytes. Legacy layout
- * migration therefore needs identity-bound evidence and must never guess from
- * the path string alone.
- */
-export function matchesCanonicalBlockPhysicalKey(
-  blockId: unknown,
-  physicalKey: unknown
-): boolean {
-  if (!isCanonicalBlockId(blockId) || typeof physicalKey !== 'string') return false;
-  if (
-    physicalKey.length === 0 ||
-    physicalKey.includes('/') ||
-    physicalKey.includes('\\') ||
-    physicalKey.includes(':') ||
-    physicalKey !== physicalKey.normalize('NFC')
-  ) return false;
-  return encodeCanonicalBlockPhysicalKey(blockId) === physicalKey;
 }
 
 function canonicalNumericIdentifier(value: string): boolean {

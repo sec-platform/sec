@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { runRetainedBunTestCommand } from '../testkit/process-resource.ts';
+import type { RetainedBunTestWorkspaceRun } from '../testkit/process-resource.ts';
 
 import type { OperationDigest } from '../../src/execution/operation/semantic.ts';
 import type { BranchCloseoutAttempt, BranchCloseoutPreparation } from '../../src/execution/verification/branch-closeout.ts';
@@ -11,7 +11,7 @@ export async function observeLocalRefCasWithAdmissionDouble(input: Readonly<{
   preparation: BranchCloseoutPreparation;
   operationId: OperationDigest;
   revokeAtFinalCheck?: boolean;
-}>): Promise<Readonly<{
+}>, run: RetainedBunTestWorkspaceRun): Promise<Readonly<{
   result: BranchCloseoutAttempt;
   attempts: readonly BranchCloseoutAttempt[];
   admissionChecks: number;
@@ -55,7 +55,7 @@ export async function observeLocalRefCasWithAdmissionDouble(input: Readonly<{
       lease => deleteHostedLocalRefCas(input.preparation, attempts, lease, input.operationId, qualification));
     process.stdout.write(JSON.stringify({ result, attempts, admissionChecks, realForgedAdmissionRejected }));
   `;
-  const observed = await runRetainedBunTestCommand(['--no-env-file', '-e', script], {
+  const observed = await run(['--no-env-file', '-e', script], {
     cwd: root, input: Buffer.from(JSON.stringify(input)), maxStdinBytes: 1024 * 1024,
     env: process.env
   });

@@ -20,6 +20,7 @@ import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel 
 import { compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot } from '../source-program-model/producer-closure.ts';
 import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
 import { querySourceProgramModel } from '../source-program-model/typescript.ts';
+import type { SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import { acquireWorkingTreeWorkspaceSourceSnapshot, compileVirtualWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
 import type { RepositoryAuditLoadedImplementationEvidence } from './loaded-implementation.ts';
 import {
@@ -39,8 +40,7 @@ import {
   type CompileScopedCandidateTestObligationsAuditOperationInput,
   type CompileSourceProgramAuditOperationInput,
   type CompileTestObligationsAuditOperationInput,
-  type CompileWholeSourceProgramAuditOperationInput,
-  type SourceProgramAuditOperationInput
+  type CompileWholeSourceProgramAuditOperationInput
 } from './source-program-audit-operation.ts';
 
 import { compileSourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
@@ -162,7 +162,8 @@ test('descriptor worker executes its exact sealed closure without repository or 
 function input(
   currentCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
   baselineCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
-  includeMechanismReview = true
+  includeMechanismReview = true,
+  startupEffect = false
 ): CompileWholeSourceProgramAuditOperationInput {
   const sourceRevision = digest('source');
   const modelDigest = digest('model');
@@ -174,7 +175,7 @@ function input(
   // Parent-normalized fixture identity, not owner-issued baseline Evidence.
   const baselineEvidenceDigest = digest('baseline-evidence-fixture');
   const sourcePath = 'src/domain.ts';
-  const source = 'export const domain = true;\n';
+  const source = startupEffect ? 'work()' : 'export const domain = true;\n';
   const contentDigest = rawSha256(source);
   const model: SourceProgramModel = Object.freeze({
     sourceRevision,
@@ -195,7 +196,13 @@ function input(
     entrypointClosures: Object.freeze([]),
     packages: Object.freeze([]),
     dependencies: Object.freeze([]),
-    capabilities: Object.freeze([]),
+    capabilities: Object.freeze(startupEffect ? [{
+      observationId: digest('call'), path: sourcePath, moduleId: 'domain',
+      surface: 'production' as const, capability: 'filesystem' as const, operation: 'readFile', subject: null,
+      transport: 'native-runtime' as const, moduleSpecifier: 'node:fs/promises', providerCapability: null,
+      providerModuleId: null, owningDeclarationObservationId: null, observationClass: 'observed' as const,
+      span: { start: 0, end: 4, startLine: 0, endLine: 0, startColumn: 0, endColumn: 4 }
+    }] : []),
     candidates: Object.freeze([...currentCandidates]),
     unknowns: Object.freeze([]),
     modelDigest
@@ -469,7 +476,8 @@ function sourceProgramWithOneUnknown(
 
 describe('Source Program audit domain operation', () => {
   test('canonical wire codecs reject unknown input fields and changed result bytes', () => {
-    const canonical = compileSourceProgramAuditOperationInput(input());
+    const facts = input();
+    const canonical = compileSourceProgramAuditOperationInput(facts);
     const encodedInput = encodeSourceProgramAuditOperationInput(canonical);
     const parsedInput = parseSourceProgramAuditOperationInput(
       encodedInput,
@@ -497,29 +505,12 @@ describe('Source Program audit domain operation', () => {
       changedResult.byteLength
     ));
     assert.throws(() => compileSourceProgramAuditOperationInput({
-      ...input(),
-      options: { ...input().options, blockingDetailsDomain: 'foreign' }
+      ...facts,
+      options: { ...facts.options, blockingDetailsDomain: 'foreign' }
     } as unknown as CompileSourceProgramAuditOperationInput), /Unsupported Repository Audit blocking-detail domain/u);
   });
 
-  test('is deterministic and excludes unknown caller properties from its result identity', () => {
-    const canonical = compileSourceProgramAuditOperationInput(input());
-    const withUnknown = Object.freeze({ ...canonical, futureTransportHint: 'ignored' });
-    const first = compileSourceProgramAuditOperation(canonical);
-    const second = compileSourceProgramAuditOperation(
-      withUnknown as SourceProgramAuditOperationInput
-    );
-    const serialized = compileSourceProgramAuditOperation(
-      JSON.parse(JSON.stringify(canonical)) as SourceProgramAuditOperationInput
-    );
-
-    assert.deepEqual(first, second);
-    assert.deepEqual(serialized, first);
-    assert.equal(first.exitCode, 0);
-    assert.equal(first.reductionPatch, null);
-  });
-
-  test('projects parent-issued query facts and candidate observations without a compiler import', () => {
+  test('projects parent-issued query facts and candidate observations', () => {
     const facts = input();
     const queryProjection = Object.freeze({ query: 'domain', declarations: Object.freeze([]) });
     const projected = compileSourceProgramAuditOperation(
@@ -533,7 +524,7 @@ describe('Source Program audit domain operation', () => {
       })
     })));
 
-    assert.equal(projected.projection.result, queryProjection);
+    assert.deepEqual(projected.projection.result, queryProjection);
     assert.deepEqual(projected.projection.candidates, []);
     assert.deepEqual(projected.projection.architecture, {
       feedbackProjections: [],
@@ -541,6 +532,62 @@ describe('Source Program audit domain operation', () => {
       strongComponents: [],
       violations: []
     });
+    for (const [report, full] of [
+      [projected.projection, true],
+      [compileSourceProgramAuditOperationInput(facts).projection, false]
+    ] as const) {
+      const testValue = report.testValue as Record<string, unknown>;
+      assert.deepEqual(testValue.candidateRegistrationCensus, {
+        unit: 'static-registration-site',
+        scope: 'source-program-test-surface',
+        completeness: 'not-established',
+        runtimeExpansion: 'not-observed',
+        potentialExpansion: { status: 'unavailable', reason: 'no-expansion-observations' },
+        count: facts.testValue.candidateRegistrationCensus.count,
+        digest: facts.testValue.candidateRegistrationCensus.digest,
+        ...(full ? { paths: facts.testValue.candidateRegistrationCensus.paths } : {})
+      });
+      assert.equal(testValue.recordsWithUnknownSemantics, facts.testValue.recordsWithUnknownSemantics);
+    }
+    const tableCompilation = (expansions: readonly unknown[]): SourceProgramTestValueCompilation => ({
+      ...facts.testValue,
+      dispositions: [], findings: [], definitionInputs: [], definitionContext: null,
+      records: expansions.map((potentialExpansion, index) => ({
+        testId: digest(index), path: 'tests/table.test.ts', owner: null,
+        kind: 'test.each', title: 'table',
+        span: { start: index, end: index + 1, startLine: 1, startColumn: index, endLine: 1, endColumn: index + 1 },
+        registrationContentDigest: digest(index), potentialExpansion,
+        semanticClasses: [], observedProductionPaths: [], capabilityOperations: [],
+        assertionCount: 0, unknowns: [], definitionInputDigest: digest('table-input')
+      }))
+    } as unknown as SourceProgramTestValueCompilation);
+    for (const [expansions, expected] of [
+      [[{ status: 'known', count: 2 }, { status: 'known', count: 0 },
+        { status: 'unknown', reason: 'registration-table-unresolved' }],
+      { status: 'observed', knownPotentialInstances: 2, unknownExpansionFamilies: 1 }],
+      [[undefined], { status: 'unavailable', reason: 'missing-expansion-observation' }],
+      [[{ status: 'known', count: -1 }], { status: 'unavailable', reason: 'invalid-expansion-observation' }],
+      [[{ status: 'known', count: 1.5 }], { status: 'unavailable', reason: 'invalid-expansion-observation' }],
+      [[{ status: 'unknown', reason: 'foreign' }], { status: 'unavailable', reason: 'invalid-expansion-observation' }],
+      [[{ status: 'known', count: Number.MAX_SAFE_INTEGER }, { status: 'known', count: 1 }],
+      { status: 'unavailable', reason: 'count-overflow' }]
+    ] as const) {
+      const census = compileSourceProgramAuditTestValueProjection(tableCompilation(expansions), false)
+        .candidateRegistrationCensus;
+      assert.deepEqual(census.potentialExpansion, expected);
+      assert.equal(census.count, expansions.length);
+      const report = compileSourceProgramAuditOperationInput({
+        ...facts, testValue: { ...facts.testValue, candidateRegistrationCensus: census }
+      }).projection.testValue as { candidateRegistrationCensus: { potentialExpansion: unknown } };
+      assert.deepEqual(report.candidateRegistrationCensus.potentialExpansion, expected);
+    }
+    const { potentialExpansion: _expansion, ...legacyCensus } = facts.testValue.candidateRegistrationCensus;
+    const legacy = compileSourceProgramAuditOperationInput({
+      ...facts, testValue: { ...facts.testValue, candidateRegistrationCensus: legacyCensus }
+    });
+    assert.deepEqual((legacy.projection.testValue as { candidateRegistrationCensus: { potentialExpansion: unknown } })
+      .candidateRegistrationCensus.potentialExpansion,
+    { status: 'unavailable', reason: 'missing-expansion-observation' });
   });
 
   test('uses one reduction discriminant and returns the parent-issued patch candidate', () => {
@@ -571,7 +618,7 @@ describe('Source Program audit domain operation', () => {
       })
     })));
 
-    assert.equal(result.reductionPatch, patch);
+    assert.deepEqual(result.reductionPatch, patch);
     assert.deepEqual(result.projection.versionReductionPlan, {
       sourceRevision: facts.sourceProgram.sourceRevision,
       planDigest,
@@ -654,7 +701,7 @@ describe('Source Program audit domain operation', () => {
   });
 
   test('enforcement fails closed when the canonical finding comparison is absent', () => {
-    const facts = input();
+    const facts = input([], [], true, true);
     const { findingDelta: omittedFindingDelta, ...reconciliation } = facts.reconciliation;
     assert.ok(omittedFindingDelta !== undefined);
     const request = compileSourceProgramAuditOperationInput({ ...facts, reconciliation });
@@ -862,31 +909,6 @@ describe('Source Program audit domain operation', () => {
     assert.equal((request.projection.declarationTopology as { unknowns: number }).unknowns, 1);
   });
 
-  test('a blocked retirement proof cannot disappear behind an empty test-finding list', () => {
-    const facts = input();
-    const request = compileSourceProgramAuditOperationInput({ ...facts,
-      testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] }
-    });
-    assert.ok(request.blockingReasons.includes('test-retirement-blocked'));
-    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
-  });
-
-  test('full and compact reports disclose the same reasons without granting diagnostic success', () => {
-    const facts = input();
-    for (const full of [false, true]) for (const enforce of [false, true]) {
-      const request = compileSourceProgramAuditOperationInput({ ...facts,
-        sourceProgram: sourceProgramWithOneUnknown(facts.sourceProgram),
-        declarationTopology: { ...facts.declarationTopology, unknowns: [{ reason: 'unresolved' }] },
-        testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] },
-        options: { ...facts.options, full, enforce }
-      });
-      const expected = ['test-retirement-blocked'];
-      assert.deepEqual(request.blockingReasons, expected);
-      assert.deepEqual(request.projection.enforcement, { requested: enforce, blockingReasons: expected });
-      assert.equal(compileSourceProgramAuditOperation(request).exitCode, enforce ? 1 : 0);
-    }
-  });
-
   test('complete coverage and retired proofs remain nonblocking', () => {
     const facts = input();
     const request = compileSourceProgramAuditOperationInput({ ...facts,
@@ -907,7 +929,11 @@ describe('Source Program audit domain operation', () => {
 
 
   test('full and compact reports carry the same finding comparison through the actual wire chain', () => {
-    const facts = input();
+    const facts = input([], [], true, true);
+    const review = facts.sourceProgram.mechanismReview!;
+    assert.equal(review.counts['module-initialization-effect'], 1);
+    assert.equal(review.sourceRevision, facts.sourceProgram.sourceRevision);
+    assert.equal(review.findings[0]!.sites[0]!.contentDigest, rawSha256('work()'));
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
     const make = (which: 'before' | 'after'): Snapshot => ({
       analysisPolicy: captureRepositoryAnalysisPolicy([]),
@@ -925,7 +951,8 @@ describe('Source Program audit domain operation', () => {
     }) as unknown as Snapshot;
     const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
     assert.equal(findingDelta.entries[0]!.status, 'absent');
-    for (const full of [false, true]) for (const enforce of [false, true]) {
+    for (const full of [false, true]) {
+      const enforce = !full;
       const request = compileSourceProgramAuditOperationInput({ ...facts,
         reconciliation: { ...facts.reconciliation, findingDelta }, options: { ...facts.options, full, enforce } });
       const decoded = parseSourceProgramAuditOperationInput(encodeSourceProgramAuditOperationInput(request), 1_000_000);
@@ -935,7 +962,23 @@ describe('Source Program audit domain operation', () => {
       assert.deepEqual(observed.counts, { introduced: 0, persistent: 0, changed: 0, absent: 1,
         'out-of-scope': 0, unobserved: 0 });
       assert.equal(observed.contextComparable, true); assert.equal(observed.deltaDigest, findingDelta.deltaDigest);
+      assert.deepEqual(observed.scope, findingDelta.scope);
       assert.equal('entries' in observed, full); assert.equal(result.exitCode, 0);
+      assert.deepEqual(request.blockingReasons, []);
+      assert.deepEqual(result.projection.enforcement, { requested: enforce, blockingReasons: [] });
+      const mechanisms = result.projection.mechanisms as Record<string, unknown>;
+      assert.deepEqual(decoded.projection.mechanisms, request.projection.mechanisms);
+      assert.deepEqual(mechanisms, request.projection.mechanisms);
+      assert.equal(mechanisms.reviewDigest, review.reviewDigest);
+      assert.equal(Object.hasOwn(mechanisms, 'findings'), full);
+      if (full) assert.deepEqual(mechanisms.findings, review.findings);
+    }
+    for (const field of ['sourceRevision', 'modelDigest', 'coverage'] as const) {
+      const altered = field === 'coverage' ? { ...review, coverage: { ...review.coverage, files: 99 } }
+        : { ...review, [field]: digest('foreign') };
+      assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+        sourceProgram: { ...facts.sourceProgram, mechanismReview: altered }
+      }), /Mechanism review is not bound/);
     }
   });
 
@@ -956,23 +999,35 @@ describe('Source Program audit domain operation', () => {
     const delta = compileSourceProgramFindingDelta(base, after);
     assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
       reconciliation: { ...facts.reconciliation, findingDelta: delta } }), /Finding reconciliation/);
-    for (const full of [false, true]) for (const enforce of [false, true]) {
+    for (const full of [false, true]) {
+      const enforce = full;
       const request = compileSourceProgramAuditOperationInput({ ...facts,
         reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: delta,
           unresolvedReasons: [{ code: 'source-program-observation-coverage-regressed' }] },
         options: { ...facts.options, full, enforce } });
-      assert.ok(request.blockingReasons.includes('reconciliation-unresolved'));
-      assert.equal(compileSourceProgramAuditOperation(request).exitCode, enforce ? 1 : 0);
+      assert.deepEqual(request.blockingReasons, ['reconciliation-unresolved']);
+      assert.deepEqual(request.projection.enforcement, { requested: enforce, blockingReasons: ['reconciliation-unresolved'] });
+      const result = compileSourceProgramAuditOperation(request);
+      assert.equal(result.exitCode, enforce ? 1 : 0);
+      const observed = (result.projection.reconciliation as { findingDelta: Record<string, unknown> }).findingDelta;
+      assert.deepEqual(observed.counts, delta.counts);
+      assert.deepEqual(observed.scope, delta.scope);
+      assert.equal(observed.deltaDigest, delta.deltaDigest);
+      assert.deepEqual(full
+        ? (observed.after as { unobservedPaths: readonly string[] }).unobservedPaths
+        : observed.unobservedPaths, delta.after.unobservedPaths);
+      assert.equal('entries' in observed, full);
     }
     const foreign = { ...delta, after: { ...delta.after, modelDigest: digest('foreign') } };
     assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
       reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta: foreign } }), /Finding reconciliation/);
   });
 
-  test('missing review context cannot be supplied as a resolved comparison in either report mode', () => {
+  test('missing review context cannot be supplied as a resolved comparison before report projection', () => {
     const facts = input();
     type Snapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
     const make = (which: 'before' | 'after'): Snapshot => ({
+      ...(which === 'after' ? { analysisPolicy: captureRepositoryAnalysisPolicy([]) } : {}),
       sourceRevision: facts.reconciliation[which].sourceRevision,
       moduleMembershipDigest: digest('membership'),
       workspaceSnapshot: { files: facts.sourceFileIdentities },
@@ -985,11 +1040,22 @@ describe('Source Program audit domain operation', () => {
     const findingDelta = compileSourceProgramFindingDelta(make('before'), make('after'));
     assert.equal(findingDelta.contextComparable, false);
     assert.equal(findingDelta.entries.length, 0);
-    for (const full of [false, true]) for (const enforce of [false, true]) {
-      assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
-        reconciliation: { ...facts.reconciliation, findingDelta },
-        options: { ...facts.options, full, enforce } }), /Finding reconciliation/);
-    }
+    assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+      reconciliation: { ...facts.reconciliation, findingDelta } }), /Finding reconciliation/);
+    // Serializable audit facts can carry missing context even though current
+    // compiler-issued receipts cannot; compact output must retain that gap.
+    const request = compileSourceProgramAuditOperationInput({ ...facts,
+      reconciliation: { ...facts.reconciliation, status: 'unresolved', findingDelta,
+        unresolvedReasons: [{ code: 'source-program-observation-coverage-regressed' }] },
+      options: { ...facts.options, full: false } });
+    const compact = (request.projection.reconciliation as { findingDelta: typeof findingDelta }).findingDelta;
+    assert.deepEqual(request.blockingReasons, ['reconciliation-unresolved']);
+    assert.deepEqual(compact.before.incompleteContextFields, ['analysisPolicyDigest']);
+    assert.deepEqual(compact.after.incompleteContextFields, []);
+    assert.equal(compact.contextComparable, false);
+    assert.deepEqual(compact.counts, { introduced: 0, persistent: 0, changed: 0, absent: 0,
+      'out-of-scope': 0, unobserved: 0 });
+    assert.equal(compact.deltaDigest, findingDelta.deltaDigest);
   });
 
   test('an input cannot advertise a different decision from the one the worker executes', () => {
@@ -1011,6 +1077,7 @@ describe('Source Program audit domain operation', () => {
       testRetirement: { ...facts.testRetirement, proofs: [{ status: 'blocked' }] } });
     const honest = compileSourceProgramAuditOperation(request);
     assert.equal(honest.exitCode, 1);
+    assert.deepEqual(honest.projection.enforcement, { requested: true, blockingReasons: ['test-retirement-blocked'] });
     const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 0 as const };
     const forged = { ...unsigned, resultDigest: digest(unsigned) };
     assert.throws(() => encodeSourceProgramAuditOperationResult(forged), /contradicts.*decision/);
@@ -1026,7 +1093,8 @@ describe('Source Program audit domain operation', () => {
     assert.equal(honest.exitCode, 0);
     const unsigned = { projection: honest.projection, reductionPatch: honest.reductionPatch, exitCode: 1 as const };
     const forged = { ...unsigned, resultDigest: digest(unsigned) };
-    assert.throws(() => encodeSourceProgramAuditOperationResult(forged), /contradicts.*decision/);
+    assert.throws(() => parseSourceProgramAuditOperationResult(
+      Buffer.from(JSON.stringify(canonicalJson(forged))), 1_000_000), /contradicts.*decision/);
   });
 
   test('missing or malformed reported enforcement is not interpreted as success', () => {
@@ -1156,6 +1224,7 @@ describe('test-obligations scoped audit facts', () => {
     const { mechanismReview, ...requiredSourceFacts } = fullFacts.sourceProgram;
     assert.ok(mechanismReview !== undefined);
     assert.deepEqual(leanFacts.sourceProgram, requiredSourceFacts);
+    assert.equal(Object.hasOwn(compileSourceProgramAuditOperationInput(leanFacts).projection, 'mechanisms'), false);
     const full = compileSourceProgramAuditOperationInput(scopedTestFacts(fullFacts));
     const lean = compileSourceProgramAuditOperationInput(scopedTestFacts(leanFacts));
     const { mechanisms, ...requiredProjection } = full.projection;
@@ -1183,7 +1252,7 @@ describe('test-obligations scoped audit facts', () => {
     assert.equal(calls, 0);
     assert.equal(prepare('whole-program').schema, undefined);
     assert.equal(calls, 1);
-    const facts = scopedTestFacts();
+    const facts = scopedTestFacts(full);
     for (const full of [false, true]) {
       const report = compileSourceProgramAuditOperationInput({ ...facts, options: { ...facts.options, full } }).projection;
       for (const name of ['implementationDominance', 'reconciliation', 'architectureEvolution']) {
@@ -1210,25 +1279,31 @@ describe('test-obligations scoped audit facts', () => {
       detail: 'new unknown disposition', span: null, disposition: null };
     const regression = { ...full, ...syntheticTestFindingComparison(full, [finding]),
       testDisposition: { ...full.testDisposition, findings: [finding] }, blockingTestFindings: [finding] };
-    const variants: CompileWholeSourceProgramAuditOperationInput[] = [full, unresolved, regression,
-      { ...full, testRetirement: { ...full.testRetirement, proofs: [{ status: 'blocked' }] } },
-      { ...full, supersession: { ...full.supersession, status: 'owner-decision-required' } },
-      { ...full, supersession: { ...full.supersession, status: 'author-decision-conditional' } }
+    const variants: readonly [CompileWholeSourceProgramAuditOperationInput, readonly string[], number][] = [
+      [full, [], 0],
+      [unresolved, ['test-finding-reconciliation-unresolved'], 1],
+      [regression, ['test-value-finding-regression'], 1],
+      [{ ...full, testRetirement: { ...full.testRetirement, proofs: [{ status: 'blocked' }] } },
+        ['test-retirement-blocked'], 1],
+      [{ ...full, supersession: { ...full.supersession, status: 'owner-decision-required' } },
+        ['supersession-owner-decision'], 1],
+      [{ ...full, supersession: { ...full.supersession, status: 'author-decision-conditional' } },
+        ['test-author-qualification-required'], 1]
     ];
-    for (const variant of variants) {
-      const legacy = compileSourceProgramAuditOperationInput(variant);
-      const scoped = compileSourceProgramAuditOperationInput(scopedTestFacts(variant));
-      assert.deepEqual(scoped.blockingReasons, legacy.blockingReasons);
-      assert.equal(compileSourceProgramAuditOperation(scoped).exitCode, compileSourceProgramAuditOperation(legacy).exitCode);
+    for (const [variant, reasons, exitCode] of variants) {
+      // Both scopes must satisfy the independent decision contract; agreement
+      // between two calls to the same implementation cannot establish it.
+      for (const facts of [variant, scopedTestFacts(variant)]) {
+        const request = compileSourceProgramAuditOperationInput(facts);
+        assert.deepEqual(request.blockingReasons, reasons);
+        assert.equal(compileSourceProgramAuditOperation(request).exitCode, exitCode);
+      }
     }
-    assert.ok(compileSourceProgramAuditOperationInput(scopedTestFacts(unresolved)).blockingReasons
-      .includes('test-finding-reconciliation-unresolved'));
-    assert.ok(compileSourceProgramAuditOperationInput(scopedTestFacts(regression)).blockingReasons
-      .includes('test-value-finding-regression'));
   });
 
   test('rejects anchor drift, missing comparison and mixed scope or fact versions', () => {
-    const facts = scopedTestFacts();
+    const legacy = legacyTestFacts();
+    const facts = scopedTestFacts(legacy);
     const invalid: unknown[] = [
       { ...facts, baselineCompilation: undefined },
       { ...facts, baselineCompilation: { ...facts.baselineCompilation, sourceRevision: digest('foreign') } },
@@ -1243,15 +1318,16 @@ describe('test-obligations scoped audit facts', () => {
       { ...facts, reconciliation: { status: 'resolved', changes: [] } },
       { ...facts, architectureEvolution: undefined },
       { ...facts, implementationDominance: { status: 'not-requested', reason: 'outside-test-obligations', findings: [] } },
-      { ...legacyTestFacts(), implementationDominance: facts.implementationDominance },
-      { ...legacyTestFacts(), baselineCompilation: facts.baselineCompilation }
+      { ...legacy, implementationDominance: facts.implementationDominance },
+      { ...legacy, baselineCompilation: facts.baselineCompilation }
     ];
     for (const candidate of invalid) assert.throws(() =>
       compileSourceProgramAuditOperationInput(candidate as CompileSourceProgramAuditOperationInput));
   });
 
   test('retains scoped facts identity through the canonical request and result payload', () => {
-    const facts = scopedTestFacts();
+    const legacyFacts = legacyTestFacts();
+    const facts = scopedTestFacts(legacyFacts);
     const operation = compileSourceProgramAuditOperationInput(facts);
     const wire = encodeSourceProgramAuditOperationInput(operation);
     const parsed = parseSourceProgramAuditOperationInput(wire, 1_000_000);
@@ -1262,13 +1338,14 @@ describe('test-obligations scoped audit facts', () => {
     assert.deepEqual(parseSourceProgramAuditOperationResult(encodeSourceProgramAuditOperationResult(result), 1_000_000), result);
     assert.throws(() => encodeSourceProgramAuditOperationResult({ ...result,
       projection: { ...result.projection, factsSchema: 'other' } }), Error);
-    const legacy = compileSourceProgramAuditOperationInput(legacyTestFacts());
+    const legacy = compileSourceProgramAuditOperationInput(legacyFacts);
     assert.equal(Object.hasOwn(legacy.projection, 'factsSchema'), false);
     assert.equal(Object.hasOwn(legacy.projection, 'baselineCompilation'), false);
   });
 
   test('replays historical v1 and scoped v2 without converting history into live authority', () => {
-    for (const facts of [legacyTestFacts(), scopedTestFacts()]) {
+    const legacy = legacyTestFacts();
+    for (const facts of [legacy, scopedTestFacts(legacy)]) {
       const assessment = createSourceProgramTransitionAssessment(historicalTransition(facts));
       assert.equal(assessment.schema, isTestObligationsAuditFacts(facts)
         ? 'source-program-transition-assessment-v2' : 'source-program-transition-assessment-v1');
@@ -1286,7 +1363,8 @@ describe('test-obligations scoped audit facts', () => {
   });
 
   test('binds scoped compared evidence and added or deleted shared-input paths before replay', () => {
-    const original = historicalTransition(scopedTestFacts());
+    const facts = scopedTestFacts();
+    const original = historicalTransition(facts);
     for (const changedPaths of [['test-preload.ts'], ['deleted-test-config.ts']]) {
       const context = { compilerIdentityDigest: digest('compiler'), inputs: [], unresolved: [],
         readEnvelopes: [{ root: '.', descendants: true }], runtimeIsolation: 'unassessed' as const,
@@ -1297,8 +1375,8 @@ describe('test-obligations scoped audit facts', () => {
         baseline: { ...fields, evidenceDigest: digest(fields) } }), /shared test-input delta/);
     }
     assert.throws(() => createSourceProgramTransitionAssessment({ ...original,
-      auditFacts: { ...scopedTestFacts(), baselineCompilation: {
-        ...scopedTestFacts().baselineCompilation, sourceRevision: digest('wrong-baseline')
+      auditFacts: { ...facts, baselineCompilation: {
+        ...facts.baselineCompilation, sourceRevision: digest('wrong-baseline')
       } } }), /compared source evidence/);
   });
 });

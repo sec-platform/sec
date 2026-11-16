@@ -27,6 +27,7 @@ test('declared repository JSON is the same captured input in working, index and 
     writeFileSync(path.join(root, 'examples/input.json'), '{"value":1}\n');
     writeFileSync(path.join(root, 'examples/unrelated.json'), '{"unrelated":1}\n');
     gitProtocolSuccess(git(['add', '--all']));
+    gitProtocolSuccess(git(['update-index', '--chmod=+x', 'src/value.ts']));
     gitProtocolSuccess(git(['commit', '--quiet', '-m', 'declared input fixture']));
     const commitSha = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
     await withAuthorityGitReadSession({ cwd: root, budget: { deadlineMs: 120_000 } }, async (session) => {
@@ -37,7 +38,17 @@ test('declared repository JSON is the same captured input in working, index and 
         acquireExactGitTreeSnapshot({ repositoryRoot: root, commitSha }),
         await acquireExactGitTreeSnapshotFromSession({ session, commitSha })
       ];
+      const exact = snapshots[3]!;
+      expect(working.subjectDigest).not.toBe(exact.subjectDigest);
+      expect(working.physicalObservationReceipt?.kind).toBe('working-tree-observation');
+      expect(exact.physicalObservationReceipt).toMatchObject({ kind: 'git-tree', commitSha });
       const projectInputs = snapshots.map((snapshot) => {
+        expect(() => snapshot.assertMatches({ sourceRevision: snapshot.sourceRevision,
+          files: snapshot.files, moduleMembership: snapshot.moduleMembership })).not.toThrow();
+        expect(snapshot.sourceRevision).toBe(exact.sourceRevision);
+        expect(snapshot.files.map(({ path, mode, contentDigest }) => ({ path, mode, contentDigest })))
+          .toEqual(exact.files.map(({ path, mode, contentDigest }) => ({ path, mode, contentDigest })));
+        expect(snapshot.file('src/value.ts')?.mode).toBe('100755');
         expect(snapshot.file('examples/input.json')?.source).toBe('{"value":1}\n');
         expect(snapshot.file('examples/unrelated.json')).toBeNull();
         const project = compileTypeScriptProjectInput(snapshot, 'tsconfig.json');
@@ -54,6 +65,9 @@ test('declared repository JSON is the same captured input in working, index and 
 
       writeFileSync(path.join(root, 'examples/unrelated.json'), '{"unrelated":2}\n');
       const unrelated = await acquireWorkingTreeSnapshot({ session });
+      expect(compileTypeScriptProjectFactIdentity(unrelated, 'tsconfig.json', {
+        dependencyGenerationDigest: null
+      })).toEqual(projectTypeScriptProjectFactIdentity(projectInputs[0]!));
       expect(compileTypeScriptProjectInput(unrelated, 'tsconfig.json').projectInputDigest)
         .toBe(projectInputs[0]!.projectInputDigest);
 
@@ -88,8 +102,10 @@ test('declared inputs cannot use an ignored host file, an escaping import or a G
       expect(compileTypeScriptProjectInput(missing, 'tsconfig.json').sourceFacts
         .some(({ path }) => path === 'examples/input.json')).toBe(false);
 
-      writeFileSync(path.join(root, 'src/value.ts'), 'import input from "../../outside.json"; export { input };\n');
-      await expect(acquireWorkingTreeSnapshot({ session })).rejects.toThrow('escapes its snapshot');
+      for (const specifier of ['/foreign.ts', '../../outside.json']) {
+        writeFileSync(path.join(root, 'src/value.ts'), `import input from ${JSON.stringify(specifier)}; export { input };\n`);
+        await expect(acquireWorkingTreeSnapshot({ session })).rejects.toThrow('escapes its snapshot');
+      }
       writeFileSync(path.join(root, 'src/value.ts'), 'import input from "../examples/input.json"; export { input };\n');
       gitProtocolSuccess(git(['add', 'src/value.ts']));
       const blob = gitProtocolSuccess(git(['hash-object', '-w', '--stdin'], undefined, 'elsewhere.json')).trim();

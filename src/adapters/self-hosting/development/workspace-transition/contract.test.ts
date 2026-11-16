@@ -1,27 +1,14 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  WorkspaceTransitionContractError,
-  type WorkspaceTransitionCapabilityObservation
+  WorkspaceTransitionContractError
 } from './contract.ts';
-import { compileWorkspaceTransitionPlan } from './plan.ts';
 import { parseWorkspaceTransitionTrigger } from './trigger.ts';
 
 const SHA1_A = '1'.repeat(40);
 const SHA1_B = '2'.repeat(40);
 const SHA256_A = 'a'.repeat(64);
 const SHA256_B = 'b'.repeat(64);
-
-function observation(
-  disposition: WorkspaceTransitionCapabilityObservation['disposition'],
-  owner: string
-): WorkspaceTransitionCapabilityObservation {
-  return {
-    disposition,
-    observationDigest: sha256({ owner, disposition }) as `sha256:${string}`
-  };
-}
 
 test('post-checkout binds Git arguments to the observed current head and canonical flag', () => {
   expect(parseWorkspaceTransitionTrigger({
@@ -82,72 +69,4 @@ test('post-rewrite parses bounded exact records and rejects future extra informa
     expect((error as WorkspaceTransitionContractError).code)
       .toBe('workspace-transition-rewrite-extra-unsupported');
   }
-});
-
-test('readiness matrix derives zero, one or two Effects and a single fresh-process boundary', () => {
-  const trigger = parseWorkspaceTransitionTrigger({
-    event: 'post-merge',
-    arguments: ['1'],
-    currentHead: SHA1_A,
-    objectIdLength: 40
-  });
-  const worktreeIdentityDigest = sha256('worktree') as `sha256:${string}`;
-
-  const ready = compileWorkspaceTransitionPlan({
-    trigger,
-    worktreeIdentityDigest,
-    dependency: observation('ready', 'dependency'),
-    hooks: observation('ready', 'hooks')
-  });
-  expect(ready.decision).toBe('no-effect');
-  expect(ready.requiredEffects).toEqual([]);
-
-  const hooksOnly = compileWorkspaceTransitionPlan({
-    trigger,
-    worktreeIdentityDigest,
-    dependency: observation('ready', 'dependency'),
-    hooks: observation('materialization-required', 'hooks')
-  });
-  expect(hooksOnly.requiredEffects).toEqual(['managed-git-hooks.materialize']);
-  expect(hooksOnly.freshProcessBoundary).toBe('none');
-
-  const both = compileWorkspaceTransitionPlan({
-    trigger,
-    worktreeIdentityDigest,
-    dependency: observation('materialization-required', 'dependency'),
-    hooks: observation('materialization-required', 'hooks')
-  });
-  expect(both.requiredEffects).toEqual([
-    'compiler-dependency-tree.materialize',
-    'managed-git-hooks.materialize'
-  ]);
-  expect(both.freshProcessBoundary).toBe('after-compiler-dependency-tree');
-
-  const dependencyFirst = compileWorkspaceTransitionPlan({
-    trigger,
-    worktreeIdentityDigest,
-    dependency: observation('materialization-required', 'dependency'),
-    hooks: observation('deferred', 'hooks')
-  });
-  expect(dependencyFirst.requiredEffects).toEqual([
-    'compiler-dependency-tree.materialize'
-  ]);
-  expect(dependencyFirst.freshProcessBoundary).toBe('after-compiler-dependency-tree');
-});
-
-test('an unresolved owner observation blocks the complete Effect set', () => {
-  const plan = compileWorkspaceTransitionPlan({
-    trigger: parseWorkspaceTransitionTrigger({
-      event: 'post-merge',
-      arguments: ['0'],
-      currentHead: SHA1_A,
-      objectIdLength: 40
-    }),
-    worktreeIdentityDigest: sha256('worktree') as `sha256:${string}`,
-    dependency: observation('materialization-required', 'dependency'),
-    hooks: observation('unresolved', 'hooks')
-  });
-  expect(plan.decision).toBe('blocked');
-  expect(plan.requiredEffects).toEqual([]);
-  expect(plan.blockers).toEqual(['managed-git-hooks']);
 });

@@ -3,6 +3,7 @@ import { captureRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRe
 import * as runtime from './runtime/project-runtime.ts';
 
 export type {
+  CompilerDependencyLockMaintenanceRequest, CompilerDependencyLockMaintenanceResult,
   CompilerDependencyExecutionGenerationAuthority,
   CompilerDependencyMaterializationDigest,
   CompilerDependencyMaterializationInputProjection, CompilerDependencyReadGenerationRetirementReceipt, CompilerDepsReadyState,
@@ -55,15 +56,17 @@ export async function retireSettledCompilerDependencyStageIntents(
  * Explicit owner operation for the one-way durable dependency-journal
  * migration. Normal readers never parse the legacy grammar.
  */
+export function migrateDependencyTransitionJournal(ownerRoot: string, options?: RuntimeDependencyInstallOptions): Promise<void>;
+export function migrateDependencyTransitionJournal(ownerRoot: string, options: RuntimeDependencyInstallOptions,
+  maintenance: runtime.CompilerDependencyLockMaintenanceRequest): Promise<runtime.CompilerDependencyLockMaintenanceResult>;
 export async function migrateDependencyTransitionJournal(
   ownerRoot: string,
-  options: RuntimeDependencyInstallOptions = {}
-): Promise<void> {
-  ownerRoot = path.resolve(ownerRoot);
-  return runtime.migrateDependencyTransitionJournal(
-    ownerRoot,
-    captureRuntimeDependencyInstallRequest(options)
-  );
+  options: RuntimeDependencyInstallOptions = {},
+  maintenance?: runtime.CompilerDependencyLockMaintenanceRequest
+): Promise<void | runtime.CompilerDependencyLockMaintenanceResult> {
+  return maintenance === undefined
+    ? runtime.migrateDependencyTransitionJournal(path.resolve(ownerRoot), captureRuntimeDependencyInstallRequest(options))
+    : runtime.migrateDependencyTransitionJournal(path.resolve(ownerRoot), captureRuntimeDependencyInstallRequest(options), maintenance);
 }
 
 export async function withProjectDependencyBridge<T>(

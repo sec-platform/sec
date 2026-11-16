@@ -1,0 +1,328 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+
+import {
+  compileSourceProgramMechanismReview as review,
+  type MechanismReviewModel
+} from '../../../src/adapters/repository/repository-audit/mechanism-review.ts';
+
+type Capability = MechanismReviewModel['capabilities'][number];
+type Reference = MechanismReviewModel['references'][number];
+type Dependency = MechanismReviewModel['dependencies'][number];
+
+function facts(): MechanismReviewModel {
+  return {
+    sourceRevision: 'exact-source', modelDigest: 'exact-model',
+    files: [
+      { path: 'src/a.ts', contentDigest: 'a-bytes', surface: 'production' },
+      { path: 'src/b.ts', contentDigest: 'b-bytes', surface: 'production' },
+      { path: 'package.json', contentDigest: 'package-bytes', surface: 'resource' }
+    ],
+    declarations: [
+      { observationId: 'a', path: 'src/a.ts', moduleId: 'module-a' },
+      { observationId: 'b', path: 'src/b.ts', moduleId: 'module-b' }
+    ],
+    capabilities: [], references: [], dependencies: []
+  };
+}
+function capability(fields: Partial<Capability> = {}): Capability {
+  return {
+    observationId: 'effect-a', path: 'src/a.ts', moduleId: 'module-a',
+    capability: 'filesystem', operation: 'readFile', transport: 'native-runtime',
+    moduleSpecifier: 'node:fs/promises', owningDeclarationObservationId: 'a',
+    observationClass: 'observed', span: { start: 1, end: 8 }, ...fields
+  };
+}
+function call(fields: Partial<Reference> = {}): Reference {
+  return {
+    path: 'src/a.ts', kind: 'call', sourceRelation: 'declaration',
+    sourceObservationId: 'a', targetObservationId: 'a', observationClass: 'observed',
+    span: { start: 2, end: 7 }, ...fields
+  };
+}
+function dependency(fields: Partial<Dependency> = {}): Dependency {
+  return {
+    manifestPath: 'package.json', name: 'library', requirement: '^1', scope: 'runtime',
+    consumerPaths: [], observationClass: 'observed', ...fields
+  };
+}
+
+for (const observationClass of ['unknown', 'unrecognized-future-proof']) {
+  test(`dependency evidence ${observationClass} cannot establish a version difference`, () => {
+    const result = review({ ...facts(), dependencies: [dependency(), dependency({ requirement: '^2', observationClass })] });
+    assert.equal(result.counts['dependency-requirement-divergence'], 0);
+    assert.equal(result.coverage.unresolvedDependencies, 1);
+    assert.equal(result.coverage.scannedDependencies, 2);
+  });
+}
+
+test('known requirement differences remain visible alongside unrelated unresolved declarations', () => {
+  const result = review({ ...facts(), dependencies: [dependency(), dependency({ requirement: '^2', observationClass: 'derived' }), dependency({ requirement: 'unresolved', observationClass: 'unknown' })] });
+  assert.equal(result.coverage.unresolvedDependencies, 1);
+  assert.deepEqual(result.findings[0]!.related, ['^1', '^2']);
+  assert.equal(result.findings[0]!.disposition, 'review-required');
+  assert.equal(result.findings[0]!.sites[0]!.start, null);
+  assert.deepEqual(result.unknowns, [{
+    factKind: 'dependency', reason: 'observation-unresolved',
+    site: { path: 'package.json', contentDigest: 'package-bytes', start: null, end: null, observationId: null },
+    details: { name: 'library', requirement: 'unresolved', scope: 'runtime', observationClass: 'unknown' },
+    occurrences: 1
+  }]);
+});
+
+
+
+for (const sourceRelation of ['unsupported-scope', 'module-initialization']) {
+  test(`inconsistent declaration scope ${sourceRelation} is not treated as a resolved self call`, () => {
+    const result = review({ ...facts(), references: [call({ sourceRelation })] });
+    assert.equal(result.coverage.unresolvedCallReferences, 1);
+    assert.equal(result.counts['direct-recursive-call'], 0);
+  });
+}
+
+test('a target declaration outside the supplied file set does not complete a reference join', () => {
+  const base = facts();
+  const result = review({ ...base, declarations: [...base.declarations, { observationId: 'foreign', path: 'src/absent.ts', moduleId: 'foreign' }], references: [call({ targetObservationId: 'foreign' })] });
+  assert.equal(result.coverage.unresolvedCallReferences, 1);
+});
+
+
+
+test('a capability with a wrong enclosing path cannot contribute to distributed transport', () => {
+  const result = review({ ...facts(), capabilities: [
+    capability({ path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+    // This fact matches its owner's module; only the enclosing path is wrong.
+    capability({ path: 'src/b.ts', owningDeclarationObservationId: 'a', observationId: 'b-effect' })
+  ] });
+  assert.equal(result.coverage.unresolvedCapabilities, 1);
+  assert.equal(result.counts['distributed-direct-transport'], 0);
+});
+
+
+test('lack of module ownership does not prevent a valid declaration-local mixed-effect observation', () => {
+  const base = facts();
+  const result = review({ ...base, declarations: [{ ...base.declarations[0]!, moduleId: null }], capabilities: [
+    capability({ moduleId: null }), capability({ moduleId: null, observationId: 'network-effect', capability: 'network' })
+  ] });
+  assert.equal(result.coverage.unresolvedCapabilities, 0);
+  assert.equal(result.counts['mixed-effect-declaration'], 1);
+  assert.equal(result.counts['distributed-direct-transport'], 0);
+});
+
+test('diagnostic identities bind source bytes, findings and unresolved details without caller aliases', () => {
+  const base = facts();
+  const references = [call(), call({ span: { start: 30, end: 35 } })];
+  const unknown = capability({ transport: 'unknown' });
+  const input = { ...base, references, capabilities: [unknown] };
+  const before = review(input);
+  const after = review({ ...input, references: [references[0]!, { ...references[1]!, span: { start: 31, end: 36 } }] });
+  assert.equal(before.findings.length, 1);
+  assert.equal(before.counts['direct-recursive-call'], 1);
+  assert.deepEqual(before.findings[0]!.sites, [
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 2, end: 7, observationId: 'a' },
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 30, end: 35, observationId: 'a' }
+  ]);
+  assert.notEqual(before.findings[0]!.findingDigest, after.findings[0]!.findingDigest);
+  assert.notEqual(before.reviewDigest, after.reviewDigest);
+  assert.notEqual(review({ ...input, sourceRevision: 'next' }).reviewDigest, before.reviewDigest);
+  assert.notEqual(review({ ...input, modelDigest: 'next-model' }).reviewDigest, before.reviewDigest);
+  assert.notEqual(review({ ...input, files: base.files.map(file => ({ ...file, contentDigest: `${file.contentDigest}-changed` })) }).reviewDigest, before.reviewDigest);
+  assert.notEqual(review({ ...input, capabilities: [{ ...unknown, operation: 'other' }] }).reviewDigest, before.reviewDigest);
+  assert.equal(Object.isFrozen(input), false);
+  assert.equal(Object.isFrozen(references[0]!.span), false);
+  assert.equal(Object.isFrozen(unknown), false);
+  assert.ok(Object.isFrozen(before.counts));
+  assert.ok(Object.isFrozen(before.unknowns));
+  assert.ok(Object.isFrozen(before.unknowns[0]!.details));
+  assert.ok(Object.isFrozen(before.unknowns[0]!.site));
+  assert.equal(Reflect.set(before.findings[0]!.sites[0]!, 'start', 99), false);
+  references[0]!.span.start = 99;
+  assert.equal(before.findings[0]!.sites[0]!.start, 2);
+});
+
+test('the scanner does not freeze input observations while freezing shared output sites', () => {
+  const records = [capability({ owningDeclarationObservationId: null }), capability({ path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: null, observationId: 'b-effect' })];
+  const result = review({ ...facts(), capabilities: records });
+  assert.ok(result.findings.length > 1);
+  for (const record of records) { assert.equal(Object.isFrozen(record), false); assert.equal(Object.isFrozen(record.span), false); }
+  for (const finding of result.findings) { assert.ok(Object.isFrozen(finding)); for (const site of finding.sites) assert.ok(Object.isFrozen(site)); }
+});
+
+// Roles must not collapse merely because their unlabelled text sets agree.
+test('effect category and operation remain distinct roles in a review context', () => {
+  const repeated = capability({ owningDeclarationObservationId: null,
+    capability: 'filesystem', operation: 'process', observationId: 'effect-0', span: { start: 0, end: 8 } });
+  const result = review({ ...facts(), capabilities: [
+    repeated,
+    capability({ owningDeclarationObservationId: null, capability: 'filesystem', operation: 'process', observationId: 'first' }),
+    capability({ owningDeclarationObservationId: null, capability: 'process', operation: 'filesystem', observationId: 'second' }),
+    repeated, repeated,
+    capability({ owningDeclarationObservationId: null, operation: 'domain.operation.0', observationId: 'call-0', span: { start: 0, end: 1 } }),
+    capability({ owningDeclarationObservationId: null, operation: 'domain.operation.1', observationId: 'call-1', span: { start: 3, end: 4 } })
+  ] });
+  assert.equal(result.coverage.findingUnit, 'rule-subject-context');
+  assert.equal(result.coverage.scannedCapabilities, 7);
+  assert.equal(result.counts['module-initialization-effect'], 4);
+  assert.equal(result.findings.length, 4);
+  assert.deepEqual(new Set(result.findings.map((finding) => finding.related.join(','))), new Set([
+    'capability:filesystem,operation:process', 'capability:process,operation:filesystem',
+    'capability:filesystem,operation:domain.operation.0', 'capability:filesystem,operation:domain.operation.1'
+  ]));
+  assert.deepEqual(result.findings.find((finding) => finding.related.includes('operation:process'))!.sites, [
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 0, end: 8, observationId: 'effect-0' },
+    { path: 'src/a.ts', contentDigest: 'a-bytes', start: 1, end: 8, observationId: 'first' }
+  ]);
+  for (const [operation, observationId, start, end] of [
+    ['domain.operation.0', 'call-0', 0, 1], ['domain.operation.1', 'call-1', 3, 4]
+  ] as const) {
+    assert.deepEqual(result.findings.find((finding) => finding.related.includes(`operation:${operation}`))!.sites, [
+      { path: 'src/a.ts', contentDigest: 'a-bytes', start, end, observationId }
+    ]);
+  }
+});
+
+
+
+test('a missing enclosing declaration stays actionable without becoming distributed transport evidence', () => {
+  const result = review({ ...facts(), capabilities: [capability(), capability({
+    path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'absent', observationId: 'b-effect'
+  })] });
+  assert.equal(result.coverage.unresolvedCapabilities, 1);
+  assert.equal(result.counts['distributed-direct-transport'], 0);
+  assert.equal(result.unknowns[0]!.reason, 'enclosing-declaration-unresolved');
+  assert.equal(result.unknowns[0]!.site.observationId, 'b-effect');
+  assert.equal(result.unknowns[0]!.details.ownerId, 'absent');
+});
+
+test('invalid ownership and unknown transport remain different unresolved reasons', () => {
+  const result = review({ ...facts(), capabilities: [
+    capability(), capability({ moduleId: 'wrong-module', observationId: 'wrong-owner' }), capability({ transport: 'unknown', observationId: 'other' })
+  ] });
+  assert.deepEqual(new Set(result.unknowns.map((record) => record.reason)), new Set(['ownership-inconsistent', 'transport-unresolved']));
+  assert.equal(result.coverage.unresolvedCapabilities, 2);
+  assert.deepEqual(result.findings, []);
+});
+
+test('unresolved target and malformed source relation remain different call frontiers', () => {
+  const result = review({ ...facts(), references: [call({ targetObservationId: 'absent' }), call({ sourceRelation: 'other' }),
+    call({ sourceRelation: 'module-initialization', sourceObservationId: null, targetObservationId: null })] });
+  assert.deepEqual(new Set(result.unknowns.map((record) => record.reason)), new Set(['target-declaration-unresolved', 'scope-relation-unresolved']));
+  assert.equal(result.coverage.unresolvedCallReferences, 3);
+  assert.equal(result.counts['direct-recursive-call'], 0);
+  assert.equal(result.unknowns.find(record => record.details.targetObservationId === 'absent')!.reason, 'target-declaration-unresolved');
+  assert.equal(result.unknowns.find(record => record.details.sourceRelation === 'module-initialization')!.reason, 'target-declaration-unresolved');
+});
+
+
+test('unknown package roles and scopes stay distinct and stable under record reordering', () => {
+  const dependencies = [dependency({ name: 'left', requirement: 'right', observationClass: 'unknown' }),
+    dependency({ name: 'right', requirement: 'left', observationClass: 'unknown' }),
+    dependency({ name: 'left', requirement: 'right', scope: 'development', observationClass: 'unknown' })];
+  const result = review({ ...facts(), dependencies });
+  assert.equal(result.unknowns.length, 3);
+  assert.deepEqual(new Set(result.unknowns.map(record => `${record.details.name}/${record.details.requirement}/${record.details.scope}`)),
+    new Set(['left/right/runtime', 'right/left/runtime', 'left/right/development']));
+  assert.deepEqual(result, review({ ...facts(), dependencies: [...dependencies].reverse() }));
+});
+
+
+test('unresolved locations and repeated occurrences remain complete and reconcilable', () => {
+  const repeated = dependency({ observationClass: 'unknown' });
+  const result = review({ ...facts(), capabilities: [capability({ observationClass: 'future' }), capability({ path: 'missing.ts' })],
+    references: [call({ observationClass: 'future' }), call({ path: 'another-missing.ts', kind: 'import' })],
+    dependencies: [repeated, repeated, repeated, dependency({ manifestPath: 'missing.json' })] });
+  const total = result.unknowns.reduce((sum, record) => sum + record.occurrences, 0);
+  assert.equal(total, result.coverage.unresolvedCapabilities + result.coverage.unresolvedCallReferences + result.coverage.unresolvedDependencies + result.coverage.unlocatedRecords);
+  assert.equal(total, 8);
+  assert.equal(result.coverage.unlocatedRecords, 3);
+  assert.equal(result.coverage.unresolvedCapabilities, 1);
+  assert.equal(result.coverage.unresolvedCallReferences, 1);
+  assert.equal(result.coverage.unresolvedDependencies, 3);
+  assert.equal(result.coverage.unresolvedSiteGroups, 6);
+  assert.equal(result.unknowns.find(record => record.reason === 'observation-unresolved' && record.factKind === 'dependency')!.occurrences, 3);
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.unknowns.find(record => record.site.path === 'another-missing.ts')!.reason, 'source-file-unavailable');
+  assert.deepEqual(result.unknowns.find(record => record.site.path === 'another-missing.ts')!.site, {
+    path: 'another-missing.ts', contentDigest: null, start: 2, end: 7, observationId: 'a'
+  });
+});
+
+
+
+test('supplied diagnostic coverage is not repository authority, and resolved observations stay resolved', () => {
+  const base = facts();
+  const empty = review(base);
+  assert.equal(empty.authority, 'none-diagnostic-only');
+  assert.equal(empty.coverage.scope, 'supplied-source-program');
+  assert.equal(empty.coverage.files, 3);
+  assert.equal(empty.coverage.productionFiles, 2);
+  assert.deepEqual(empty.findings, []);
+  assert.ok(empty.coverage.unassessedMechanisms.includes('parameter-value-flow-and-precedence'));
+  assert.ok(empty.coverage.unassessedMechanisms.includes('physical-races-and-crash-recovery'));
+  assert.deepEqual(empty.counts, {
+    'module-initialization-effect': 0, 'distributed-direct-transport': 0,
+    'mixed-effect-declaration': 0, 'direct-recursive-call': 0, 'dependency-requirement-divergence': 0
+  });
+  const result = review({ ...base, capabilities: [capability()], references: [call({ sourceRelation: 'module-initialization', sourceObservationId: null, targetObservationId: 'b' })], dependencies: [dependency()] });
+  assert.deepEqual(result.unknowns, []);
+  assert.equal(result.coverage.unresolvedSiteGroups, 0);
+  assert.equal(result.coverage.unresolvedCallReferences, 0);
+  assert.equal(result.counts['direct-recursive-call'], 0);
+  assert.throws(() => review({ ...base, files: [...base.files, base.files[0]!] }), /unique source/);
+  assert.throws(() => review({ ...base, declarations: [...base.declarations, base.declarations[0]!] }), /unique declaration/);
+});
+
+test('production findings preserve exact rule roles, owners and sites without promoting test or provider facts', () => {
+  const base = facts();
+  const input = { ...base,
+    files: [...base.files, { path: 'tests/a.test.ts', contentDigest: 'test-bytes', surface: 'test' }],
+    declarations: [...base.declarations, { observationId: 'test', path: 'tests/a.test.ts', moduleId: 'test-module' }],
+    capabilities: [
+      capability({ observationId: 'read-a' }), capability({ observationId: 'read-a-again' }),
+      capability({ observationId: 'read-b', path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+      capability({ observationId: 'spawn-a', capability: 'process', operation: 'spawn', moduleSpecifier: 'node:child_process' }),
+      capability({ observationId: 'provider-b', capability: 'provider', transport: 'repository-provider', path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+      capability({ observationId: 'repo-a', operation: 'repositoryRead', transport: 'repository-provider' }),
+      capability({ observationId: 'repo-b', operation: 'repositoryRead', transport: 'repository-provider', path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+      capability({ observationId: 'local-1', operation: 'localOnly' }), capability({ observationId: 'local-2', operation: 'localOnly' }),
+      capability({ observationId: 'operation-a', operation: 'readOnly' }),
+      capability({ observationId: 'operation-b', operation: 'writeOnly', path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+      capability({ observationId: 'package-a', moduleSpecifier: 'package-a' }),
+      capability({ observationId: 'package-b', moduleSpecifier: 'package-b', path: 'src/b.ts', moduleId: 'module-b', owningDeclarationObservationId: 'b' }),
+      capability({ observationId: 'test-effect', path: 'tests/a.test.ts', moduleId: 'test-module', owningDeclarationObservationId: null })
+    ],
+    references: [call({ span: { start: 20, end: 25 } }), call({ kind: 'reference', span: { start: 30, end: 35 } }),
+      call({ targetObservationId: 'b', span: { start: 40, end: 45 } }),
+      call({ path: 'src/b.ts', sourceObservationId: 'b', targetObservationId: 'b' }),
+      call({ path: 'tests/a.test.ts', sourceObservationId: 'test', targetObservationId: 'test' })],
+    dependencies: [dependency(), dependency({ requirement: '^2' }),
+      dependency({ name: 'package-0' }), dependency({ name: 'package-0', requirement: '^2' }),
+      dependency({ name: 'same-only' }), dependency({ name: 'same-only' })]
+  };
+  const result = review(input);
+  assert.deepEqual(result.counts, {
+    'module-initialization-effect': 0, 'distributed-direct-transport': 1,
+    'mixed-effect-declaration': 1, 'direct-recursive-call': 2, 'dependency-requirement-divergence': 2
+  });
+  assert.deepEqual(result.unknowns, []);
+  assert.equal(result.coverage.scannedCapabilities, 14);
+  assert.equal(result.coverage.scannedReferences, 5);
+  const distributed = result.findings.find(item => item.code === 'distributed-direct-transport')!;
+  assert.equal(distributed.subject, '["filesystem","node:fs/promises","readFile","native-runtime"]');
+  assert.deepEqual(distributed.related, ['module-a', 'module-b']);
+  assert.deepEqual(new Set(distributed.sites.map(site => site.observationId)), new Set(['read-a', 'read-a-again', 'read-b']));
+  const mixed = result.findings.find(item => item.code === 'mixed-effect-declaration')!;
+  assert.equal(mixed.subject, 'a');
+  assert.deepEqual(mixed.related, ['filesystem', 'process']);
+  const recursive = result.findings.filter(item => item.code === 'direct-recursive-call');
+  assert.deepEqual(recursive.map(item => item.subject), ['a', 'b']);
+  assert.deepEqual(recursive[0]!.sites, [{ path: 'src/a.ts', contentDigest: 'a-bytes', start: 20, end: 25, observationId: 'a' }]);
+  assert.deepEqual(recursive[1]!.sites, [{ path: 'src/b.ts', contentDigest: 'b-bytes', start: 2, end: 7, observationId: 'b' }]);
+  const divergent = result.findings.filter(item => item.code === 'dependency-requirement-divergence');
+  assert.deepEqual(divergent.map(item => ({ subject: item.subject, related: item.related })), [
+    { subject: 'library', related: ['^1', '^2'] },
+    { subject: 'package-0', related: ['^1', '^2'] }
+  ]);
+  assert.deepEqual(result, review({ ...input, files: [...input.files].reverse(), declarations: [...input.declarations].reverse(),
+    capabilities: [...input.capabilities].reverse(), references: [...input.references].reverse(), dependencies: [...input.dependencies].reverse() }));
+});

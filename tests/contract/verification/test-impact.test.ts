@@ -1,0 +1,421 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../src/execution/resource-settlement.ts';
+import { afterAll, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { rawSha256, sha256 } from '../../../src/contracts/canonical.ts';
+
+import { commitTestImpactFixtureSources } from '../../helpers/test-impact-git-commit.ts';
+
+import { canonicalGitChildEnvironment } from '../../../src/adapters/providers/git/environment.ts';
+import { compileRepositorySourceProgramCompilation } from '../../../src/adapters/repository/source-program-model/repository-compilation.ts';
+import {
+  assertIssuedTestImpactProjection,
+  encodeTestImpactProjectionReceipt,
+  issueTestImpactProjection,
+  parseTestImpactProjectionReceipt
+} from '../../../src/adapters/repository/source-program-model/test-impact-projection.ts';
+import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { currentActiveDocumentationPaths } from '../../../src/adapters/self-hosting/control/documentation/active.ts';
+import { issueTestInventoryProjection } from '../../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { TEST_IMPACT_SOURCE_KINDS, classifyTestImpactSource, testImpactModuleIdsForSourceKind } from '../../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
+import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, selectTestsForSources } from '../../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+
+const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
+
+function git(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: canonicalGitChildEnvironment() });
+  if (result.status !== 0) {
+    throw new Error(`Git fixture command failed: git ${args.join(' ')}\n${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+// Actual source graphs, Git commits and compiler projections remain
+// independent per observation. Only an empty native Git identity is copied.
+let testImpactEmptyGit: string | undefined;
+
+afterAll(() => {
+  if (testImpactEmptyGit !== undefined) {
+    rmSync(testImpactEmptyGit, { recursive: true, force: true });
+    testImpactEmptyGit = undefined;
+  }
+});
+
+function emptyGitTestImpactBase(): string {
+  if (testImpactEmptyGit !== undefined) return testImpactEmptyGit;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-base-'));
+  try {
+    git(root, ['init', '--quiet']);
+    testImpactEmptyGit = root;
+    return root;
+  } catch (error) {
+    try { rmSync(root, { recursive: true, force: true }); }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'TestImpact base setup and cleanup failed');
+    }
+    throw error;
+  }
+}
+
+function sourceProvider(
+  sources: Readonly<Record<string, string>>,
+  inspectCompilation?: (
+    compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>,
+    projection: ReturnType<typeof issueTestImpactProjection>
+  ) => void
+) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
+  let primary: ResourceSettlementFailure | undefined;
+  try {
+    cpSync(emptyGitTestImpactBase(), root, { recursive: true });
+    const fixtureSources = {
+      ...sources,
+      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
+        ? { 'src/compiler/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        : {})
+    };
+    for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
+      const filePath = path.join(root, ...repositoryPath.split('/'));
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      writeFileSync(filePath, source, 'utf8');
+    }
+    const commitSha = commitTestImpactFixtureSources(
+      root, fixtureSources, canonicalGitChildEnvironment(),
+      { name: 'SEC Test Impact', email: 'test-impact@sec.invalid' }
+    );
+    const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+      repositoryRoot: root,
+      commitSha
+    });
+    const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot, repositoryRoot: root });
+    const projection = issueTestImpactProjection({
+      workspaceSnapshot,
+      repositoryModel: repositoryCompilation.model,
+      typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
+      testObservations: repositoryCompilation.testObservations
+    });
+    inspectCompilation?.(repositoryCompilation, projection);
+    return createRepositoryTestImpactSourceProvider({
+      projection,
+      testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
+      activeDocumentationPaths: currentActiveDocumentationPaths()
+    });
+  } catch (error) {
+    primary = { label: 'source-provider fixture', error };
+    throw error;
+  } finally {
+    settleResources({ primary, cleanup: [{ label: 'source-provider root', settle: () => rmSync(root, { recursive: true, force: true }) }] });
+  }
+}
+
+function expectUnique(values: readonly string[]): void {
+  expect(new Set(values).size).toBe(values.length);
+}
+
+test('non-code source ownership and executable import impact remain independently path-scoped', () => {
+  // Keep exact descriptor bindings and all non-code source kinds in the
+  // existing routing contract; no second test file or per-kind registration.
+  for (const kind of TEST_IMPACT_SOURCE_KINDS.filter(kind => kind !== 'typescript')) {
+    const owners = testImpactModuleIdsForSourceKind(kind);
+    expect(new Set(owners).size).toBe(owners.length);
+    expect(owners.length).toBeGreaterThan(0);
+    for (const owner of owners) {
+      const descriptor = path.join(repositoryRoot, 'src', ...owner.split('.'), 'module.json');
+      expect(JSON.parse(readFileSync(descriptor, 'utf8')).importGraph).toBe('runtime');
+    }
+  }
+
+  // TypeScript uses executable import edges, not the non-code kind-to-owner map.
+  expect(testImpactModuleIdsForSourceKind('typescript')).toEqual([]);
+  const activeDocumentationPath = (candidate: string) => candidate === 'config/repository/work-selection.md';
+  expect(classifyTestImpactSource(
+    'catalog/registry/official/ticket.basic/block.manifest.yaml',
+    activeDocumentationPath
+  ))
+    .toBe('manifest');
+  expect(classifyTestImpactSource('source/model/app.plan.yaml', activeDocumentationPath))
+    .toBe('source-model');
+  expect(classifyTestImpactSource(
+    '.github/workflows/compiler-pr-validation.yml', activeDocumentationPath
+  )).toBe('workflow');
+  expect(classifyTestImpactSource(
+    '.githooks/post-merge',
+    activeDocumentationPath,
+    (candidate) => candidate === '.githooks/post-merge'
+  )).toBe('git-hook');
+  expect(classifyTestImpactSource(
+    '.githooks/unobserved',
+    activeDocumentationPath
+  )).toBeNull();
+  expect(classifyTestImpactSource('config/repository/work-selection.md', activeDocumentationPath))
+    .toBe('active-documentation');
+  expect(classifyTestImpactSource('docs/unregistered.manifest.yaml', activeDocumentationPath))
+    .toBeNull();
+  expect(classifyTestImpactSource('.codex/agents/worker.toml', activeDocumentationPath))
+    .toBe('agent-role');
+  expect(classifyTestImpactSource('.codex/unowned.toml', activeDocumentationPath)).toBeNull();
+  expect(classifyTestImpactSource('.codex/agents/notes.md', activeDocumentationPath)).toBeNull();
+
+  const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
+  const facade = 'src/bootstrap/engineering/virtual-entrypoint.ts';
+  const helper = 'src/bootstrap/engineering/virtual-test-helper.ts';
+  const direct = 'tests/integration/workspace/pipeline-workspace-write-lease.test.ts';
+  const selected = 'tests/unit/virtual-facade.test.ts';
+  const slow = 'tests/e2e/workspace/upgrade.test.ts';
+  const ignored = 'tests/unit/virtual-import-text.test.ts';
+  const alpha = 'src/compiler/virtual-alpha.ts';
+  const beta = 'src/compiler/virtual-beta.ts';
+  const alphaFacade = 'src/compiler/virtual-public.ts';
+  const alphaTest = 'src/compiler/virtual-alpha.spec.ts';
+  const betaTest = 'tests/unit/virtual-beta.test.ts';
+  const observedSources = {
+      'src/value.ts': 'export const value = 1;\n',
+      'src/read-only.ts': 'export const observed = 2;\n',
+      'src/value.json': '{"value":1}\n',
+      'tests/helpers/value-child.ts': "import '../../src/value.ts';\n",
+      'tests/unit/tsconfig-excluded.test.ts': 'test("excluded from type project", () => {});\n',
+      'tests/unit/value.test.ts': [
+        "import { spawnSync } from 'node:child_process';",
+        "import process from 'node:process';",
+        "import { readFileSync } from 'node:fs';",
+        "import { readFileSync as unavailableSyncRead } from 'node:fs/promises';",
+        "readFileSync('src/value.json', 'utf8');",
+        "readFileSync('src/read-only.ts', 'utf8');",
+        "readFileSync('../outside.json', 'utf8');",
+        "readFileSync('src/absent.json', 'utf8');",
+        "unavailableSyncRead('src/value.json');",
+        "function shadowRead(readFileSync: (path: string) => string) { readFileSync('src/value.json'); }",
+        "function shadowBun(Bun: { file(path: string): { text(): string } }) { Bun.file('src/value.json').text(); }",
+        "void shadowRead; void shadowBun;",
+        "spawnSync(process.execPath, ['tests/helpers/value-child.ts']);",
+        ''
+      ].join('\n'),
+      'tests/unit/value-second.test.ts': [
+        "import { readFileSync } from 'node:fs';",
+        "readFileSync('src/value.json', 'utf8');",
+        ''
+      ].join('\n'),
+      'tests/unit/program-fixture.test.ts': [
+        "import { spawnSync } from 'node:child_process';",
+        "import process from 'node:process';",
+        "import path from 'node:path';",
+        "import { test } from 'bun:test';",
+        "test.skipIf(process.platform !== 'win32')('program', () => {",
+        "  const program = path.resolve(import.meta.dir, '../../src/read-only.ts');",
+        "  spawnSync(process.execPath, [program]);",
+        "});",
+        ''
+      ].join('\n'),
+      'tsconfig.json': '{"compilerOptions":{"noEmit":true},"include":["src/**/*.ts","tests/**/*.ts"],"exclude":["tests/unit/tsconfig-excluded.test.ts"]}\n'
+  } as const;
+  // Observed runtime reads/invocations join the existing independent source worlds.
+  const provider = sourceProvider({
+    ...observedSources,
+    '.codex/agents/worker.toml': 'name = "worker"\n',
+    'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
+    'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
+    'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/adapters/self-hosting/control/agent/skill.ts'; void role;",
+    'catalog/registry/official/ticket.basic/block.manifest.yaml': 'id: ticket.basic\n',
+    'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
+    'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;",
+    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
+    'src/adapters/self-hosting/development/hooks/install.ts': 'export const installHooks = true;',
+    'src/adapters/self-hosting/development/hooks/module.json': JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: ['src/adapters/self-hosting/development/hooks/install.ts'],
+      capabilityProviders: [],
+      preDependencyBootstrap: false
+    }),
+    'tests/unit/install-hooks-fixture.test.ts': "import { installHooks } from '../../src/adapters/self-hosting/development/hooks/install.ts'; void installHooks;",
+      'src/bootstrap/engineering/module.json':
+        '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
+      'src/bootstrap/engineering/cli.ts': "import { kernel } from './pipeline-kernel.ts'; void kernel;",
+      [source]: 'export const kernel = true;',
+      [facade]: "export { kernel } from './pipeline-kernel.ts';",
+      [helper]: "export { kernel } from './virtual-entrypoint.ts';",
+      [direct]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
+      [selected]: "import { kernel } from '../../src/bootstrap/engineering/virtual-test-helper.ts'; void kernel;",
+      [slow]: "import { kernel } from '../../../src/bootstrap/engineering/pipeline-kernel.ts'; void kernel;",
+      [ignored]: "const text = \"import '../../src/bootstrap/engineering/pipeline-kernel.ts'\"; void text;",
+    [alpha]: 'export const alpha = 1;',
+    [beta]: 'export const beta = 2;',
+    [alphaFacade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
+    [alphaTest]: "import { alpha } from './virtual-public.ts'; void alpha;",
+    [betaTest]: "import { beta } from '../../src/compiler/virtual-public.ts'; void beta;"
+  }, (compilation, projection) => {
+    expect(compilation.testObservations.resourceReads.map(({ target }) => target).sort())
+      .toEqual(['src/value.json', 'src/value.json']);
+    expect(projection.purpose).toBe('test-impact-selection');
+    expect(projection.subjectDigest).toBe(compilation.subjectDigest);
+    expect(projection.workspaceSnapshotIdentityDigest)
+      .toBe(compilation.workspaceSnapshotIdentityDigest);
+    expect(projection.moduleGraphDigest).toBe(compilation.moduleGraphDigest);
+    expect(projection.testObservationDigest).toBe(compilation.testObservations.observationDigest);
+    expect(projection.files.every(file => !('source' in file))).toBe(true);
+    expect('registrations' in projection).toBe(false);
+    expect(projection.moduleOwners).toContainEqual({
+      moduleId: 'compiler',
+      root: 'src/compiler'
+    });
+
+    const fullConsumerPayloadBytes = Buffer.byteLength(JSON.stringify({
+      model: compilation.typeScriptCompilation.model,
+      testObservations: compilation.testObservations,
+      moduleGraph: compilation.workspaceSnapshot.moduleGraph,
+      moduleMembership: compilation.workspaceSnapshot.moduleMembership.descriptors
+    }));
+    const encoded = encodeTestImpactProjectionReceipt(projection);
+    expect(Buffer.byteLength(encoded, 'utf8')).toBeLessThan(fullConsumerPayloadBytes);
+
+    const parsed = parseTestImpactProjectionReceipt(encoded);
+    expect(parsed).toEqual(projection);
+    expect(() => assertIssuedTestImpactProjection(parsed)).toThrow('owner-issued');
+    expect(() => parseTestImpactProjectionReceipt(
+      encoded.replace('"schema":', '"schema":"duplicate","schema":')
+    )).toThrow('duplicate key');
+
+    const outsideSnapshot = JSON.parse(encoded) as Record<string, unknown>;
+    outsideSnapshot.observedTestConsumers = [{
+      targetPath: 'src/compiler/absent.ts',
+      testPath: 'tests/unit/value.test.ts'
+    }];
+    const { projectionDigest: _discardedOutside, ...outsideUnsigned } = outsideSnapshot;
+    outsideSnapshot.projectionDigest = sha256(outsideUnsigned);
+    expect(() => parseTestImpactProjectionReceipt(JSON.stringify(outsideSnapshot)))
+      .toThrow('within its snapshot');
+
+    const forged = JSON.parse(encoded) as Record<string, unknown>;
+    forged.testObservationDigest = rawSha256('foreign-observation');
+    const { projectionDigest: _discardedForged, ...forgedUnsigned } = forged;
+    forged.projectionDigest = sha256(forgedUnsigned);
+    const decodedForgery = parseTestImpactProjectionReceipt(JSON.stringify(forged));
+    expect(() => assertIssuedTestImpactProjection(decodedForgery)).toThrow('owner-issued');
+
+    const unknown = JSON.parse(encoded) as Record<string, unknown>;
+    unknown.unexpected = true;
+    expect(() => parseTestImpactProjectionReceipt(JSON.stringify(unknown))).toThrow();
+  });
+  expect(selectTestsForSources(['.codex/agents/worker.toml'], provider).fast)
+    .toEqual(['tests/unit/agent-fixture.test.ts']);
+
+  expect(selectTestsForSources(['.githooks/post-merge'], provider).fast)
+    .toContain('tests/unit/install-hooks-fixture.test.ts');
+
+  const documentation = selectTestsForSources(['docs/产品/产品要求与工作约束.md'], provider);
+  expect(documentation.owners).toContain('adapters.self-hosting.control.documentation');
+  expect(documentation.fast).toEqual([]);
+  expect(documentation.slow).toEqual([]);
+
+  const manifest = selectTestsForSources([
+    'catalog/registry/official/ticket.basic/block.manifest.yaml'
+  ], provider);
+  expect(manifest.owners).toEqual(expect.arrayContaining(['compiler', 'compiler.registry']));
+  expect(manifest.fast).toContain('tests/unit/virtual-manifest-consumer.test.ts');
+
+  const selection = selectTestsForSources([source], provider);
+  expect(selection.fast).toEqual([direct, selected]);
+  expect(selection.slow).toEqual([slow]);
+  expect(selection.owners).toEqual(['bootstrap.engineering']);
+
+  const graph = readRepositoryModuleGraphV1(provider);
+  expect(resolveTestImpactSelectionTrustBoundary(provider))
+    .toEqual({ selectionResolved: true, unresolvedModuleFiles: [] });
+  expect(graph.files.length).toBeGreaterThan(0);
+  expectUnique(graph.files);
+  expectUnique(graph.references.map((reference) => (
+    `${reference.from}\0${reference.kind}\0${reference.specifier}\0${reference.resolvedTarget ?? ''}`
+  )));
+  for (const reference of graph.references) {
+    expect(reference.candidateTargets).toEqual([...new Set(reference.candidateTargets)].sort());
+    if (reference.resolvedTarget !== null) expect(graph.files).toContain(reference.resolvedTarget);
+  }
+  expect(isTestImpactModuleGraphInputFile(alphaTest, provider)).toBe(false);
+  expect(isTestImpactSourceFile(alphaTest, provider)).toBe(false);
+  expect(selectTestsForSources([alpha], provider).fast).toEqual([alphaTest]);
+  expect(selectTestsForSources([beta], provider).fast).toEqual([betaTest]);
+  expect(selectTestsForSources([alphaFacade], provider).fast).toEqual([alphaTest, betaTest]);
+  // Runtime reads and child-process observations reach the runnable test
+  // through this same real Git/Source Program projection.
+  expect(provider.testInventory.testFiles).toContain('tests/unit/tsconfig-excluded.test.ts');
+  expect(selectTestsForSources(['src/value.ts'], provider).fast)
+    .toEqual(['tests/unit/value.test.ts']);
+  expect(provider.projection.observedTestConsumers).toEqual([
+    { targetPath: 'src/read-only.ts', testPath: 'tests/unit/program-fixture.test.ts' },
+    { targetPath: 'src/read-only.ts', testPath: 'tests/unit/value.test.ts' },
+    { targetPath: 'src/value.json', testPath: 'tests/unit/value-second.test.ts' },
+    { targetPath: 'src/value.json', testPath: 'tests/unit/value.test.ts' },
+    { targetPath: 'tests/helpers/value-child.ts', testPath: 'tests/unit/value.test.ts' }
+  ]);
+  expect(selectTestsForSources(['src/value.json'], provider).fast)
+    .toEqual(['tests/unit/value-second.test.ts', 'tests/unit/value.test.ts']);
+  expect(selectTestsForSources(['src/read-only.ts'], provider).fast)
+    .toEqual(['tests/unit/program-fixture.test.ts', 'tests/unit/value.test.ts']);
+});
+
+test('repository receipts bind equal-length source mutations and missing module/data edges', () => {
+  const source = 'src/compiler/virtual-source.ts';
+  const selected = 'tests/unit/virtual-source.test.ts';
+  const unresolvedConsumer = 'tests/unit/retired-owner-consumer.test.ts';
+  const data = 'src/compiler/virtual-registry.json';
+  const consumer = 'src/compiler/virtual-registry-consumer.ts';
+  const sources: Record<string, string> = {
+    [source]: 'export const value = 1;',
+    [selected]: [
+      "import '../../src/compiler/virtual-source.ts';",
+      "import '../../src/compiler/virtual-registry-consumer.ts';",
+      ''
+    ].join('\n'),
+    [unresolvedConsumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';",
+    [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
+    [data]: '{"enabled":true}\n'
+  };
+
+  const initialProvider = sourceProvider(sources);
+  expect(selectTestsForSources([source], initialProvider).fast).toEqual([selected]);
+  expect(resolveTestImpactSelectionTrustBoundary(initialProvider)).toEqual({
+    selectionResolved: false,
+    unresolvedModuleFiles: [unresolvedConsumer]
+  });
+  expect(selectTestsForSources([data], initialProvider)).toEqual({
+    fast: [selected],
+    slow: [],
+    owners: ['compiler']
+  });
+
+  // Isolate the equal-length source-byte mutation from the later data deletion.
+  const previousLength = Buffer.byteLength(sources[source]!);
+  sources[source] = 'export const value = 2;';
+  expect(Buffer.byteLength(sources[source]!)).toBe(previousLength);
+  const mutatedProvider = sourceProvider(sources);
+  expect(selectTestsForSources([source], mutatedProvider).fast).toEqual([selected]);
+  expect(resolveTestImpactSelectionTrustBoundary(mutatedProvider)).toEqual({
+    selectionResolved: false,
+    unresolvedModuleFiles: [unresolvedConsumer]
+  });
+  expect(mutatedProvider.projection.sourceRevision).not.toBe(initialProvider.projection.sourceRevision);
+  expect(mutatedProvider.projection.snapshotDigest).not.toBe(initialProvider.projection.snapshotDigest);
+  expect(mutatedProvider.projection.projectionDigest).not.toBe(initialProvider.projection.projectionDigest);
+  expect(selectTestsForSources([data], mutatedProvider)).toEqual({
+    fast: [selected],
+    slow: [],
+    owners: ['compiler']
+  });
+
+  // The only change from the second receipt is removal of the imported data blob.
+  const missingDataSources: Record<string, string> = { ...sources };
+  delete missingDataSources[data];
+  const missingDataProvider = sourceProvider(missingDataSources);
+  expect(resolveTestImpactSelectionTrustBoundary(missingDataProvider)).toEqual({
+    selectionResolved: false,
+    unresolvedModuleFiles: [consumer, unresolvedConsumer]
+  });
+  expect(selectTestsForSources([data], missingDataProvider)).toEqual({
+    fast: [selected],
+    slow: [],
+    owners: ['compiler']
+  });
+});

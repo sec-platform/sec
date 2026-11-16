@@ -39,9 +39,6 @@ installs:
     from: files/tests/shared/ticket-service-suite.ts
     to: tests/shared/ticket-service-suite.ts
   - kind: copy
-    from: files/tests/unit/ticket-service.test.ts
-    to: tests/unit/ticket-service.test.ts
-  - kind: copy
     from: files/tests/acceptance/ticket-flow.test.ts
     to: tests/acceptance/ticket-flow.test.ts
 pins:

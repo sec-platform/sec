@@ -6,7 +6,7 @@ import { parseOperationReadPlan, type OperationReadPlan } from './read-plan.ts';
 
 const applicationPath = 'src/application/source-program-transition.ts';
 const assemblyPath = 'src/bootstrap/engineering/source-program-transition-runtime.ts';
-const testPath = 'tests/unit/source-program-transition-use-case.test.ts';
+const testPath = 'tests/unit/development/source-program-transition-use-case.test.ts';
 const descriptorPath = 'src/adapters/repository/repository-audit/module.json';
 const budgetPath = 'src/adapters/repository/repository-audit/cli-contract.ts';
 

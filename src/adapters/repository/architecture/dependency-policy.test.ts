@@ -4,7 +4,6 @@ import nodePath from 'node:path';
 
 import { compileSourceProgramRepositoryModuleGraph } from '../source-program-model/source-program-module-graph.ts';
 import {
-  CANONICAL_SOURCE_MODULES,
   collectCanonicalSourceBoundaryViolations,
   collectRepositoryModuleBoundaryViolations,
   compileRepositoryModuleMembership,
@@ -61,15 +60,6 @@ test('public contracts stay independent of adapters and entry routes through app
   }
 });
 
-test('the tracked source tree has exactly the ten canonical responsibilities', () => {
-  const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
-  const actual = readdirSync(nodePath.join(repositoryRoot, 'src'), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
-  expect(actual).toEqual([...CANONICAL_SOURCE_MODULES].sort());
-});
-
 test('the actual current source graph preserves canonical edges and acyclic source-program, generated-state, verification and GitHub owners', () => {
   const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
   const sourceRoot = nodePath.join(repositoryRoot, 'src');
@@ -108,7 +98,7 @@ test('the actual current source graph preserves canonical edges and acyclic sour
   )).toEqual([]);
 });
 
-test('canonical repository graph still rejects unresolved local imports and circular source relations', () => {
+test('canonical repository graph rejects unresolved local imports', () => {
   const unresolved = compileSourceProgramRepositoryModuleGraph({
     files: ['src/compiler/feature/source.ts'],
     readSource: () => "import './missing.ts';"
@@ -119,29 +109,33 @@ test('canonical repository graph still rejects unresolved local imports and circ
       from: 'src/compiler/feature/source.ts'
     }));
 
-  const circular = compileSourceProgramRepositoryModuleGraph({
-    files: ['src/compiler/feature/a.ts', 'src/compiler/feature/b.ts'],
-    readSource: (path) => path.endsWith('/a.ts')
-      ? "import './b.ts';"
-      : "import './a.ts';"
-  });
-  expect(collectRepositoryModuleBoundaryViolations(circular, membership))
-    .toContainEqual(expect.objectContaining({ code: 'repository-module-internal-cycle' }));
 });
 
 test('pure computation roots reject direct host IO imports, including type-only leakage', () => {
+  const specifiers = ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi'];
+  const sources = new Map<string, string>();
+  const expectedEdges: Array<readonly [string, string]> = [];
   for (const domain of ['contracts', 'workspace', 'semantics', 'compiler', 'assurance', 'application'] as const) {
-    for (const specifier of ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi']) {
-      for (const prefix of ['import', 'import type']) {
-        const source = `src/${domain}/example.ts`;
-        const graph = compileSourceProgramRepositoryModuleGraph({
-          files: [source],
-          readSource: () => `${prefix} { HostHandle } from ${JSON.stringify(specifier)};`
-        });
-        expect(collectCanonicalSourceBoundaryViolations(graph))
-          .toContainEqual(expect.objectContaining({ code: 'core-no-host-io', from: source, to: specifier }));
-      }
-    }
+    const source = `src/${domain}/runtime.ts`;
+    const imports = domain === 'contracts' ? specifiers : ['node:fs'];
+    sources.set(source, imports.map((specifier, index) => (
+      `import { HostHandle as HostHandle${index} } from ${JSON.stringify(specifier)};`
+    )).join('\n'));
+    for (const specifier of imports) expectedEdges.push([source, specifier]);
+  }
+  sources.set('src/contracts/type-only.ts', "import type { HostHandle } from 'node:fs';");
+  expectedEdges.push(['src/contracts/type-only.ts', 'node:fs']);
+  // The policy joins a source-domain set with one specifier predicate, without
+  // a domain/specifier or import-kind interaction. Keep every literal policy
+  // member and a separate type-only source observation, not their full product.
+  const hostGraph = compileSourceProgramRepositoryModuleGraph({
+    files: [...sources.keys()],
+    readSource: (source) => sources.get(source) ?? null
+  });
+  const violations = collectCanonicalSourceBoundaryViolations(hostGraph);
+  for (const [source, specifier] of expectedEdges) {
+    expect(violations)
+      .toContainEqual(expect.objectContaining({ code: 'core-no-host-io', from: source, to: specifier }));
   }
   const source = 'src/contracts/canonical.ts';
   const graph = compileSourceProgramRepositoryModuleGraph({

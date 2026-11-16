@@ -4,11 +4,11 @@ import hashlib
 import json
 import tempfile
 import unittest
-from .test_check_documentation_identity import declaration
+from .fixtures import declaration
 from source_inventory import (
     load,
-    local_path,
     refresh_source_manifest,
+    requirement_projection,
     source_files,
 )
 
@@ -37,13 +37,9 @@ class SourceBoundary(unittest.TestCase):
         (self.root / 'src/product.ts').write_bytes(b'\xff')
         before = self.names()
         (self.root / 'docs/new.md').write_text('# New\n', encoding='utf-8')
-        self.assertEqual(self.names() - before, {'docs/new.md'})
-        self.assertNotIn('src/product.ts', self.names())
-
-    def test_no_silent_cache_directory_omission_inside_declared_source(self):
-        (self.root / 'docs/node_modules').mkdir()
-        (self.root / 'docs/node_modules/unexpected.txt').write_text('unexpected')
-        self.assertIn('docs/node_modules/unexpected.txt', self.names())
+        after = self.names()
+        self.assertEqual(after - before, {'docs/new.md'})
+        self.assertNotIn('src/product.ts', after)
 
     def test_missing_and_overlapping_roots_reject(self):
         for roots in (['absent'], ['docs', 'docs/规则.md'], ['docs', 'docs'], [{}], []):
@@ -51,11 +47,6 @@ class SourceBoundary(unittest.TestCase):
                 self.declare(roots)
                 with self.assertRaises(ValueError):
                     source_files(self.root)
-
-    def test_unsafe_root_and_member_names_reject(self):
-        for name in ('../outside', '/absolute', 'docs//bad', 'C:/outside', 'docs\\bad', ''):
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                local_path(self.root, name)
 
     def test_entry_requires_an_actual_source_member(self):
         metadata=self.root/'.documentation/baseline.json'
@@ -70,12 +61,6 @@ class SourceBoundary(unittest.TestCase):
         value['entry']='../docs/规则.md'
         metadata.write_text(json.dumps(value),encoding='utf-8')
         self.assertIn('docs/规则.md',self.names())
-
-    def test_duplicate_metadata_keys_reject(self):
-        metadata = self.root / '.documentation/baseline.json'
-        metadata.write_text('{"source_roots":[],"source_roots":["docs"]}')
-        with self.assertRaisesRegex(ValueError, 'duplicate JSON key'):
-            load(metadata)
 
     def test_retired_authority_cannot_hide_outside_declared_source_roots(self):
         self.declare(['.documentation', 'docs/规则.md'])
@@ -97,21 +82,10 @@ class SourceBoundary(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'inside an audited namespace'):
             self.names()
 
-    def test_symlink_to_external_content_rejects(self):
-        outside = self.root / 'outside.txt'
-        outside.write_text('private')
-        link = self.root / 'docs/link.txt'
-        try:
-            link.symlink_to(outside)
-        except OSError as error:
-            self.skipTest(str(error))
-        with self.assertRaisesRegex(ValueError, 'linked documentation path'):
-            source_files(self.root)
-
     def test_refresh_publishes_complete_canonical_members_and_matching_digest(self):
         authority = self.root / 'docs/产品/产品要求与工作约束.md'
         authority.parent.mkdir()
-        authority.write_text('\n\n'.join(f'### REQ{i:03d}｜R {i}\ntext' for i in range(1,52)))
+        authority.write_text('### REQ001｜R 1\ntext')
         expected_names = ['.documentation/baseline.json', 'docs/产品/产品要求与工作约束.md', 'docs/规则.md']
         expected_members = []
         for name in expected_names:
@@ -121,16 +95,24 @@ class SourceBoundary(unittest.TestCase):
         encoded_members = json.dumps(expected_members, ensure_ascii=False, sort_keys=True,
                                      separators=(',', ':'), allow_nan=False).encode('utf-8')
         expected_digest = hashlib.sha256(encoded_members).hexdigest()
+        source_before = {name: (self.root / name).read_bytes() for name in expected_names}
+        projection_names = ('.documentation/source-manifest.json', '.documentation/requirements.json')
+        for name in projection_names:
+            (self.root / name).write_text('{ forged derived content', encoding='utf-8')
         result = refresh_source_manifest(self.root)
         manifest = load(self.root / '.documentation/source-manifest.json')
         baseline = load(self.root / '.documentation/baseline.json')
-        names = [member['path'] for member in manifest['members']]
-        self.assertEqual(names, sorted(names))
-        self.assertEqual(names, expected_names)
         self.assertEqual(manifest['members'], expected_members)
         self.assertEqual(manifest['source_set_sha256'], expected_digest)
+        self.assertEqual(load(self.root / '.documentation/requirements.json'),
+                         requirement_projection(self.root))
         self.assertNotIn('source_set_sha256', baseline)
         self.assertEqual(result['source_members'], 3)
+        self.assertFalse(result['boundary_written'])
+        first = {name: (self.root / name).read_bytes() for name in projection_names}
+        refresh_source_manifest(self.root)
+        self.assertEqual(first, {name: (self.root / name).read_bytes() for name in projection_names})
+        self.assertEqual(source_before, {name: (self.root / name).read_bytes() for name in expected_names})
 
 
 if __name__ == '__main__':

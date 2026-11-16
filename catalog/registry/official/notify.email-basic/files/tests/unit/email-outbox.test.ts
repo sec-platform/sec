@@ -34,6 +34,11 @@ export async function runSuite() {
   assert.equal(ticketNotification.entityId, '1');
   assert.equal(ticketNotification.eventType, 'ticket.created');
 
-  assert.equal(listEmailNotifications(db, tenantA).length, 2);
-  assert.equal(listEmailNotifications(db, tenantB).length, 0);
+  assert.deepEqual(listEmailNotifications(db, tenantA).map(({ entity, entityId, eventType }) => (
+    [entity, entityId, eventType]
+  )).sort(), [
+    ['customer', String(customer.id), 'customer.created'],
+    ['ticket', '1', 'ticket.created']
+  ].sort());
+  assert.deepEqual(listEmailNotifications(db, tenantB), []);
 }

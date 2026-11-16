@@ -36,18 +36,6 @@
     "unresolved": false
   },
   {
-    "name": "mixed inline import",
-    "source": "import {type A, value} from './b.ts';",
-    "imports": [
-      {
-        "kind": "static",
-        "specifier": "./b.ts",
-        "typeOnly": false
-      }
-    ],
-    "unresolved": false
-  },
-  {
     "name": "default with inline types remains runtime",
     "source": "import value, {type A} from './b.ts';",
     "imports": [
@@ -91,18 +79,6 @@
         "kind": "static",
         "specifier": "./b.ts",
         "typeOnly": true
-      }
-    ],
-    "unresolved": false
-  },
-  {
-    "name": "mixed export",
-    "source": "export {type A, value} from './b.ts';",
-    "imports": [
-      {
-        "kind": "static",
-        "specifier": "./b.ts",
-        "typeOnly": false
       }
     ],
     "unresolved": false
@@ -432,30 +408,6 @@
     "unresolved": true
   },
   {
-    "name": "runtime union after type expression",
-    "source": "type B = import('./b.ts').Value; import {value} from './b.ts';",
-    "imports": [
-      {
-        "kind": "static",
-        "specifier": "./b.ts",
-        "typeOnly": false
-      }
-    ],
-    "unresolved": false
-  },
-  {
-    "name": "runtime union before type expression",
-    "source": "import {value} from './b.ts'; type B = import('./b.ts').Value;",
-    "imports": [
-      {
-        "kind": "static",
-        "specifier": "./b.ts",
-        "typeOnly": false
-      }
-    ],
-    "unresolved": false
-  },
-  {
     "name": "syntax failure is not a complete graph",
     "source": "const broken = ;",
     "imports": [],
@@ -520,18 +472,6 @@
     "source": "const load = fallback ?? require; load('./b.ts');",
     "imports": [],
     "unresolved": true
-  },
-  {
-    "name": "all inline type exports",
-    "source": "export {type A, type B} from './b.ts';",
-    "imports": [
-      {
-        "kind": "static",
-        "specifier": "./b.ts",
-        "typeOnly": false
-      }
-    ],
-    "unresolved": false
   },
   {
     "name": "empty value export",

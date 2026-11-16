@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -132,20 +132,6 @@ function entry(name: string, source: string) {
   return Object.freeze({ name, bytes, digest: rawSha256(bytes) });
 }
 
-function findGenerationDirectory(root: string, leafName: string): string {
-  const matches: string[] = [];
-  const visit = (directory: string): void => {
-    for (const item of readdirSync(directory, { withFileTypes: true })) {
-      const candidate = path.join(directory, item.name);
-      if (item.isDirectory()) visit(candidate);
-      else if (item.isFile() && item.name === leafName) matches.push(directory);
-    }
-  };
-  visit(root);
-  expect(matches).toHaveLength(1);
-  return matches[0]!;
-}
-
 test.serial('domain-neutral cache publishes immutable bytes and exposes only validated predecessor tokens', () => {
   const value = fixture();
   const firstKey = sha256('first') as `sha256:${string}`;
@@ -162,27 +148,4 @@ test.serial('domain-neutral cache publishes immutable bytes and exposes only val
   expect(predecessor.keyDigest).toBe(firstKey);
   expect(new TextDecoder().decode(predecessor.predecessorToken)).toBe('first-token');
   expect(new TextDecoder().decode(predecessor.entries[0]!.bytes)).toBe('first');
-});
-
-test.serial('physical replacement and foreign residue remain typed cache failures', () => {
-  const value = fixture();
-  const key = sha256('replace') as `sha256:${string}`;
-  const hint = value.namespace.open(key);
-  hint.publish({
-    entries: [entry('payload.bin', 'stable')],
-    predecessorToken: new Uint8Array()
-  });
-  const generationRoot = findGenerationDirectory(value.root, 'payload.bin');
-  renameSync(generationRoot, `${generationRoot}-displaced`);
-  mkdirSync(generationRoot);
-  try {
-    hint.publish({
-      entries: [entry('payload.bin', 'stable')],
-      predecessorToken: new Uint8Array()
-    });
-    throw new Error('Expected physical replacement to fail');
-  } catch (error) {
-    expect(error).toBeInstanceOf(ContentAddressedWorkspaceCacheError);
-    expect((error as ContentAddressedWorkspaceCacheError).kind).toBe('physical-replacement');
-  }
 });

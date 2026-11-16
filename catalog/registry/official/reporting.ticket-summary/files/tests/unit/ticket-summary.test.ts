@@ -32,7 +32,7 @@ export async function runSuite() {
     dueSoon: 1,
     unscheduled: 0
   });
-  assert.deepEqual(summary.byAssignee, [
+  assert.deepEqual([...summary.byAssignee].sort((left, right) => left.assigneeId.localeCompare(right.assigneeId)), [
     { assigneeId: 'renewal-owner', count: 1 },
     { assigneeId: 'support-owner', count: 1 }
   ]);

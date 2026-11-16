@@ -153,7 +153,7 @@ test.serial('bounded process diagnostics survive lost handles through owner-issu
   }
 });
 
-test.serial('diagnostic payload mutation and incomplete object residue remain typed blockers', async () => {
+test.serial('diagnostic payload mutation blocks both readback and collection', async () => {
   const value = fixture();
   const publication = operation('mutation-publish');
   const authority = await acquireSecRuntimeJournalAuthority(value);
@@ -187,6 +187,7 @@ test.serial('diagnostic payload mutation and incomplete object residue remain ty
       throw new Error('Expected corrupt object to block GC');
     } catch (error) {
       expect(error).toBeInstanceOf(BoundedProcessDiagnosticObjectError);
+      expect((error as BoundedProcessDiagnosticObjectError).kind).toBe('corrupt-object');
     }
   } finally {
     await readAuthority.release();

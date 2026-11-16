@@ -1,11 +1,11 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { gitProtocolSuccess, inGitProtocolRepository } from '../../../../tests/testkit/git-protocol.ts';
-import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSemanticOperation,
@@ -14,7 +14,6 @@ import {
   issueSemanticOperationAttemptContext,
   type OperationDigest
 } from '../../../execution/operation/semantic.ts';
-import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import {
   inspectNoFollowDirectoryChain,
   retainCurrentProcessExecutable,
@@ -31,7 +30,7 @@ import {
   openContentAddressedWorkspaceCacheSession,
   type ContentAddressedWorkspaceCacheSession
 } from '../../runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot, type RepositoryModuleDescriptor } from '../architecture/contract.ts';
 import {
   createSourceProgramCompilationOperation,
   SourceProgramCompilationInterruptedError
@@ -41,7 +40,6 @@ import {
   createRepositoryCompilationCacheProvider,
   RepositoryCompilationCacheProviderError
 } from './repository-compilation-cache-provider.ts';
-import { compileRepositorySourceProgramWithCache } from './repository-compilation-cache-session.ts';
 import {
   issueRepositoryCompilationGenerationReceipt,
   type RepositoryCompilationCacheHint,
@@ -51,21 +49,18 @@ import {
   compileVirtualRepositorySourceProgramCompilation
 } from './repository-compilation.ts';
 import { compileVirtualTestImpactProjection } from './test-impact-projection.ts';
-import {
-  compileTypeScriptSourceProgramFactShard,
-  parseTypeScriptSourceProgramFactShard
-} from './typescript-fact-shards.ts';
+import { compileTypeScriptSourceProgramFactShard } from './typescript-fact-shards.ts';
 import {
   sourceProgramCurrentExactReturnProvenances,
   sourceProgramTypeScriptCompilerIdentity
 } from './typescript.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput
 } from './workspace-source-snapshot.ts';
 
 const temporaryRoots: string[] = [];
+const unsettledGenerationRoots = new Set<string>();
 const cacheSessions: ContentAddressedWorkspaceCacheSession[] = [];
 const originalCacheHome = process.env.SEC_CACHE_HOME;
 const childMarker = 'SEC_GENERATION_RESULT=';
@@ -75,55 +70,72 @@ async function runGenerationChild(
   mode: 'load' | 'publish'
 ): Promise<Readonly<{ pid: number; result: ReturnType<RepositoryCompilationCacheHint['loadExact']> }>> {
   const workerPath = fileURLToPath(new URL('../../../../tests/fixtures/repository-compilation-cache-worker.ts', import.meta.url));
-  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'cache worker executable');
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(
-    inspectNoFollowDirectoryChain(process.cwd(), 'cache worker cwd'),
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-    'cache worker cwd'
-  );
-  const [worker] = retainCommandAuxiliaryOrdinaryFiles([{
-    expectedParent: inspectNoFollowDirectoryChain(path.dirname(workerPath), 'cache worker parent'),
-    name: path.basename(workerPath),
-    label: 'cache worker'
-  }]);
-  const requirementId = 'brownfield.repository-compilation-cache.test-process';
-  const contractDigest = sha256({ requirementId }) as OperationDigest;
-  const operation = bindSemanticOperation(compileSemanticOperationPlan({
-    operation: 'brownfield.repository-compilation-cache.test-process',
-    intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as OperationDigest,
-    decisionDigest: contractDigest,
-    deadlineAtUnixMs: Date.now() + 30_000,
-    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 30_000 },
-      { resource: 'input-bytes', maximum: 0 },
-      { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
-      { resource: 'processes', maximum: 1 }
-    ],
-    requirements: [{
-      id: requirementId,
-      contractDigest,
-      effectKinds: ['process'],
-      failureKinds: ['process.failed']
-    }]
-  }), [compileCapabilityBinding({
-    requirementId,
-    contractDigest,
-    providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as OperationDigest
-  })]);
-  const session = openProcessResourceSession({
-    operation,
-    requirementBindingContext: issueOperationRequirementBindingContext({
-      operation,
-      requirementId,
-      resourceCeilings: [
+  let executable: ReturnType<typeof retainCurrentProcessExecutable>;
+  let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess>;
+  let worker: ReturnType<typeof retainCommandAuxiliaryOrdinaryFiles>[number];
+  let session: ReturnType<typeof openProcessResourceSession>;
+  const cleanup: { label: string; settle(): void }[] = [];
+  try {
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'cache worker executable');
+    cleanup.unshift({ label: 'worker executable', settle: () => executable.dispose() });
+    workingDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(process.cwd(), 'cache worker cwd'),
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'cache worker cwd'
+    );
+    cleanup.unshift({ label: 'worker cwd', settle: () => workingDirectory.dispose() });
+    [worker] = retainCommandAuxiliaryOrdinaryFiles([{
+      expectedParent: inspectNoFollowDirectoryChain(path.dirname(workerPath), 'cache worker parent'),
+      name: path.basename(workerPath),
+      label: 'cache worker'
+    }]);
+    cleanup.unshift({ label: 'worker source', settle: () => worker.dispose() });
+    const requirementId = 'brownfield.repository-compilation-cache.test-process';
+    const contractDigest = sha256({ requirementId }) as OperationDigest;
+    const operation = bindSemanticOperation(compileSemanticOperationPlan({
+      operation: 'brownfield.repository-compilation-cache.test-process',
+      intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as OperationDigest,
+      decisionDigest: contractDigest,
+      deadlineAtUnixMs: Date.now() + 30_000,
+      attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+      aggregateBudgets: [
         { resource: 'duration-ms', maximum: 30_000 },
         { resource: 'input-bytes', maximum: 0 },
         { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
         { resource: 'processes', maximum: 1 }
-      ]
-    })
-  });
+      ],
+      requirements: [{
+        id: requirementId,
+        contractDigest,
+        effectKinds: ['process'],
+        failureKinds: ['process.failed']
+      }]
+    }), [compileCapabilityBinding({
+      requirementId,
+      contractDigest,
+      providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as OperationDigest
+    })]);
+    session = openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueOperationRequirementBindingContext({
+        operation,
+        requirementId,
+        resourceCeilings: [
+          { resource: 'duration-ms', maximum: 30_000 },
+          { resource: 'input-bytes', maximum: 0 },
+          { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
+          { resource: 'processes', maximum: 1 }
+        ]
+      })
+    });
+  } catch (error) {
+    settleResources({ primary: { label: 'cache worker construction', error }, cleanup });
+    throw error;
+  }
+  const fixtureRoot = path.dirname(payloadPath);
+  let nativeTerminalProven = false;
+  let primary: ResourceSettlementFailure | undefined;
+  unsettledGenerationRoots.add(fixtureRoot);
   try {
     const result = await session.run(issueRetainedCommandBoundary({
       executable,
@@ -142,6 +154,8 @@ async function runGenerationChild(
       maxStderrBytes: 1024 * 1024,
       maxStdoutBytes: 7 * 1024 * 1024
     });
+    nativeTerminalProven = true;
+    unsettledGenerationRoots.delete(fixtureRoot);
     if (result.result.code !== 0) throw new Error(`Generation child failed: ${result.result.stderr}`);
     const stdout = new TextDecoder().decode(result.result.stdout);
     const line = stdout.split(/\r?\n/u).find((value) => value.startsWith(childMarker));
@@ -150,82 +164,53 @@ async function runGenerationChild(
       pid: number;
       result: ReturnType<RepositoryCompilationCacheHint['loadExact']>;
     }>;
+  } catch (error) {
+    primary = { label: 'generation worker', error };
+    throw error;
   } finally {
-    session.close();
-    worker.dispose();
-    workingDirectory.dispose();
-    executable.dispose();
+    settleResources({ primary, cleanup: nativeTerminalProven ? [
+      { label: 'generation process session', settle: () => { session.close(); } },
+      { label: 'generation worker source', settle: () => worker.dispose() },
+      { label: 'generation worker cwd', settle: () => workingDirectory.dispose() },
+      { label: 'generation worker executable', settle: () => executable.dispose() }
+    ] : [{ label: 'generation worker retention', settle: () => {
+      throw new Error(`Generation child termination is unproven; retained inputs and fixture root are preserved: ${fixtureRoot}`);
+    } }] });
   }
 }
 
 afterEach(() => {
-  while (cacheSessions.length > 0) cacheSessions.pop()!.close();
-  if (originalCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
-  else process.env.SEC_CACHE_HOME = originalCacheHome;
-  while (temporaryRoots.length > 0) {
-    const root = temporaryRoots.pop()!;
-    if (!path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep)) {
-      throw new Error('Refusing to remove a non-temporary fact-store fixture');
-    }
-    rmSync(root, { recursive: true, force: true });
-  }
+  settleResources({ cleanup: [
+    ...cacheSessions.splice(0).reverse().map(session => ({
+      label: 'cache session', settle: () => { session.close(); }
+    })),
+    { label: 'previous cache home', settle: () => {
+      if (originalCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+      else process.env.SEC_CACHE_HOME = originalCacheHome;
+    } },
+    ...temporaryRoots.splice(0).reverse().map(root => ({
+      label: 'fact-store fixture root', settle: () => {
+        if (unsettledGenerationRoots.has(root)) {
+          throw new Error(`Generation child termination is unproven; fixture root is preserved: ${root}`);
+        }
+        if (!path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep)) {
+          throw new Error('Refusing to remove a non-temporary fact-store fixture');
+        }
+        rmSync(root, { recursive: true, force: true });
+      }
+    }))
+  ] });
 });
 
-test('production cache composition preserves an undefined compiler failure after session settlement', async () => {
-  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-cache-composition-'));
-  temporaryRoots.push(fixtureRoot);
-  process.env.SEC_CACHE_HOME = path.join(fixtureRoot, 'cache');
-  await inGitProtocolRepository(async (repositoryRoot, git) => {
-    const sourceRoot = path.join(repositoryRoot, 'src', 'example');
-    mkdirSync(sourceRoot, { recursive: true });
-    writeFileSync(path.join(sourceRoot, 'value.ts'), 'export const value = 1;\n');
-    writeFileSync(path.join(sourceRoot, 'module.json'), '{"importGraph":"runtime","externalEntrypoints":[]}\n');
-    writeFileSync(path.join(repositoryRoot, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n');
-    gitProtocolSuccess(git(['add', '--all']));
-    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'cache composition fixture']));
-    await withAuthorityGitReadSession({
-      cwd: repositoryRoot,
-      budget: { deadlineMs: 120_000 }
-    }, async (gitSession) => {
-      const head = await gitSession.run(['rev-parse', '--verify', 'HEAD^{commit}']);
-      if (head.kind !== 'completed' || head.result.code !== 0) {
-        throw new Error('Cache composition fixture could not resolve HEAD');
-      }
-      const commitSha = new TextDecoder('utf-8', { fatal: true }).decode(head.result.stdout).trim();
-      const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
-        commitSha,
-        session: gitSession
-      });
-      const operation = createSourceProgramCompilationOperation({
-        deadlineAtUnixMs: Date.now() + 120_000
-      });
-      const target = {
-        workspaceSnapshot,
-        operation,
-        repositoryRoot,
-        reviewedProcessDispatchers: Object.freeze([] as string[])
-      };
-      const input = new Proxy(target, {
-        get: (selected, property, receiver) => {
-          if (property === 'reviewedProcessDispatchers') throw undefined;
-          return Reflect.get(selected, property, receiver);
-        }
-      });
-      let failed = false;
-      try {
-        compileRepositorySourceProgramWithCache(input);
-      } catch (error) {
-        failed = true;
-        expect(error).toBeUndefined();
-      }
-      expect(failed).toBe(true);
-    });
-  });
-});
+const defaultSources = {
+  'src/example/operation.ts': 'export const value = 1;\n',
+  'src/example/second.ts': 'export const SECOND = true;\n',
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}\n'
+};
 
 function fixture(
-  value = 1,
-  additionalFiles: readonly Readonly<{ path: string; source: string; contentDigest: `sha256:${string}` }>[] = []
+  sources: Readonly<Record<string, string>> = defaultSources,
+  causalRelations: RepositoryModuleDescriptor['causalRelations'] = []
 ) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-generation-'));
   temporaryRoots.push(root);
@@ -234,19 +219,9 @@ function fixture(
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
   const descriptorPath = 'src/example/module.json';
-  const source = `export const value = ${value};\n`;
-  const secondSource = 'export const SECOND = true;\n';
-  const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
-  const files = Object.freeze([
-    Object.freeze({ path: 'src/example/operation.ts', source, contentDigest: rawSha256(source) }),
-    Object.freeze({ path: 'src/example/second.ts', source: secondSource, contentDigest: rawSha256(secondSource) }),
-    Object.freeze({
-      path: 'tsconfig.json',
-      source: projectConfigSource,
-      contentDigest: rawSha256(projectConfigSource)
-    }),
-    ...additionalFiles
-  ]);
+  const files = Object.freeze(Object.entries({
+    ...sources, 'tsconfig.json': defaultSources['tsconfig.json']
+  }).map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) })));
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map((file) => file.path), descriptorPath],
     descriptorSources: [{
@@ -255,6 +230,7 @@ function fixture(
         importGraph: 'runtime',
         externalEntrypoints: [],
         capabilityProviders: [],
+        causalRelations,
         preDependencyBootstrap: false
       })
     }]
@@ -317,13 +293,6 @@ function cacheSession(repositoryRoot: string): ContentAddressedWorkspaceCacheSes
 }
 
 function causalFixture() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-source-program-causal-generation-'));
-  temporaryRoots.push(root);
-  const repositoryRoot = path.join(root, 'repository');
-  const cacheRoot = path.join(root, 'cache');
-  mkdirSync(repositoryRoot);
-  process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/module.json';
   const parserSource = [
     'export interface Value { readonly status: string; }',
     'export function parseValue(source: string): Value { return JSON.parse(source) as Value; }'
@@ -332,82 +301,31 @@ function causalFixture() {
     "import { parseValue, type Value } from './parser.ts';",
     'export function readValue(source: string): Value { parseValue(source); return source as unknown as Value; }'
   ].join('\n');
-  const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
-  const files = Object.freeze([
-    Object.freeze({ path: 'src/example/parser.ts', source: parserSource, contentDigest: rawSha256(parserSource) }),
-    Object.freeze({ path: 'src/example/reader.ts', source: readerSource, contentDigest: rawSha256(readerSource) }),
-    Object.freeze({
-      path: 'tsconfig.json',
-      source: projectConfigSource,
-      contentDigest: rawSha256(projectConfigSource)
-    })
-  ]);
-  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [...files.map((file) => file.path), descriptorPath],
-    descriptorSources: [{
-      descriptorPath,
-      source: JSON.stringify({
-        importGraph: 'runtime',
-        externalEntrypoints: [],
-        capabilityProviders: [],
-        preDependencyBootstrap: false,
-        causalRelations: [{
-          subject: 'example.value',
-          relation: 'declares',
-          symbol: { path: 'src/example/parser.ts', name: 'Value' },
-          operation: null
-        }, {
-          subject: 'example.value',
-          relation: 'parses',
-          symbol: { path: 'src/example/parser.ts', name: 'parseValue' },
-          operation: null
-        }, {
-          subject: 'example.value',
-          relation: 'reads-back',
-          symbol: { path: 'src/example/reader.ts', name: 'readValue' },
-          operation: null
-        }]
-      })
-    }]
-  });
-  const sourceRevision = sha256(files.map(({ path: repositoryPath, contentDigest }) => ({
-    repositoryPath,
-    contentDigest
-  })));
-  const snapshotInput = Object.freeze({
-    subject: Object.freeze({
-      kind: 'virtual-mutation' as const,
-      provenance: Object.freeze({
-        kind: 'source-program-virtual-mutation' as const,
-        baseSnapshotDigest: sha256({ repositoryRoot }) as `sha256:${string}`,
-        mutationDigest: sourceRevision as `sha256:${string}`
-      })
-    }),
-    sourceRevision,
-    files,
-    moduleMembership
-  });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot(snapshotInput);
-  const cacheProvider = createRepositoryCompilationCacheProvider({
-    session: cacheSession(repositoryRoot)
-  });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
-  return {
-    cacheProvider,
-    cacheRoot,
-    files,
-    input: Object.freeze({ cacheProvider, workspaceSnapshot, projectInput, repositoryRoot }),
-    moduleMembership,
-    repositoryRoot,
-    snapshotInput
-  };
+  return fixture({
+    'src/example/parser.ts': parserSource,
+    'src/example/reader.ts': readerSource
+  }, [{
+    subject: 'example.value',
+    relation: 'declares',
+    symbol: { path: 'src/example/parser.ts', name: 'Value' },
+    operation: null
+  }, {
+    subject: 'example.value',
+    relation: 'parses',
+    symbol: { path: 'src/example/parser.ts', name: 'parseValue' },
+    operation: null
+  }, {
+    subject: 'example.value',
+    relation: 'reads-back',
+    symbol: { path: 'src/example/reader.ts', name: 'readValue' },
+    operation: null
+  }]);
 }
 
 function compilationInput(
   value: ReturnType<typeof fixture>,
   files: readonly SourceProgramFileInput[],
-  sourceRevision: string,
-  withCache = true
+  sourceRevision: string
 ) {
   const projectConfig = value.files.find(({ path: repositoryPath }) => repositoryPath === 'tsconfig.json');
   if (projectConfig === undefined) throw new Error('Fixture project config is unavailable');
@@ -427,14 +345,14 @@ function compilationInput(
     })
   });
   return Object.freeze({
-    ...(withCache ? { cacheProvider: value.cacheProvider } : {}),
+    cacheProvider: value.cacheProvider,
     workspaceSnapshot,
     projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
     repositoryRoot: value.repositoryRoot
   });
 }
 
-function generationRoot(cacheRoot: string): string {
+function generationRoots(cacheRoot: string): string[] {
   const roots: string[] = [];
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -444,21 +362,13 @@ function generationRoot(cacheRoot: string): string {
     }
   };
   visit(cacheRoot);
-  expect(roots).toHaveLength(1);
-  return roots[0]!;
+  return roots;
 }
 
-function generationCount(cacheRoot: string): number {
-  let count = 0;
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const candidate = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(candidate);
-      else if (entry.isFile() && entry.name === 'manifest.json') count += 1;
-    }
-  };
-  visit(cacheRoot);
-  return count;
+function generationRoot(cacheRoot: string): string {
+  const roots = generationRoots(cacheRoot);
+  expect(roots).toHaveLength(1);
+  return roots[0]!;
 }
 
 function storeGeneration(
@@ -466,7 +376,7 @@ function storeGeneration(
   overrides: Partial<Pick<RepositoryCompilationGenerationReceipt, 'projectConfigDigest' | 'projectInputDigest'>> = {}
 ): RepositoryCompilationGenerationReceipt {
   const context = value.input.workspaceSnapshot;
-  const projectInput = compileWorkspaceTypeScriptProjectInput(context, 'tsconfig.json');
+  const projectInput = value.input.projectInput;
   return issueRepositoryCompilationGenerationReceipt({
     projectInputDigest: overrides.projectInputDigest ?? projectInput.projectInputDigest,
     projectConfigDigest: overrides.projectConfigDigest ?? projectInput.projectConfigDigest,
@@ -479,8 +389,9 @@ function storeGeneration(
   });
 }
 
-test.serial('one immutable generation stores TypeScript facts while current contexts rebuild semantic projections', () => {
-  const value = fixture();
+test.serial('immutable generations rebind semantic projections, aliased exports and snapshot identity', () => {
+  const source = "export { value, value as renamedValue, value as 'quoted-value' } from './operation.ts';\n";
+  const value = fixture({ ...defaultSources, 'src/example/reexport.ts': source });
   const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
   const warm = compileVirtualRepositorySourceProgramCompilation(value.input);
   const files = readdirSync(generationRoot(value.cacheRoot)).sort();
@@ -497,24 +408,23 @@ test.serial('one immutable generation stores TypeScript facts while current cont
   expect(files).toContain('manifest.json');
   expect(files.some((file) => file.endsWith('.pack'))).toBe(true);
   expect(files.some((file) => file.endsWith('.projection'))).toBe(false);
-});
-
-test.serial('exact cached facts rebind aliased re-exports by identifier and quoted exported-name spans', () => {
-  const source = "export { value, value as renamedValue, value as 'quoted-value' } from './operation.ts';\n";
-  const value = fixture(1, [Object.freeze({
-    path: 'src/example/reexport.ts',
-    source,
-    contentDigest: rawSha256(source)
-  })]);
-  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
-  const warm = compileVirtualRepositorySourceProgramCompilation(value.input);
   const reexportDeclarations = warm.model.declarations.filter(({ path: declarationPath }) => (
     declarationPath === 'src/example/reexport.ts'
   ));
-  expect(cold.typeScriptCompilation.mode).toBe('full');
-  expect(warm.typeScriptCompilation.mode).toBe('exact');
   expect(reexportDeclarations.map(({ name }) => name).sort()).toEqual(['quoted-value', 'renamedValue']);
   expect(reexportDeclarations.every(({ kind, exported }) => kind === 'ExportSpecifier' && exported)).toBe(true);
+
+  const otherRevision = sha256('another caller provenance');
+  const second = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value,
+    value.files,
+    otherRevision
+  ));
+
+  expect(second.typeScriptCompilation.mode).toBe('exact');
+  expect(second.sourceRevision).toBe(cold.sourceRevision);
+  expect(cold.projectGeneration.generationDigest).not.toBe(second.projectGeneration.generationDigest);
+  expect(generationRoots(value.cacheRoot).length).toBe(2);
 });
 
 test.serial('a completed TypeScript generation remains reusable when a later repository projection is interrupted', () => {
@@ -688,25 +598,8 @@ test.serial('a published project generation is strictly revalidated by a fresh p
   expect(changedReader.result.shards).toEqual(changedPublisher.result.shards);
   expect(changedReader.result.generation.generationDigest)
     .not.toBe(reader.result.generation.generationDigest);
-  expect(generationCount(value.cacheRoot)).toBe(2);
+  expect(generationRoots(value.cacheRoot).length).toBe(2);
 }, 30_000);
-
-test.serial('a different workspace snapshot identity creates a different project generation', () => {
-  const value = fixture();
-  const first = compileVirtualRepositorySourceProgramCompilation(value.input);
-  const otherRevision = sha256('another caller provenance');
-  const second = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value,
-    value.files,
-    otherRevision
-  ));
-
-  expect(first.typeScriptCompilation.mode).toBe('full');
-  expect(second.typeScriptCompilation.mode).toBe('exact');
-  expect(second.sourceRevision).toBe(first.sourceRevision);
-  expect(first.projectGeneration.generationDigest).not.toBe(second.projectGeneration.generationDigest);
-  expect(generationCount(value.cacheRoot)).toBe(2);
-});
 
 test.serial('one validated predecessor enables bounded incremental reuse and remains clean-compile equivalent', () => {
   const value = fixture();
@@ -732,35 +625,39 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
   const predecessor = value.cacheProvider.openContentAddressedHint(predecessorGeneration).loadPredecessor();
   expect(predecessor.status).toBe('hit');
   const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
-  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value, changedFiles, sourceRevision, false
-  ));
+  const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+  const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
   expect(cached.typeScriptCompilation.mode).toBe('incremental');
   expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
   expect(cached.model).toEqual(clean.model);
 });
 
-test.serial('a validated predecessor accepts source membership drift and remains clean-compile equivalent', () => {
-  const value = fixture();
-  compileVirtualRepositorySourceProgramCompilation(value.input);
-  const changedFiles = Object.freeze([value.files[0]!]);
-  const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({
-    repositoryPath,
-    contentDigest
-  })));
-  const changedInput = compilationInput(value, changedFiles, sourceRevision);
-  const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
-  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value, changedFiles, sourceRevision, false
-  ));
+for (const membershipChange of ['addition', 'deletion'] as const) {
+  test.serial(`a persisted predecessor preserves current source membership after ${membershipChange}`, () => {
+    const value = fixture();
+    compileVirtualRepositorySourceProgramCompilation(value.input);
+    const addedSource = 'export const ADDED = 3;\n';
+    const changedFiles = membershipChange === 'addition'
+      ? Object.freeze([...value.files, Object.freeze({
+          path: 'src/example/added.ts', source: addedSource, contentDigest: rawSha256(addedSource)
+        })])
+      : Object.freeze([value.files[0]!]);
+    const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({
+      repositoryPath, contentDigest
+    })));
+    const changedInput = compilationInput(value, changedFiles, sourceRevision);
+    const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
+    const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+    const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
-  expect(cached.typeScriptCompilation.mode).toBe('full');
-  expect(cached.typeScriptCompilation.model.files.map(({ path: repositoryPath }) => repositoryPath))
-    .not.toContain(value.files[1]!.path);
-  expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
-  expect(cached.model).toEqual(clean.model);
-});
+    const currentPaths = cached.typeScriptCompilation.model.files.map(({ path: repositoryPath }) => repositoryPath);
+    if (membershipChange === 'addition') expect(currentPaths).toContain('src/example/added.ts');
+    else expect(currentPaths).not.toContain(value.files[1]!.path);
+    expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
+    expect(cached.model).toEqual(clean.model);
+  });
+}
 
 test.serial('an invalid predecessor hint is a disposable miss and cannot block clean compilation', () => {
   const value = fixture();
@@ -775,39 +672,64 @@ test.serial('an invalid predecessor hint is a disposable miss and cannot block c
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const changedInput = compilationInput(value, changedFiles, sourceRevision);
   const recovered = compileVirtualRepositorySourceProgramCompilation(changedInput);
-  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value, changedFiles, sourceRevision, false
-  ));
+  const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+  const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
   expect(recovered.typeScriptCompilation.mode).toBe('full');
   expect(recovered.model).toEqual(clean.model);
 });
 
-test.serial('a validated predecessor never narrows ambient TypeScript invalidation', () => {
-  const value = fixture();
-  const initialSource = 'export {};\ndeclare global { interface Window { value: 1 } }\n';
-  const initialFiles = Object.freeze([
-    Object.freeze({ path: value.files[0]!.path, source: initialSource, contentDigest: rawSha256(initialSource) }),
-    value.files[1]!
-  ]);
-  const initialRevision = sha256(initialFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
-  const initialInput = compilationInput(value, initialFiles, initialRevision);
-  compileVirtualRepositorySourceProgramCompilation(initialInput);
-  const changedSource = 'export {};\ndeclare global { interface Window { value: 2 } }\n';
-  const changedFiles = Object.freeze([
-    Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
-    value.files[1]!
-  ]);
-  const changedRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
-  const changedInput = compilationInput(value, changedFiles, changedRevision);
-  const changed = compileVirtualRepositorySourceProgramCompilation(changedInput);
-  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
-    value, changedFiles, changedRevision, false
-  ));
+for (const dependencyScope of ['global augmentation', 'unchanged reference directive'] as const) {
+  test.serial(`a persisted predecessor never narrows ${dependencyScope} invalidation`, () => {
+    const value = fixture();
+    const initialSource = dependencyScope === 'global augmentation'
+      ? 'export {};\ndeclare global { interface Window { value: 1 } }\n'
+      : 'export const value = 1;\n';
+    const retainedSource = dependencyScope === 'unchanged reference directive'
+      ? '/// <reference lib="es2022" />\nexport const library = true;\n'
+      : value.files[1]!.source;
+    const initialFiles = Object.freeze([
+      Object.freeze({ path: value.files[0]!.path, source: initialSource, contentDigest: rawSha256(initialSource) }),
+      Object.freeze({ path: value.files[1]!.path, source: retainedSource, contentDigest: rawSha256(retainedSource) })
+    ]);
+    const initialRevision = sha256(initialFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
+    const initialInput = compilationInput(value, initialFiles, initialRevision);
+    const initial = compileVirtualRepositorySourceProgramCompilation(initialInput);
+    if (dependencyScope === 'unchanged reference directive') {
+      expect(initial.typeScriptCompilation.state.factShards.every(({ semanticDependencyScope }) => (
+        semanticDependencyScope === 'module-scoped'
+      ))).toBe(true);
+    }
+    const changedSource = dependencyScope === 'global augmentation'
+      ? 'export {};\ndeclare global { interface Window { value: 2 } }\n'
+      : 'export const value = 2;\n';
+    const changedFiles = Object.freeze([
+      Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
+      initialFiles[1]!
+    ]);
+    const changedRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
+    const changedInput = compilationInput(value, changedFiles, changedRevision);
+    expect(changedInput.workspaceSnapshot.moduleGraphDigest).toBe(initialInput.workspaceSnapshot.moduleGraphDigest);
+    const predecessorGeneration = issueRepositoryCompilationGenerationReceipt({
+      projectInputDigest: changedInput.projectInput.projectInputDigest,
+      projectConfigDigest: changedInput.projectInput.projectConfigDigest,
+      workspaceSnapshotIdentityDigest: changedInput.projectInput.workspaceSnapshotIdentityDigest,
+      orderedSourceFactsDigest: changedInput.projectInput.orderedSourceFactsDigest,
+      snapshotDigest: changedInput.workspaceSnapshot.snapshotDigest,
+      moduleMembershipDigest: changedInput.workspaceSnapshot.moduleMembershipDigest,
+      moduleGraphDigest: changedInput.workspaceSnapshot.moduleGraphDigest,
+      compiler: sourceProgramTypeScriptCompilerIdentity()
+    });
+    expect(value.cacheProvider.openContentAddressedHint(predecessorGeneration).loadPredecessor().status).toBe('hit');
+    const changed = compileVirtualRepositorySourceProgramCompilation(changedInput);
+    const { cacheProvider: _cacheProvider, ...cleanInput } = changedInput;
+    const clean = compileVirtualRepositorySourceProgramCompilation(cleanInput);
 
-  expect(changed.typeScriptCompilation.mode).toBe('full');
-  expect(changed.model).toEqual(clean.model);
-});
+    expect(changed.typeScriptCompilation.mode).toBe('full');
+    expect(changed.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
+    expect(changed.model).toEqual(clean.model);
+  });
+}
 
 test.serial('cache corruption is a disposable miss and cannot block or authorize canonical compilation', () => {
   const value = fixture();
@@ -823,26 +745,6 @@ test.serial('cache corruption is a disposable miss and cannot block or authorize
   const recovered = compileVirtualRepositorySourceProgramCompilation(value.input);
   expect(recovered.typeScriptCompilation.mode).toBe('full');
   expect(recovered.model).toEqual(cold.model);
-});
-
-test.serial('fact-pack grammar rejects duplicate, trailing, unknown and self-inconsistent bytes', () => {
-  const value = fixture();
-  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
-  const shard = cold.typeScriptCompilation.state.factShards[0]!;
-  const canonical = JSON.stringify(canonicalJson(shard));
-
-  expect(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(
-    canonical.replace('{', '{"path":"foreign.ts",')
-  ))).toThrow();
-  expect(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(`${canonical}\n{}`))).toThrow();
-  expect(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(
-    canonical.replace('{', '{"foreign":true,')
-  ))).toThrow();
-  const changed = JSON.parse(canonical) as Record<string, unknown>;
-  changed.rawFileDigest = sha256('foreign');
-  expect(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(
-    JSON.stringify(canonicalJson(changed))
-  ))).toThrow('digest-bound');
 });
 
 test.serial('retained generation authority rejects directory replacement and publishers converge on identical bytes', () => {

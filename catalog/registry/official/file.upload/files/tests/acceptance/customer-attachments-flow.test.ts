@@ -25,6 +25,14 @@ export async function runSuite() {
   });
 
   assert.equal(attachment.tenantId, 'tenant-a');
-  assert.equal(listCustomerAttachments(db, tenantA, customer.id).length, 1);
+  assert.equal(attachment.customerId, customer.id);
+  assert.equal(attachment.fileName, 'contract.txt');
+  assert.equal(attachment.contentType, 'text/plain');
+  assert.equal(attachment.size, 8);
+  assert.equal(attachment.contentText, 'approved');
+  assert.deepEqual(
+    listCustomerAttachments(db, tenantA, customer.id).map(({ fileName, contentText }) => [fileName, contentText]),
+    [['contract.txt', 'approved']]
+  );
   assert.throws(() => listCustomerAttachments(db, tenantB, customer.id), /Customer is not available/);
 }

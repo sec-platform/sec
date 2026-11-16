@@ -71,6 +71,15 @@ export function createDependencyOperation(input: Readonly<{ workspaceRoot: strin
       if (!generatedStatePlans.has(plan)) throw new Error('Dependency generated-state plan was not issued by this bound operation owner.');
       return settleOwnedGeneratedState(plan as CompilerDependencyGeneratedStateSettlementPlan);
     } });
+  function migrateDependencyTransitionJournal(root?: string, request?: RuntimeDependencyInstallRequest): Promise<void>;
+  function migrateDependencyTransitionJournal(root: string, request: RuntimeDependencyInstallRequest,
+    maintenance: native.CompilerDependencyLockMaintenanceRequest): Promise<native.CompilerDependencyLockMaintenanceResult>;
+  function migrateDependencyTransitionJournal(root = workspaceRoot, request: RuntimeDependencyInstallRequest = {},
+    maintenance?: native.CompilerDependencyLockMaintenanceRequest): Promise<void | native.CompilerDependencyLockMaintenanceResult> {
+    return maintenance === undefined
+      ? native.migrateDependencyTransitionJournal(root, bind(request))
+      : native.migrateDependencyTransitionJournal(root, bind(request), maintenance);
+  }
   return Object.freeze({
     generatedStateOwner,
     ensureCompilerDepsReady: (request: RuntimeDependencyInstallRequest = {}, root = workspaceRoot) => ensureDevelopmentCompilerDependencies(bind(request), root),
@@ -83,7 +92,7 @@ export function createDependencyOperation(input: Readonly<{ workspaceRoot: strin
     ensureProjectDependencies: ensureProject,
     withProjectDependencyBridge: <Value>(projectRoot: string, use: () => Promise<Value>, request: RuntimeDependencyInstallRequest = {}) =>
       native.withProjectDependencyBridge(projectRoot, use, bind(request)),
-    migrateDependencyTransitionJournal: (root = workspaceRoot, request: RuntimeDependencyInstallRequest = {}) => native.migrateDependencyTransitionJournal(root, bind(request)),
+    migrateDependencyTransitionJournal,
     retireSettledCompilerDependencyStageIntents: (root = workspaceRoot, request: RuntimeDependencyInstallRequest = {}) => native.retireSettledCompilerDependencyStageIntents(root, bind(request)),
     disposeCompilerDependencyEnvironment: (root = workspaceRoot, request: RuntimeDependencyInstallRequest = {}) => native.disposeCompilerDependencyEnvironment(root, bind(request)),
     disposeCanonicalSharedDependencies: (request: RuntimeDependencyInstallRequest = {}, outcome?: string, root = workspaceRoot) => native.disposeCanonicalSharedDependencies(bind(request), outcome, root),

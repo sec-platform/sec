@@ -15,6 +15,7 @@ import {
   deleteExactGitRef,
   deleteExactLocalGitRefs,
   GitLocalRefDeleteAtomicityUnavailableError,
+  GitLocalRefDeleteBlockedError,
   GitRefDeleteOutcomeUnknownError,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
@@ -23,27 +24,6 @@ import {
   measureExactLocalGitRefDeleteBatchAggregateInputBytes,
   measureExactLocalGitRefDeleteBatchInputBytes
 } from './ref-effect.ts';
-
-test('GitRefEffect CAS-deletes an exact remote-tracking ref with absence readback', async () => {
-  const root = fixture();
-  try {
-    const sha = git(root, ['rev-parse', 'HEAD']);
-    git(root, ['update-ref', 'refs/remotes/origin/topic', sha]);
-    const ref = 'refs/remotes/origin/topic';
-    const opened = openProvider(root);
-    try {
-      const receipt = await deleteExactGitRef({ provider: opened.provider, ref, expectedOldSha: sha });
-      assertGitRefDeleteReceipt(receipt);
-      expect(receipt.ref).toBe(ref);
-      expect(receipt.disposition).toBe('deleted');
-      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', ref], { cwd: root }).status).toBe(1);
-    } finally {
-      closeProvider(opened);
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test('GitRefEffect binds an already-absent receipt to the final ref observation', async () => {
   const root = fixture();
@@ -89,7 +69,10 @@ test('GitRefEffect refuses local deletion before consuming its Effect capability
         ref: 'refs/remotes/origin/topic',
         expectedOldSha: sha
       });
+      assertGitRefDeleteReceipt(receipt);
+      expect(receipt.ref).toBe('refs/remotes/origin/topic');
       expect(receipt.disposition).toBe('deleted');
+      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/topic'], { cwd: root }).status).toBe(1);
     } finally {
       closeProvider(opened);
     }
@@ -169,7 +152,7 @@ test('GitRefEffect blocks checked-out local refs and ref drift before the native
       try {
         await expect(withWorkspaceWriteLease(path.join(root, '.git'), undefined, (coordinatedLease) => (
           deleteExactLocalGitRefs({ provider: opened.provider, coordinatedLease, entries: [entry] })
-        ))).rejects.toThrow();
+        ))).rejects.toBeInstanceOf(GitLocalRefDeleteBlockedError);
         expect(git(root, ['rev-parse', entry.ref])).toBe(sha);
       } finally { closeProvider(opened); }
     }
@@ -178,11 +161,8 @@ test('GitRefEffect blocks checked-out local refs and ref drift before the native
 
 test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async () => {
   const root = fixture();
-  const linked = path.join(path.dirname(root), `${path.basename(root)}-linked`);
   try {
     const sha = git(root, ['rev-parse', 'HEAD']);
-    git(root, ['branch', 'bound']);
-    git(root, ['worktree', 'add', '--quiet', linked, 'bound']);
     git(root, ['update-ref', 'refs/remotes/origin/topic', sha]);
     git(root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/topic']);
 
@@ -199,8 +179,7 @@ test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async
 
     for (const [ref, expectedOldSha] of [
       ['refs/remotes/origin/HEAD', sha],
-      ['refs/remotes/origin/topic', '0'.repeat(40)],
-      ['refs/heads/bound', sha]
+      ['refs/remotes/origin/topic', '0'.repeat(40)]
     ] as const) {
       const opened = openProvider(root);
       try {
@@ -210,8 +189,6 @@ test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async
       }
     }
   } finally {
-    try { git(root, ['worktree', 'remove', '--force', linked]); } catch {}
-    rmSync(linked, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

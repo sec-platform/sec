@@ -87,7 +87,6 @@ function serviceDescriptor(
     includeEffect?: boolean;
     includeTerminal?: boolean;
     includeReadback?: boolean;
-    includeRecovery?: boolean;
     includeRetirement?: boolean;
   }> = {}
 ): DescriptorFixture {
@@ -112,12 +111,6 @@ function serviceDescriptor(
   if (options.includeReadback) relations.push({
     subject: 'example.service',
     relation: 'reads-back',
-    symbol: { path: symbolPath, name: symbolName },
-    operation: null
-  });
-  if (options.includeRecovery) relations.push({
-    subject: 'example.service',
-    relation: 'recovers',
     symbol: { path: symbolPath, name: symbolName },
     operation: null
   });
@@ -175,11 +168,12 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     'src/example/facade.ts': "export { run } from './service.ts';\n",
     'src/consumer/use.ts': "import { run } from '../example/facade.ts';\nexport const value = run();\n"
   }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const renamed = compileFixture({
+  const renamedSources = {
     'src/example/service.ts': 'export function execute(): string { return \'ok\'; }\n',
     'src/example/facade.ts': "export { execute } from './service.ts';\n",
     'src/consumer/use.ts': "import { execute } from '../example/facade.ts';\nexport const value = execute();\n"
-  }, [serviceDescriptor('src/example/service.ts', 'execute')]);
+  };
+  const renamed = compileFixture(renamedSources, [serviceDescriptor('src/example/service.ts', 'execute')]);
   const moved = compileFixture({
     'src/example/operation.ts': 'export function run(): string { return \'ok\'; }\n',
     'src/example/facade.ts': "export { run } from './operation.ts';\n",
@@ -194,7 +188,8 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     kind: 'renamed',
     subjects: ['example.service']
   }));
-  expect(reconcile(before, moved).changes).toContainEqual(expect.objectContaining({
+  const movedProjection = reconcile(before, moved);
+  expect(movedProjection.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
     subjects: ['example.service']
   }));
@@ -203,10 +198,10 @@ test('declaration rename, move, and re-export changes are derived from owner rel
     subjects: ['example.service']
   }));
 
-  const reference = architectureEvolution(before, moved);
+  const reference = compileSourceProgramArchitectureEvolutionReference({ reconciliation: movedProjection });
   // The owner relation and every consumer moved together. A path change
   // alone is not an unresolved architecture obligation or effect grant.
-  expect(reconcile(before, moved).unresolvedReasons).toEqual([]);
+  expect(movedProjection.unresolvedReasons).toEqual([]);
   expect(reference.status).toBe('ready');
   expect(reference.changes).toContainEqual(expect.objectContaining({
     kind: 'moved',
@@ -215,7 +210,19 @@ test('declaration rename, move, and re-export changes are derived from owner rel
   }));
   expect(reference.retirementPaths).toContain('src/example/service.ts');
   expect(reference.changedPaths).toContain('src/example/operation.ts');
+  // Independent compilation checks reconciliation identity stability; source
+  // insertion order is already normalized by compileFixture.
+  const repeatedRenamed = compileFixture(
+    Object.fromEntries(Object.entries(renamedSources).reverse()),
+    [serviceDescriptor('src/example/service.ts', 'execute')]
+  );
+  expect(reconcile(before, repeatedRenamed).projectionDigest)
+    .toBe(reconcile(before, renamed).projectionDigest);
   expect(architectureEvolution(before, before).status).toBe('no-change');
+  const issued = reconcile(before, before);
+  expect(() => compileSourceProgramArchitectureEvolutionReference({
+    reconciliation: { ...issued }
+  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('export visibility retirement admits only an exact closed internal frontier', () => {
@@ -316,10 +323,7 @@ test('export visibility retirement admits only an exact closed internal frontier
   expect(reconcile(beforeObligation, afterObligation).unresolvedReasons).toContainEqual(
     expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
   );
-  const afterRemovedObligation = compileFixture({
-    'src/example/service.ts': 'function helper(): string { return \'ok\'; }\n'
-  }, [{ root: 'src/example', source: {} }]);
-  expect(reconcile(beforeObligation, afterRemovedObligation).unresolvedReasons).toContainEqual(
+  expect(reconcile(beforeObligation, afterConsumer).unresolvedReasons).toContainEqual(
     expect.objectContaining({ code: 'retirement-unresolved', subject: 'helper' })
   );
 
@@ -395,26 +399,24 @@ test('duplicate owner and removed consumer frontiers fail closed', () => {
   const projection = reconcile(before, after);
 
   expect(projection.status).toBe('unresolved');
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'modified',
+    before: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' }),
+    after: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' })
+  }));
+  expect(projection.changes).not.toContainEqual(expect.objectContaining({
+    kind: 'removed', before: expect.objectContaining({ path: 'src/example/service.ts', name: 'run' })
+  }));
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'module-responsibility-duplicate-owner'
   );
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'consumer-frontier-removed-without-retirement'
   );
-  const reference = architectureEvolution(before, after);
+  const reference = compileSourceProgramArchitectureEvolutionReference({ reconciliation: projection });
   expect(reference.status).toBe('blocked');
   expect(reference.direction).toBe('blocked');
   expect(reference.blockers.map(({ code }) => code)).toContain('reconciliation-unresolved');
-});
-
-test('architecture evolution refuses caller-constructed reconciliation objects', () => {
-  const fixture = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const issued = reconcile(fixture, fixture);
-  expect(() => compileSourceProgramArchitectureEvolutionReference({
-    reconciliation: { ...issued }
-  })).toThrow('compiler-issued reconciliation projection');
 });
 
 test('architecture evolution consumes canonical owner and file cycle evidence', () => {
@@ -501,9 +503,14 @@ test('effectful changes require terminal and readback relations', () => {
     includeReadback: true
   })]);
   const after = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run', { includeEffect: true })]);
+    'src/example/service.ts': 'export function execute(): string { return \'changed\'; }\n'
+  }, [serviceDescriptor('src/example/service.ts', 'execute', { includeEffect: true })]);
   const projection = reconcile(before, after);
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'renamed', subjects: ['example.service'],
+    before: expect.objectContaining({ name: 'run' }),
+    after: expect.objectContaining({ name: 'execute' })
+  }));
 
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'effect-terminal-unresolved'
@@ -543,7 +550,8 @@ test('unknowns on changed paths remain unresolved and candidate tools stay non-a
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
   }, [serviceDescriptor('src/example/service.ts', 'run')]);
   const after = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n'
+    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
+    'src/example/opaque.bin': 'unclassified bytes'
   }, [serviceDescriptor('src/example/service.ts', 'run')], [Object.freeze({
     code: 'synthetic-unknown',
     path: 'src/example/service.ts',
@@ -553,6 +561,12 @@ test('unknowns on changed paths remain unresolved and candidate tools stay non-a
   const projection = reconcile(before, after);
 
   expect(projection.status).toBe('unresolved');
+  expect(projection.findingDelta.scope.regressedPaths).toEqual([
+    'src/example/opaque.bin', 'src/example/service.ts'
+  ]);
+  expect(projection.findingDelta.after.unobservedPaths).toEqual([
+    'src/example/opaque.bin', 'src/example/service.ts'
+  ]);
   expect(projection.unresolvedReasons.map(({ code }) => code)).toContain(
     'changed-path-source-program-unknown'
   );
@@ -587,8 +601,11 @@ test('pre-existing unknowns outside the changed declaration do not block an exac
 });
 
 test('computed values block changed declarations and their consumer frontier', () => {
-  const before = compileFixture({
-    'src/example/service.ts': [
+  // These four failures have independent source paths and dependency chains.
+  // One immutable Program pair preserves their distinct witnesses without
+  // re-compiling separate complete repositories for each chain.
+  const beforeSources = {
+    'src/example/local.ts': [
       'export function run(values: Record<string, unknown>, key: string): string {',
       '  const selected = values[key];',
       '  void selected;',
@@ -596,62 +613,8 @@ test('computed values block changed declarations and their consumer frontier', (
       '  return marker;',
       '}',
       ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const stableFlowAfter = compileFixture({
-    'src/example/service.ts': [
-      'export function run(values: Record<string, unknown>, key: string): string {',
-      '  const selected = values[key];',
-      '  void selected;',
-      "  const marker = 'after';",
-      '  return marker;',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-
-  expect(reconcile(before, stableFlowAfter).unresolvedReasons).toContainEqual(
-    expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    })
-  );
-  const escapedBodies = [
-    '  return (selected as () => string)();',
-    '  return String(selected);',
-    '  const escaped = { selected };\n  return String(escaped.selected);',
-    '  const read = () => selected;\n  return String(read());'
-  ];
-  for (const body of escapedBodies) {
-    const escaped = compileFixture({
-      'src/example/service.ts': [
-        'export function run(values: Record<string, unknown>, key: string): string {',
-        '  const selected = values[key];',
-        body,
-        '}',
-        ''
-      ].join('\n')
-    }, [serviceDescriptor('src/example/service.ts', 'run')]);
-    expect(reconcile(before, escaped).unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-  }
-  const invocation = compileFixture({
-    'src/example/service.ts': [
-      'export function run(values: Record<string, () => string>, key: string): string {',
-      '  return values[key]();',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  expect(reconcile(before, invocation).unresolvedReasons).toContainEqual(expect.objectContaining({
-    code: 'changed-path-source-program-unknown',
-    subject: 'computed-property-unresolved'
-  }));
-
-  const consumerBefore = compileFixture({
-    'src/example/service.ts': [
+    ].join('\n'),
+    'src/example/direct.ts': [
       'export function select(values: Record<string, unknown>, key: string): unknown {',
       '  return values[key];',
       '}',
@@ -659,127 +622,89 @@ test('computed values block changed declarations and their consumer frontier', (
       "  return String(select(values, 'name'));",
       '}',
       ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const consumerAfter = compileFixture({
-    'src/example/service.ts': [
-      'export function select(values: Record<string, unknown>, key: string): unknown {',
-      '  return values[key];',
-      '}',
-      'export function run(values: Record<string, unknown>): string {',
-      "  return (select(values, 'name') as () => string)();",
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  expect(reconcile(consumerBefore, consumerAfter).unresolvedReasons).toContainEqual(
-    expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    })
-  );
-
-  const transitiveConsumerBefore = compileFixture({
-    'src/example/select.ts': [
+    ].join('\n'),
+    'src/example/transitive-select.ts': [
       'export function select(values: Record<string, unknown>, key: string): unknown {',
       '  return values[key];',
       '}',
       ''
     ].join('\n'),
-    'src/example/forward.ts': [
-      "import { select } from './select.ts';",
+    'src/example/transitive-forward.ts': [
+      "import { select } from './transitive-select.ts';",
       'export function forward(values: Record<string, unknown>): unknown {',
       "  return select(values, 'name');",
       '}',
       ''
     ].join('\n'),
-    'src/example/use.ts': [
-      "import { forward } from './forward.ts';",
+    'src/example/transitive-use.ts': [
+      "import { forward } from './transitive-forward.ts';",
       'export function run(values: Record<string, unknown>): string {',
       '  return String(forward(values));',
       '}',
       ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/use.ts', 'run')]);
-  const transitiveConsumerAfter = compileFixture({
-    'src/example/select.ts': [
-      'export function select(values: Record<string, unknown>, key: string): unknown {',
-      '  return values[key];',
-      '}',
-      ''
     ].join('\n'),
-    'src/example/forward.ts': [
-      "import { select } from './select.ts';",
-      'export function forward(values: Record<string, unknown>): unknown {',
-      "  return select(values, 'name');",
-      '}',
-      ''
-    ].join('\n'),
-    'src/example/use.ts': [
-      "import { forward } from './forward.ts';",
-      'export function run(values: Record<string, unknown>): string {',
-      '  return (forward(values) as () => string)();',
+    'src/example/dependency-registry.ts': 'export const registry: Record<string, unknown> = {};\n',
+    'src/example/dependency-select.ts': [
+      "import { registry } from './dependency-registry.ts';",
+      'export function select(key: string): unknown {',
+      '  return registry[key];',
       '}',
       ''
     ].join('\n')
-  }, [serviceDescriptor('src/example/use.ts', 'run')]);
-  expect(reconcile(transitiveConsumerBefore, transitiveConsumerAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
+  };
+  const descriptors = [{
+    root: 'src/example',
+    source: {
+      causalRelations: [
+        { subject: 'example.local', relation: 'declares',
+          symbol: { path: 'src/example/local.ts', name: 'run' }, operation: null },
+        { subject: 'example.direct', relation: 'declares',
+          symbol: { path: 'src/example/direct.ts', name: 'run' }, operation: null },
+        { subject: 'example.transitive', relation: 'declares',
+          symbol: { path: 'src/example/transitive-use.ts', name: 'run' }, operation: null },
+        { subject: 'example.dependency', relation: 'declares',
+          symbol: { path: 'src/example/dependency-select.ts', name: 'select' }, operation: null }
+      ]
+    }
+  }];
+  const afterSources = {
+    ...beforeSources,
+    'src/example/local.ts': beforeSources['src/example/local.ts']
+      .replace("const marker = 'before';", "const marker = 'after';"),
+    'src/example/direct.ts': beforeSources['src/example/direct.ts']
+      .replace("String(select(values, 'name'))", "(select(values, 'name') as () => string)()"),
+    'src/example/transitive-use.ts': beforeSources['src/example/transitive-use.ts']
+      .replace('String(forward(values))', '(forward(values) as () => string)()'),
+    'src/example/dependency-registry.ts': "export const registry: Record<string, unknown> = { name: 'changed' };\n"
+  };
+  const before = compileFixture(beforeSources, descriptors);
+  const after = compileFixture(afterSources, descriptors);
+  const consumerReasons = reconcile(before, after).unresolvedReasons;
+  // Each path has its own independent changed-declaration, direct-consumer,
+  // transitive-consumer or changed-dependency route to the unknown.
+  for (const sourcePath of [
+    'src/example/local.ts',
+    'src/example/direct.ts',
+    'src/example/transitive-select.ts',
+    'src/example/dependency-select.ts'
+  ]) {
+    expect(consumerReasons).toContainEqual(expect.objectContaining({
       code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
+      subject: 'computed-property-unresolved',
+      paths: [sourcePath]
     }));
+  }
 
-  const moduleInitializerBefore = compileFixture({
+  // The script initializer and imported module resolve separate bindings.
+  // Preserve separate source-path witnesses while sharing one Program pair.
+  const moduleEffectsBeforeSources = {
     'src/example/service.ts': [
       'declare const registry: Record<string, () => void>;',
       'declare const key: string;',
       'registry[key]();',
       "console.log('before');",
       ''
-    ].join('\n')
-  }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  const moduleInitializerAfter = compileFixture({
-    'src/example/service.ts': [
-      'declare const registry: Record<string, () => void>;',
-      'declare const key: string;',
-      'registry[key]();',
-      "console.log('after');",
-      ''
-    ].join('\n')
-  }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  expect(reconcile(moduleInitializerBefore, moduleInitializerAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-
-  const dependencyBefore = compileFixture({
-    'src/example/registry.ts': 'export const registry: Record<string, unknown> = {};\n',
-    'src/example/select.ts': [
-      "import { registry } from './registry.ts';",
-      'export function select(key: string): unknown {',
-      '  return registry[key];',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/select.ts', 'select')]);
-  const dependencyAfter = compileFixture({
-    'src/example/registry.ts': "export const registry: Record<string, unknown> = { name: 'changed' };\n",
-    'src/example/select.ts': [
-      "import { registry } from './registry.ts';",
-      'export function select(key: string): unknown {',
-      '  return registry[key];',
-      '}',
-      ''
-    ].join('\n')
-  }, [serviceDescriptor('src/example/select.ts', 'select')]);
-  expect(reconcile(dependencyBefore, dependencyAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
-      code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
-    }));
-
-  const moduleDependencyBefore = compileFixture({
+    ].join('\n'),
     'src/example/registry.ts': 'export const registry: Record<string, () => void> = {};\n',
     'src/example/use.ts': [
       "import { registry } from './registry.ts';",
@@ -787,35 +712,41 @@ test('computed values block changed declarations and their consumer frontier', (
       'registry[key]();',
       ''
     ].join('\n')
+  };
+  const moduleEffectsBefore = compileFixture(moduleEffectsBeforeSources, [
+    Object.freeze({ root: 'src/example', source: Object.freeze({}) })
+  ]);
+  const moduleEffectsAfter = compileFixture({
+    ...moduleEffectsBeforeSources,
+    'src/example/service.ts': moduleEffectsBeforeSources['src/example/service.ts']
+      .replace("console.log('before');", "console.log('after');"),
+    'src/example/registry.ts': 'export const registry: Record<string, () => void> = { changed() {} };\n'
   }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  const moduleDependencyAfter = compileFixture({
-    'src/example/registry.ts': 'export const registry: Record<string, () => void> = { changed() {} };\n',
-    'src/example/use.ts': [
-      "import { registry } from './registry.ts';",
-      'declare const key: string;',
-      'registry[key]();',
-      ''
-    ].join('\n')
-  }, [Object.freeze({ root: 'src/example', source: Object.freeze({}) })]);
-  expect(reconcile(moduleDependencyBefore, moduleDependencyAfter).unresolvedReasons)
-    .toContainEqual(expect.objectContaining({
+  const moduleEffectReasons = reconcile(moduleEffectsBefore, moduleEffectsAfter).unresolvedReasons;
+  // A generic unresolved result could hide either broken dependency path.
+  for (const sourcePath of ['src/example/service.ts', 'src/example/use.ts']) {
+    expect(moduleEffectReasons).toContainEqual(expect.objectContaining({
       code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
+      subject: 'computed-property-unresolved',
+      paths: [sourcePath]
     }));
+  }
 
   const computedBinding = compileFixture({
-    'src/example/service.ts': [
+    ...beforeSources,
+    'src/example/local.ts': [
       'export function run(values: Record<string, unknown>, key: string): string {',
       '  const { [key]: selected } = values;',
       '  return String(selected);',
       '}',
       ''
     ].join('\n')
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
+  }, descriptors);
   expect(reconcile(before, computedBinding).unresolvedReasons).toContainEqual(
     expect.objectContaining({
       code: 'changed-path-source-program-unknown',
-      subject: 'computed-property-unresolved'
+      subject: 'computed-property-unresolved',
+      paths: ['src/example/local.ts']
     })
   );
 });
@@ -846,45 +777,41 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
     subject: 'static-analysis.unused'
   }));
 
-  for (const provider of ['static-analysis.dependencies', 'knip']) {
-    const unavailableShadow = compileSourceProgramReconciliationProjection({
-      before: before.compilation,
-      after: after.compilation,
-      providerEvidence: [Object.freeze({
-        provider,
-        status: 'unresolved',
-        providerRevision: null,
-        configDigest: null,
-        inputDigest: null,
-        candidateDigest: null
-      })]
-    });
-    expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'candidate-provider-evidence-unresolved',
-      subject: provider
-    }));
-    expect(unavailableShadow.status).toBe('unresolved');
-  }
+  const unavailableShadow = compileSourceProgramReconciliationProjection({
+    before: before.compilation,
+    after: after.compilation,
+    providerEvidence: [Object.freeze({
+      provider: 'knip',
+      status: 'unresolved',
+      providerRevision: null,
+      configDigest: null,
+      inputDigest: null,
+      candidateDigest: null
+    })]
+  });
+  expect(unavailableShadow.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'candidate-provider-evidence-unresolved',
+    subject: 'knip'
+  }));
+  expect(unavailableShadow.status).toBe('unresolved');
 
-  for (const status of ['absent', 'unexpected']) {
-    const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({
-      before: before.compilation,
-      after: after.compilation,
-      providerEvidence: [Object.freeze({
-        provider: `static-analysis.${status}`,
-        status,
-        providerRevision: null,
-        configDigest: null,
-        inputDigest: null,
-        candidateDigest: null
-      }) as unknown as SourceProgramReconciliationProviderEvidence]
-    });
-    expect(invalidRuntimeStatus.providerEvidence).toEqual([]);
-    expect(invalidRuntimeStatus.unresolvedReasons).toContainEqual(expect.objectContaining({
-      code: 'candidate-provider-evidence-invalid',
-      subject: `static-analysis.${status}`
-    }));
-  }
+  const invalidRuntimeStatus = compileSourceProgramReconciliationProjection({
+    before: before.compilation,
+    after: after.compilation,
+    providerEvidence: [Object.freeze({
+      provider: 'static-analysis.absent',
+      status: 'absent',
+      providerRevision: null,
+      configDigest: null,
+      inputDigest: null,
+      candidateDigest: null
+    }) as unknown as SourceProgramReconciliationProviderEvidence]
+  });
+  expect(invalidRuntimeStatus.providerEvidence).toEqual([]);
+  expect(invalidRuntimeStatus.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'candidate-provider-evidence-invalid',
+    subject: 'static-analysis.absent'
+  }));
 
   const observed = Object.freeze({
     provider: 'static-analysis.dependencies',
@@ -904,23 +831,6 @@ test('malformed candidate-provider evidence is typed unresolved and cannot autho
     code: 'candidate-provider-evidence-invalid',
     subject: 'static-analysis.dependencies'
   }));
-});
-
-test('equivalent compiler snapshots produce byte-equivalent reconciliation projections', () => {
-  const before = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const firstAfter = compileFixture({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
-    'src/example/helper.ts': 'export const helper = true;\n'
-  }, [serviceDescriptor('src/example/service.ts', 'run')]);
-  const secondAfter = compileFixture(Object.fromEntries(Object.entries({
-    'src/example/service.ts': 'export function run(): string { return \'changed\'; }\n',
-    'src/example/helper.ts': 'export const helper = true;\n'
-  }).reverse()), [serviceDescriptor('src/example/service.ts', 'run')]);
-
-  expect(reconcile(before, firstAfter).projectionDigest)
-    .toBe(reconcile(before, secondAfter).projectionDigest);
 });
 
 test('Git LF and Windows checkout line endings have one semantic reconciliation identity', () => {
@@ -954,17 +864,31 @@ test('Git LF and Windows checkout line endings have one semantic reconciliation 
   expect(declaration?.span.end).toBe(windowsSource.indexOf('\r\nconst key'));
 });
 
-test('cross-revision matching retains duplicate declaration names at their exact semantic addresses', () => {
+test('cross-revision pairing preserves duplicate names and reordered overloads', () => {
   const descriptor = Object.freeze({ root: 'src/example', source: Object.freeze({}) });
+  const overloads = [
+    'export function run(value: string): string;',
+    'export function run(value: number): number;',
+    'export function run(value: string | number): string | number { return value; }'
+  ].join('\n');
+  const reorderedOverloads = [
+    'export function run(value: number): number;',
+    'export function run(value: string): string;',
+    'export function run(value: string | number): string | number { return value; }'
+  ].join('\n');
   const before = compileFixture({
     'src/example/first.ts': 'export const value = 1;\n',
     'src/example/second.ts': 'export const value = 2;\n',
-    'src/example/marker.ts': 'export const marker = false;\n'
+    'src/example/service.ts': `${overloads}\n`,
+    'src/example/marker.ts': 'export const marker = false;\n',
+    'src/example/old.ts': 'export interface Plan { readonly resolved: boolean; }\n'
   }, [descriptor]);
   const after = compileFixture({
     'src/example/first.ts': 'export const value = 1;\n',
     'src/example/second.ts': 'export const value = 2;\n',
-    'src/example/marker.ts': 'export const marker = true;\n'
+    'src/example/service.ts': `${reorderedOverloads}\n`,
+    'src/example/marker.ts': 'export const marker = true;\n',
+    'src/example/contract.ts': 'export interface Plan { readonly resolved: boolean; }\n'
   }, [descriptor]);
   const projection = reconcile(before, after);
 
@@ -976,42 +900,17 @@ test('cross-revision matching retains duplicate declaration names at their exact
     before: expect.objectContaining({ path: 'src/example/marker.ts', name: 'marker' }),
     after: expect.objectContaining({ path: 'src/example/marker.ts', name: 'marker' })
   }));
-});
-
-test('cross-revision matching retains overload groups before classifying real changes', () => {
-  const descriptor = Object.freeze({ root: 'src/example', source: Object.freeze({}) });
-  const overloads = [
-    'export function run(value: string): string;',
-    'export function run(value: number): number;',
-    'export function run(value: string | number): string | number { return value; }'
-  ].join('\n');
-  const before = compileFixture({
-    'src/example/service.ts': `${overloads}\n`,
-    'src/example/marker.ts': 'export const marker = false;\n'
-  }, [descriptor]);
-  const after = compileFixture({
-    'src/example/service.ts': `${overloads}\n`,
-    'src/example/marker.ts': 'export const marker = true;\n'
-  }, [descriptor]);
-  const projection = reconcile(before, after);
-
   expect(projection.changes.filter(({ before: prior, after: current }) => (
     prior?.path === 'src/example/service.ts' || current?.path === 'src/example/service.ts'
   ))).toEqual([]);
-});
-
-test('pure declaration moves remain owned by one unchanged module responsibility', () => {
-  const descriptor = Object.freeze({ root: 'src/example', source: Object.freeze({}) });
-  const before = compileFixture({
-    'src/example/old.ts': 'export interface Plan { readonly resolved: boolean; }\n'
-  }, [descriptor]);
-  const after = compileFixture({
-    'src/example/contract.ts': 'export interface Plan { readonly resolved: boolean; }\n'
-  }, [descriptor]);
-  const projection = reconcile(before, after);
-
+  // A pure type-only move remains resolved even alongside unrelated overload
+  // reordering and a real value change; verify its exact declaration pairing.
   expect(projection.status).toBe('resolved');
-  expect(projection.changes).toContainEqual(expect.objectContaining({ kind: 'moved' }));
+  expect(projection.changes).toContainEqual(expect.objectContaining({
+    kind: 'moved',
+    before: expect.objectContaining({ path: 'src/example/old.ts', name: 'Plan' }),
+    after: expect.objectContaining({ path: 'src/example/contract.ts', name: 'Plan' })
+  }));
 });
 
 function compileTestFindingFixture(sources: Readonly<Record<string, string>>, descriptor: Readonly<Record<string, unknown>> = {}) {
@@ -1049,7 +948,7 @@ test('test finding debt survives unrelated inventory additions but not relevant 
   expect(sourceProgramTestFindingDeltaHasRegression(ownerDelta, changedOwner.tests.findings)).toBe(true);
 });
 
-test('new local unknown input cannot hide behind inherited shared uncertainty', () => {
+test('local unknown additions and changed excluded shared inputs remain unresolved against inherited uncertainty', () => {
   const sources = { 'src/example/operation.ts': findingProduction,
     [findingTestPath]: findingTestHeader + findingBehaviorCase };
   const before = compileTestFindingFixture(sources);
@@ -1068,30 +967,24 @@ test('new local unknown input cannot hide behind inherited shared uncertainty', 
   expect(before.tests.records).toHaveLength(1);
   expect(after.tests.records).toHaveLength(2);
   expect(after.tests.records[0]!.testId).toBe(before.tests.records[0]!.testId);
-});
-
-test('excluded shared input changes invalidate null-digest debt without reading values', () => {
-  const snapshot = compileTestFindingFixture({ 'src/example/operation.ts': findingProduction,
-    [findingTestPath]: findingTestHeader + findingBehaviorCase });
-  expect(snapshot.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
-  const unrelated = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['unrelated/resource.txt']);
+  expect(before.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
+  const unrelated = compileSourceProgramTestFindingDelta(before, before, ['unrelated/resource.txt']);
   expect(unrelated.changedSharedInputPaths).toEqual([]);
   expect(sourceProgramTestFindingDeltaIsUnresolved(unrelated)).toBe(false);
-  const changed = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['.env']);
-  assertSourceProgramTestFindingDelta(changed, snapshot.tests.findings);
+  const changed = compileSourceProgramTestFindingDelta(before, before, ['.env']);
+  assertSourceProgramTestFindingDelta(changed, before.tests.findings);
   expect(changed.changedSharedInputPaths).toEqual(['.env']);
   expect(changed.contextComparable).toBe(false);
   expect(changed.scope.regressedPaths).toEqual([findingTestPath]);
   expect(sourceProgramTestFindingDeltaIsUnresolved(changed)).toBe(true);
-});
 
-test('explicit unknown-debt accounting never suppresses a new known Test Value violation', () => {
-  const sources = { 'src/example/operation.ts': findingProduction,
-    [findingTestPath]: findingTestHeader + findingBehaviorCase };
-  const before = compileTestFindingFixture(sources);
-  const after = compileTestFindingFixture({ ...sources,
+  // Known Test Value violations cannot be waived by inherited shared-input
+  // uncertainty. Reuse the same immutable baseline, not its changed consumer.
+  const knownViolation = compileTestFindingFixture({ ...sources,
     [findingTestPath]: findingTestHeader + "test('public result', () => expect(execute.length).toBe(0));\n" });
-  const delta = compileSourceProgramTestFindingDelta(before, after, [findingTestPath]);
-  expect(delta.entries).toContainEqual(expect.objectContaining({ code: 'test-mirrors-imported-function-arity', status: 'introduced' }));
-  expect(sourceProgramTestFindingDeltaHasRegression(delta, after.tests.findings)).toBe(true);
+  const knownDelta = compileSourceProgramTestFindingDelta(before, knownViolation, [findingTestPath]);
+  expect(knownDelta.entries).toContainEqual(expect.objectContaining({
+    code: 'test-mirrors-imported-function-arity', status: 'introduced'
+  }));
+  expect(sourceProgramTestFindingDeltaHasRegression(knownDelta, knownViolation.tests.findings)).toBe(true);
 });

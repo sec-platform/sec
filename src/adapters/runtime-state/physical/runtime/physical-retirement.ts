@@ -4,7 +4,7 @@ import path from 'node:path';
 import { assertSameNoFollowDirectoryIdentity } from './physical-directory-chain.ts';
 import { inspectNoFollowDirectoryLeaf } from './physical-directory-entry.ts';
 import { directoryTreeEntryPosixOwnership, scanNoFollowDirectoryTreeMetadata } from './physical-directory-tree-observation.ts';
-import { assertExclusiveFileGuardResource } from './physical-exclusive-guard.ts';
+import { assertExclusiveFileGuardResource, assertExclusiveFileGuardRetirement } from './physical-exclusive-guard.ts';
 import {
   PhysicalNoFollowError,
   type NoFollowDirectoryTreeInventoryEntry,
@@ -397,7 +397,7 @@ export function deleteRetainedNoFollowEntry(input: {
     } catch (error) {
       if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
     }
-    if (input.resourceGuard !== undefined) assertExclusiveFileGuardResource(input.resourceGuard, root, leaf);
+    if (input.resourceGuard !== undefined) assertExclusiveFileGuardRetirement(input.resourceGuard, root, leaf);
     if (input.treeGuard !== undefined) assertTreeRetirementGuard(input.treeGuard, root);
     const retainedRootAfter = linuxIdentity(retainedRootFd, root.path);
     if (!sameIdentity(root, retainedRootAfter)) {

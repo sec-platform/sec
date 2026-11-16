@@ -1,3 +1,4 @@
+import { settleResources, type ResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { expect, test } from 'bun:test';
 import path from 'node:path';
 
@@ -75,19 +76,14 @@ function providerCapability(effectKinds: readonly OperationEffectKind[]) {
   }
 }
 
-test('independent provider launch retains root kill-on-close while descendants break away', () => {
-  expect(compileWindowsObservedJobLimitFlags('contained')).toBe(0x0000_2000);
-  expect(compileWindowsObservedJobLimitFlags('independent-provider')).toBe(0x0000_3000);
-});
-
-test('Windows observed Job rejects an unowned descendant disposition', () => {
+test('ordinary process callers cannot structurally select provider breakaway', () => {
   expect(() => compileWindowsObservedJobLimitFlags(
     'unowned' as 'contained'
   )).toThrow('descendant disposition is invalid');
-});
-
-test('ordinary process callers cannot structurally select provider breakaway', () => {
   expect(windowsObservedJobDescendantDisposition()).toBe('contained');
+  expect(compileWindowsObservedJobLimitFlags(
+    windowsObservedJobDescendantDisposition()
+  )).toBe(0x0000_2000);
   expect(() => windowsObservedJobDescendantDisposition({
     providerPhysicalIdentityDigest: digest('forged-provider')
   })).toThrow('was not issued');
@@ -96,6 +92,7 @@ test('ordinary process callers cannot structurally select provider breakaway', (
 
 test('an issued process plus provider capability selects breakaway behavior', () => {
   const fixture = providerCapability(['process', 'provider']);
+  let fixtureFailure1: ResourceSettlementFailure | undefined;
   try {
     expect(windowsObservedJobDescendantDisposition(fixture.capability)).toBe('independent-provider');
     expect(compileWindowsObservedJobLimitFlags(
@@ -103,7 +100,12 @@ test('an issued process plus provider capability selects breakaway behavior', ()
     )).toBe(0x0000_3000);
     expect(() => windowsObservedJobDescendantDisposition({ ...fixture.capability }))
       .toThrow('was not issued');
+  } catch (error) {
+    fixtureFailure1 = { label: 'fixture operation', error };
   } finally {
-    fixture.dispose();
+    settleResources({
+      primary: fixtureFailure1,
+      cleanup: [{ label: 'fixture cleanup', settle: () => { fixture.dispose(); } }]
+    });
   }
 });

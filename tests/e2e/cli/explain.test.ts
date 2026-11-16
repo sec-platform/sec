@@ -1,0 +1,275 @@
+import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+import type { ExplainSummarySource } from '../../../src/application/explain-summary.ts';
+import type { RepairPlan } from '../../../src/semantics/repair/types.ts';
+import { resolveWorkspaceArtifactPath } from '../../../src/adapters/workspace-context.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { expectCliJson, expectCliText, runCliInProcess } from '../../testkit/cli.ts';
+import { withTempWorkspace, withWorkspaceScenario } from '../../testkit/workspace.ts';
+
+const expectedDemoChecklistItemCount = [
+  'verification-report',
+  'runtime-report',
+  'policy-report',
+  'acceptance-coverage',
+  'graph-lock',
+  'provenance-registry',
+  ...CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => artifact.id),
+  'review-summary'
+].length;
+const [, explainGraphMermaidArtifact, explainGraphDotArtifact] = CI_EXPLAIN_GRAPH_ARTIFACTS;
+
+test('CLI emits explain JSON for CI consumers', async () => {
+  await withWorkspaceScenario('locked-all-default', async (workspaceRoot) => {
+    await expectCliText(workspaceRoot, ['explain'], [
+      'Explain graph',
+      'Node types:',
+      'block=',
+      'policy=',
+      'Edge types:',
+      'depends_on=',
+      'Coverage: 3 blocks;',
+      'uncovered blocks=0',
+      'Coverage detail: passed;',
+      'covered blocks: 3/3',
+      'Provenance origins:',
+      'block=',
+      'Provenance detail: artifacts:',
+      'registry:',
+      'unverified:',
+      'Install impact: 3 impacts;',
+      'actions: copy, merge-prisma; runtime entries: 3; targets: 8',
+      'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
+      'Chain: attention; stages: 3/4; attention: 1; failed: 0',
+      'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
+      'E2E coverage: passed; blocks=3/3; evidence=blocks=3/3',
+      'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
+      'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
+      'Impacted: 3 blocks,',
+      'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
+    ]);
+
+    // The existing explained all-lane workspace is also the real Overview consumer.
+    // Preserve its positive CLI forms and fail-closed missing-Provenance input.
+    await expectCliText(workspaceRoot, ['overview'], [
+      'Project overview', 'Workspace:', 'Verification:', 'Graph:', 'Views:', 'Next:'
+    ]);
+    const overview = await expectCliJson<{
+      formatVersion: string;
+      navigation: { machineArtifacts: Array<{ id: string; path?: string }> };
+    }>(workspaceRoot, ['overview', '--json', '--compact'], { formatVersion: '1' }, { compact: true });
+    expect(overview.navigation.machineArtifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'graph' }),
+      expect.objectContaining({ id: 'verification' })
+    ]));
+
+    await withTempWorkspace(async (tempRoot) => {
+      for (const artifact of [CI_ARTIFACT_FILES.graphLock, CI_ARTIFACT_FILES.explainGraph]) {
+        const target = resolveWorkspaceArtifactPath(tempRoot, artifact);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.copyFile(resolveWorkspaceArtifactPath(workspaceRoot, artifact), target);
+      }
+      const missingArtifactResult = await runCliInProcess(tempRoot, ['overview']);
+      expect(missingArtifactResult.code).toBe(1);
+      expect(missingArtifactResult.stdout).toBe('');
+      expect(missingArtifactResult.stderr).toContain('Provenance report is missing');
+      expect(missingArtifactResult.stderr).toContain('run the refresh chain, then bun run sec -- explain');
+    });
+
+    const payload = await expectCliJson<ExplainSummarySource>(workspaceRoot, ['explain', '--json', '--compact'], undefined, { compact: true });
+    expect(payload.reviewSummary.formatVersion).toBe('2');
+    expect(payload.graph.nodes.some((node) => node.id === 'policy:tenant-scope-required')).toBe(true);
+    expect(payload.graph.edges.length).toBeGreaterThan(0);
+    expect(payload.e2eMatrix).toMatchObject({
+      status: 'attention',
+      rowCount: 4,
+      rows: [
+        { stage: 'verification', status: 'passed', evidenceCount: 2, evidence: ['ci=passed', 'failures=0'] },
+        { stage: 'coverage', status: 'passed', evidenceCount: 1, evidence: ['blocks=3/3'] },
+        { stage: 'artifacts', status: 'attention', evidenceCount: 1, evidence: ['artifacts=missing'] },
+        { stage: 'review', status: 'passed', evidenceCount: 1, evidence: ['review-summary=generated'] }
+      ]
+    });
+
+    await expectCliText(workspaceRoot, ['review', 'matrix'], [
+      'E2E matrix attention; rows=4',
+      'verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
+      'artifacts: attention; total=0; missing=0; evidence=artifacts=missing'
+    ]);
+
+    const matrixPayload = await expectCliJson<typeof payload.e2eMatrix>(
+      workspaceRoot,
+      ['review', 'matrix', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(matrixPayload).toEqual(payload.e2eMatrix);
+    expect(payload.reviewSummary.ciSummary).toMatchObject({
+      status: 'passed',
+      failureCount: 0
+    });
+    expect(payload.reviewSummary.chainSummary).toMatchObject({
+      status: 'attention',
+      stageCount: 4,
+      passedStageCount: 3,
+      attentionStageCount: 1,
+      failedStageCount: 0,
+      stageSummaries: [
+        { id: 'verification', status: 'passed', detail: 'lane=all; failed=none' },
+        { id: 'coverage', status: 'passed', detail: 'blocks=3/3' },
+        { id: 'artifacts', status: 'attention', detail: 'total=0; missing=0' },
+        { id: 'review', status: 'passed', detail: 'review-summary=generated' }
+      ]
+    });
+    expect(payload.reviewSummary.coverageSummary).toMatchObject({
+      status: 'passed',
+      blockCount: 3,
+      coveredBlockCount: 3,
+      uncoveredBlockCount: 0
+    });
+    expect(payload.reviewSummary.coverageSummary?.blockSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'entity/customer-basic',
+          coveredByCount: 3,
+          coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer', 'user_can_list_customers']
+        })
+      ])
+    );
+    expect(payload.reviewSummary.provenanceSummary).toMatchObject({
+      overrideArtifactCount: 0,
+      registryArtifactCount: expect.any(Number),
+      generatedArtifactCount: expect.any(Number),
+      unverifiedArtifactCount: expect.any(Number),
+      originSummaryCount: expect.any(Number),
+      overrideSummaryCount: expect.any(Number),
+      registrySummaryCount: expect.any(Number),
+      originSummaries: expect.arrayContaining([
+        expect.objectContaining({
+          originType: 'block',
+          count: expect.any(Number)
+        })
+      ]),
+      generatedPassSummaries: expect.arrayContaining([
+        expect.objectContaining({
+          pass: 'compose',
+          count: expect.any(Number)
+        })
+      ])
+    });
+    expect(payload.reviewSummary.provenanceSummary?.artifactCount).toBeGreaterThan(0);
+    expect(payload.reviewSummary.policySummary).toMatchObject({
+      status: 'passed',
+      officialPolicyCount: 1,
+      projectPolicyCount: 0,
+      mergedPolicyCount: 1,
+      sourceCount: 2,
+      violationCount: 0,
+      sourceSummaries: [
+        {
+          scope: 'official',
+          path: 'catalog/policies/official/policy.spec.yaml',
+          policyIds: ['tenant-scope-required']
+        },
+        {
+          scope: 'project',
+          path: 'model/policies/policy.spec.yaml',
+          policyIds: []
+        }
+      ],
+      mergedSummaries: [
+        {
+          id: 'tenant-scope-required',
+          targetCount: 1,
+          targets: ['src/installed/entity/customer-service.ts']
+        }
+      ]
+    });
+    expect(payload.reviewSummary.installImpactSummary).toMatchObject({
+      impactCount: 3,
+      blockCount: 3,
+      actionKinds: ['copy', 'merge-prisma'],
+      runtimeEntryCount: 3,
+      targetPathCount: 7
+    });
+    expect(payload.reviewSummary.installImpacts.map(({ blockId, actionKinds, runtimeEntries, targetPaths }) =>
+      ({ blockId, actionKinds, runtimeEntries, targetPaths }))).toEqual([
+      {
+        blockId: 'auth/basic-session',
+        actionKinds: ['copy'],
+        runtimeEntries: ['src/installed/auth/session.ts'],
+        targetPaths: ['src/installed/auth/session.ts', 'tests/acceptance/auth-flow.test.ts']
+      },
+      {
+        blockId: 'entity/customer-basic',
+        actionKinds: ['copy', 'merge-prisma'],
+        runtimeEntries: ['src/installed/entity/customer-service.ts'],
+        targetPaths: [
+          'prisma/schema.prisma',
+          'src/installed/entity/customer-service.ts',
+          'tests/acceptance/customer-flow.test.ts'
+        ]
+      },
+      {
+        blockId: 'tenant/basic-workspace',
+        actionKinds: ['copy'],
+        runtimeEntries: ['src/installed/tenant/context.ts'],
+        targetPaths: ['src/installed/tenant/context.ts', 'tests/shared/tenant-runtime-fixture.ts']
+      }
+    ]);
+    expect(payload.reviewSummary.impactedBlocks).toEqual(
+      expect.arrayContaining([
+        'auth/basic-session',
+        'entity/customer-basic',
+        'tenant/basic-workspace'
+      ])
+    );
+    expect(payload.reviewSummary.failurePoints).toHaveLength(0);
+
+    // Observe Demo readiness on the completed Explain workspace without rebuilding the full Pipeline.
+    await expectCliText(workspaceRoot, ['demo', 'checklist'], [
+      `Demo checklist passed; items=${expectedDemoChecklistItemCount}; missing=0`,
+      `review-summary: passed; ${CI_ARTIFACT_FILES.reviewSummary}`,
+      `${explainGraphMermaidArtifact.id}: passed; ${explainGraphMermaidArtifact.path}`,
+      `${explainGraphDotArtifact.id}: passed; ${explainGraphDotArtifact.path}`,
+      'Next command: bun run demo:closed-loop'
+    ]);
+
+    await expectCliJson(
+      workspaceRoot,
+      ['demo', 'checklist', '--json', '--compact'],
+      {
+        status: 'passed',
+        itemCount: expectedDemoChecklistItemCount,
+        missingCount: 0,
+        nextCommand: 'bun run demo:closed-loop',
+        items: expect.arrayContaining(
+          CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => ({
+            id: artifact.id,
+            status: 'passed',
+            artifactPath: artifact.path,
+            command: 'bun run sec -- explain'
+          }))
+        )
+      },
+      { compact: true }
+    );
+
+    // A successful Repair CLI publication observes the same current all-lane
+    // Verification subject; Explain only adds derived review/navigation artifacts.
+    const repair = await expectCliJson<RepairPlan>(
+      workspaceRoot,
+      ['repair', '--json', '--compact'],
+      undefined,
+      { compact: true }
+    );
+    expect(repair).toMatchObject({
+      status: 'skipped',
+      sourceVerificationStatus: 'passed',
+      requiresVerification: false,
+      tasks: []
+    });
+  });
+}, 360000);

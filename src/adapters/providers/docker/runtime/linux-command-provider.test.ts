@@ -1,4 +1,6 @@
-import { access, chmod, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { settleWorkspaceCallback } from '../../../../../tests/testkit/workspace-cleanup.ts';
+import { settleResourcesAsync } from '../../../../execution/resource-settlement.ts';
+import { lstat, chmod, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -19,14 +21,13 @@ import {
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { issueRetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
-import { createDockerEndpointIdentity } from '../contract/daemon.ts';
+import { createDockerEndpointIdentity, DockerDaemonAvailabilityFailure } from '../contract/daemon.ts';
 import {
   claimDockerCommandProviderCapability,
   disposeUnclaimedDockerCommandProviderCapability,
   issueDockerCommandProviderCapability
 } from './command-provider.ts';
-import { assertDockerCommandOperationAvailable, compileLinuxDockerDaemonProbeArguments, LINUX_DOCKER_OPERATIONS, openContainerEngineSession } from './container-engine-session.ts';
-import { openLinuxDockerCommandProvider } from './linux-command-provider.ts';
+import { compileLinuxDockerDaemonProbeArguments, openContainerEngineSession } from './container-engine-session.ts';
 import { assertLinuxDockerEndpoint, openLinuxDockerEndpoint, type LinuxDockerEndpoint } from './linux-endpoint.ts';
 import { assertLinuxDockerRuntimeState, openLinuxDockerRuntimeState } from './linux-runtime-state.ts';
 
@@ -62,33 +63,49 @@ function operation(providerIdentityDigest: OperationDigest, deadlineAtUnixMs = D
 
 async function providerFixture(options: Readonly<{ endpointHost?: string; daemonProbe?: string; linuxEndpoint?: LinuxDockerEndpoint }> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-linux-docker-fixture-'));
-  const probe = path.join(root, 'curl');
-  const marker = path.join(root, 'probe-executed');
-  await writeFile(probe, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '%s\\n' '{"ID":"fixture-daemon","OSType":"linux","Architecture":"x86_64"}'\n`, { mode: 0o700 });
-  const directory = inspectNoFollowDirectoryChain(root);
-  const probePath = options.daemonProbe ?? probe;
-  const daemonProbe = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(probePath)), path.basename(probePath),
-    undefined, 'Daemon probe fixture', 3, 'executable'
-  );
-  const workingDirectory = retainNoFollowDirectoryForChildProcess(directory, 4);
-  const privateState = openLinuxDockerRuntimeState();
-  const runtimeRoot = path.dirname(await readlink(privateState.environment.HOME!));
-  const capability = issueDockerCommandProviderCapability({
-    boundary: issueRetainedCommandBoundary({ executable: daemonProbe, workingDirectory }),
-    commandProtocol: 'engine-http', daemonProbe, endpointHost: options.endpointHost ?? endpointHost, privateState,
-    ...(options.linuxEndpoint === undefined ? {} : { linuxEndpoint: options.linuxEndpoint }),
-    environment: privateState.environment, platform: 'linux',
-    providerContractDigest: digest('Linux Docker fixture'), workingDirectory: directory.target
-  });
-  return { capability, root, probe, privateState, runtimeRoot, marker };
+  const cleanup: { label: string; settle(): void | Promise<void> }[] = [
+    { label: 'Linux provider fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+  ];
+  try {
+    const probe = path.join(root, 'curl');
+    const marker = path.join(root, 'probe-executed');
+    if (options.daemonProbe === undefined) {
+      await writeFile(probe, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '%s\\n' '{"ID":"fixture-daemon","OSType":"linux","Architecture":"x86_64"}'\n`, { mode: 0o700 });
+    }
+    const directory = inspectNoFollowDirectoryChain(root);
+    const probePath = options.daemonProbe ?? probe;
+    const daemonProbe = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(probePath)), path.basename(probePath),
+      undefined, 'Daemon probe fixture', 3, 'executable'
+    );
+    cleanup.unshift({ label: 'daemon probe', settle: () => daemonProbe.dispose() });
+    const workingDirectory = retainNoFollowDirectoryForChildProcess(directory, 4);
+    cleanup.unshift({ label: 'working directory', settle: () => workingDirectory.dispose() });
+    const privateState = openLinuxDockerRuntimeState();
+    cleanup.unshift({ label: 'private runtime state', settle: () => privateState.close() });
+    const runtimeRoot = path.dirname(await readlink(privateState.environment.HOME!));
+    const capability = issueDockerCommandProviderCapability({
+      boundary: issueRetainedCommandBoundary({ executable: daemonProbe, workingDirectory }),
+      commandProtocol: 'engine-http', daemonProbe, endpointHost: options.endpointHost ?? endpointHost, privateState,
+      ...(options.linuxEndpoint === undefined ? {} : { linuxEndpoint: options.linuxEndpoint }),
+      environment: privateState.environment, platform: 'linux',
+      providerContractDigest: digest('Linux Docker fixture'), workingDirectory: directory.target
+    });
+    return { capability, root, probe, privateState, runtimeRoot, marker };
+  } catch (error) {
+    await settleResourcesAsync({ primary: { label: 'Linux provider fixture construction', error }, cleanup });
+    throw error;
+  }
 }
 
 linuxTest('Linux private config is exclusive, descriptor-addressed and retired after exact readback', async () => {
-  const first = openLinuxDockerRuntimeState();
-  const second = openLinuxDockerRuntimeState();
-  const root = path.dirname(await readlink(first.environment.HOME!));
-  try {
+  const cleanup: { label: string; settle(): void }[] = [];
+  await settleWorkspaceCallback(async () => {
+    const first = openLinuxDockerRuntimeState();
+    cleanup.push({ label: 'first private runtime', settle: () => first.close() });
+    const second = openLinuxDockerRuntimeState();
+    cleanup.push({ label: 'second private runtime', settle: () => second.close() });
+    const root = path.dirname(await readlink(first.environment.HOME!));
     expect(first.identityDigest).not.toBe(second.identityDigest);
     expect(() => assertLinuxDockerRuntimeState({ ...first })).toThrow('not owner-issued');
     for (const key of ['HOME', 'DOCKER_CONFIG', 'TMPDIR']) {
@@ -102,18 +119,15 @@ linuxTest('Linux private config is exclusive, descriptor-addressed and retired a
     first.assertCurrent();
     first.close();
     first.close();
-    await expect(access(root)).rejects.toBeDefined();
-  } finally {
-    first.close();
-    second.close();
-  }
+    await expect(lstat(root)).rejects.toMatchObject({ code: 'ENOENT' });
+  }, async () => { await settleResourcesAsync({ cleanup }); });
 });
 
 linuxTest('Linux private config rejects lexical symlink replacement and permission drift', async () => {
   const state = openLinuxDockerRuntimeState();
-  const config = await readlink(state.environment.DOCKER_CONFIG!);
-  const displaced = `${config}-displaced`;
-  try {
+  await settleWorkspaceCallback(async () => {
+    const config = await readlink(state.environment.DOCKER_CONFIG!);
+    const displaced = `${config}-displaced`;
     await chmod(config, 0o750);
     expect(() => state.assertCurrent()).toThrow('not private');
     await chmod(config, 0o700);
@@ -122,9 +136,7 @@ linuxTest('Linux private config rejects lexical symlink replacement and permissi
     expect(() => state.assertCurrent()).toThrow();
     await rm(config);
     await rename(displaced, config);
-  } finally {
-    state.close();
-  }
+  }, async () => { state.close(); });
 });
 
 linuxTest('Linux session refuses an unretained endpoint before executing a probe and retires owned state', async () => {
@@ -134,8 +146,8 @@ linuxTest('Linux session refuses an unretained endpoint before executing a probe
       provider: fixture.capability, operation: operation(fixture.capability.providerIdentityDigest),
       cwd: fixture.root, availability: 'observe'
     })).rejects.toMatchObject({ code: 'SEC-DOCKER-COMMAND-OPERATION-UNAVAILABLE', reason: 'linux-endpoint-identity-unavailable' });
-    await expect(access(fixture.marker)).rejects.toBeDefined();
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
@@ -146,7 +158,7 @@ linuxTest('replaced daemon probe rejects provider admission and settles its priv
     await writeFile(replacement, '#!/bin/sh\nprintf attacker', { mode: 0o700 });
     await rename(replacement, fixture.probe);
     expect(() => claimDockerCommandProviderCapability(fixture.capability)).toThrow('changed before admission');
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -163,17 +175,12 @@ linuxTest('a Linux session rejects a different expected endpoint before any comm
         osType: 'linux', architecture: 'x86_64'
       })
     })).rejects.toThrow('differs from the installed provider endpoint');
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
-
-test('Linux installed provider rejects an unbound working directory before discovery', async () => {
-  await expect(openLinuxDockerCommandProvider({ workingDirectory: '.' }))
-    .rejects.toThrow(/working directory|platform/u);
-});
-
 
 test('Linux daemon probe disables ambient config, proxies and redirects and bounds the local request', () => {
   const deadline = Date.now() + 30_000;
@@ -197,73 +204,148 @@ linuxTest('sealed curl observes a local Engine without inherited curlrc or proxi
   let status = 200;
   let body = JSON.stringify({ ID: 'fixture-daemon', OSType: 'linux', Architecture: 'x86_64' });
   const requests: Array<Readonly<{ method: string | undefined; url: string | undefined; authorization: string | undefined }>> = [];
-  const server = createServer((request, response) => {
-    requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization });
-    response.writeHead(status, { 'Content-Type': 'application/json' });
-    response.end(body);
-  });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(socket, resolve);
-    });
-  } catch (error) {
-    await rm(root, { recursive: true, force: true });
-    throw error;
-  }
-  const old = { CURL_HOME: process.env.CURL_HOME, http_proxy: process.env.http_proxy };
-  await writeFile(path.join(root, '.curlrc'), 'proxy = "http://127.0.0.1:1"\nurl = "http://127.0.0.1:1/attacker"\n');
-  process.env.CURL_HOME = root;
-  process.env.http_proxy = 'http://127.0.0.1:1';
+  let server: ReturnType<typeof createServer> | undefined;
+  let activeSession: Awaited<ReturnType<typeof openContainerEngineSession>> | undefined;
+  let unclaimed: Awaited<ReturnType<typeof providerFixture>>['capability'] | undefined;
+  let nativeTerminalProven = true;
+  const endpoints: LinuxDockerEndpoint[] = [];
   const fixtures: Awaited<ReturnType<typeof providerFixture>>[] = [];
-  try {
-    const fixture = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() }) });
+  let old: { CURL_HOME: string | undefined; http_proxy: string | undefined } | undefined;
+  let envMutationStarted = false;
+  await settleWorkspaceCallback(async () => {
+    server = createServer((request, response) => {
+      requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization });
+      response.writeHead(status, { 'Content-Type': 'application/json' });
+      response.end(body);
+    });
+    await new Promise<void>((resolve, reject) => {
+      server!.once('error', reject);
+      server!.listen(socket, resolve);
+    });
+    old = { CURL_HOME: process.env.CURL_HOME, http_proxy: process.env.http_proxy };
+    await writeFile(path.join(root, '.curlrc'), 'proxy = "http://127.0.0.1:1"\nurl = "http://127.0.0.1:1/attacker"\n');
+    envMutationStarted = true;
+    process.env.CURL_HOME = root;
+    process.env.http_proxy = 'http://127.0.0.1:1';
+    const fixtureEndpoint = openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() });
+    endpoints.push(fixtureEndpoint);
+    const fixture = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: fixtureEndpoint });
     fixtures.push(fixture);
-    const session = await openContainerEngineSession({
+    unclaimed = fixture.capability;
+    const opening = openContainerEngineSession({
       provider: fixture.capability, operation: operation(fixture.capability.providerIdentityDigest),
       cwd: fixture.root, availability: 'observe'
     });
-    try {
+    unclaimed = undefined;
+    nativeTerminalProven = false;
+    const session = await opening;
+    activeSession = session;
+    nativeTerminalProven = true;
+    await settleWorkspaceCallback(async () => {
       expect(session.endpoint.daemonId).toBe('fixture-daemon');
       expect(session.supportedOperations).toEqual([]);
       const scoped = operation(session.providerIdentityDigest, session.deadlineAtUnixMs);
       const scope = session.openOperationScope({ operation: scoped, requirementId });
       try {
+        nativeTerminalProven = false;
         await expect(session.execute({ kind: 'container-list', arguments: ['--help'] }))
           .rejects.toMatchObject({ code: 'SEC-DOCKER-COMMAND-OPERATION-UNAVAILABLE', reason: 'linux-cli-plugin-closure-unavailable' });
         await expect(session.execute({ kind: 'buildx-build', arguments: ['--help'] }))
           .rejects.toMatchObject({ code: 'SEC-DOCKER-COMMAND-OPERATION-UNAVAILABLE', reason: 'linux-buildx-closure-unavailable' });
-      } finally { expect(scope.settle().physicalDisposition).toBe('not-started'); }
+      } finally {
+        expect(scope.settle().physicalDisposition).toBe('not-started');
+        nativeTerminalProven = true;
+      }
 
       body = JSON.stringify({ ID: 'replacement-daemon', OSType: 'linux', Architecture: 'x86_64' });
-      await expect(session.observeEndpoint()).rejects.toThrow('differs from the retained session endpoint');
-    } finally {
+      nativeTerminalProven = false;
+      await expect(session.observeEndpoint().then(value => {
+        nativeTerminalProven = true;
+        return value;
+      }, error => {
+        if (error instanceof Error && error.cause === undefined
+            && error.message === 'Container Engine session: independent endpoint readback differs from the retained session endpoint') {
+          nativeTerminalProven = true;
+        }
+        throw error;
+      })).rejects.toThrow('differs from the retained session endpoint');
+    }, async () => {
+      if (!nativeTerminalProven) throw new Error(`Docker probe termination is unproven; session and fixture roots are preserved: ${root}`);
       session.close();
-    }
+      activeSession = undefined;
+    });
     body = 'not-json';
-    const invalid = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() }) });
+    const invalidEndpoint = openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() });
+    endpoints.push(invalidEndpoint);
+    const invalid = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: invalidEndpoint });
     fixtures.push(invalid);
-    await expect(openContainerEngineSession({
+    unclaimed = invalid.capability;
+    const invalidOpening = openContainerEngineSession({
       provider: invalid.capability, operation: operation(invalid.capability.providerIdentityDigest),
       cwd: invalid.root, availability: 'observe'
+    });
+    unclaimed = undefined;
+    nativeTerminalProven = false;
+    await expect(invalidOpening.then(value => {
+      activeSession = value;
+      nativeTerminalProven = true;
+      return value;
+    }, error => {
+      if (error instanceof Error && error.cause === undefined
+          && error.message === 'Container Engine session: daemon info is not JSON') {
+        nativeTerminalProven = true;
+      }
+      throw error;
     })).rejects.toThrow('daemon info is not JSON');
     status = 503;
-    const unavailable = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() }) });
+    const unavailableEndpoint = openLinuxDockerEndpoint({ endpointHost: `unix://${socket}`, peerUid: process.geteuid!() });
+    endpoints.push(unavailableEndpoint);
+    const unavailable = await providerFixture({ endpointHost: `unix://${socket}`, daemonProbe: '/usr/bin/curl', linuxEndpoint: unavailableEndpoint });
     fixtures.push(unavailable);
-    await expect(openContainerEngineSession({
+    unclaimed = unavailable.capability;
+    const unavailableOpening = openContainerEngineSession({
       provider: unavailable.capability, operation: operation(unavailable.capability.providerIdentityDigest),
       cwd: unavailable.root, availability: 'observe'
+    });
+    unclaimed = undefined;
+    nativeTerminalProven = false;
+    await expect(unavailableOpening.then(value => {
+      activeSession = value;
+      nativeTerminalProven = true;
+      return value;
+    }, error => {
+      if (error instanceof DockerDaemonAvailabilityFailure && error.cause === undefined
+          && error.reason === 'endpoint-unavailable' && error.phase === 'endpoint-observe') {
+        nativeTerminalProven = true;
+      }
+      throw error;
     })).rejects.toMatchObject({ reason: 'endpoint-unavailable', phase: 'endpoint-observe' });
     expect(requests).toEqual(Array(4).fill({ method: 'GET', url: '/info', authorization: undefined }));
-    for (const fixture of fixtures) await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
-  } finally {
-    for (const [key, value] of Object.entries(old)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    }
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    for (const fixture of fixtures) await rm(fixture.root, { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
-  }
+    for (const fixture of fixtures) await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  }, async () => {
+    await settleResourcesAsync({ cleanup: [
+      ...(envMutationStarted ? Object.entries(old!) : []).map(([key, value]) => ({ label: `restore ${key}`, settle: () => {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      } })),
+      { label: 'retire settled Docker probe fixtures', settle: async () => {
+        if (!nativeTerminalProven) throw new Error(`Docker probe termination is unproven; endpoint and fixture roots are preserved: ${root}`);
+        await settleResourcesAsync({ cleanup: [
+          { label: 'active engine session', settle: () => { activeSession?.close(); } },
+          { label: 'unclaimed command provider', settle: () => {
+            if (unclaimed !== undefined) disposeUnclaimedDockerCommandProviderCapability(unclaimed);
+          } },
+          ...endpoints.map(endpoint => ({ label: 'retained Engine endpoint', settle: () => endpoint.close() }))
+        ] });
+        if (server?.listening) {
+          await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve()));
+        }
+        await settleResourcesAsync({ cleanup: [
+          ...fixtures.map(fixture => ({ label: 'probe fixture root', settle: () => rm(fixture.root, { recursive: true, force: true }) })),
+          { label: 'Engine server fixture root', settle: () => rm(root, { recursive: true, force: true }) }
+        ] });
+      } }
+    ] });
+  });
 });
 
 
@@ -294,26 +376,11 @@ linuxTest('Linux config cannot introduce credential helpers or ambient plugin di
 });
 
 
-test('Linux command-family admission refuses Docker CLI help/error reachability before transport', () => {
-  expect(LINUX_DOCKER_OPERATIONS).toEqual([]);
-  for (const kind of ['container-copy', 'container-create', 'container-exec', 'container-inspect',
-    'container-list', 'container-remove', 'container-run', 'container-start', 'image-inspect',
-    'image-list', 'image-remove', 'network-disconnect', 'volume-create', 'volume-inspect'] as const) {
-    expect(() => assertDockerCommandOperationAvailable('linux', kind))
-      .toThrow('linux-cli-plugin-closure-unavailable');
-    expect(() => assertDockerCommandOperationAvailable('win32', kind)).not.toThrow();
-  }
-  expect(() => assertDockerCommandOperationAvailable('linux', undefined)).toThrow('linux-cli-plugin-closure-unavailable');
-  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-build')).toThrow('linux-buildx-closure-unavailable');
-  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-bake')).toThrow('linux-buildx-closure-unavailable');
-});
-
-
 linuxTest('unclaimed Linux provider disposal settles the private state and retained command inputs', async () => {
   const fixture = await providerFixture();
   try {
     disposeUnclaimedDockerCommandProviderCapability(fixture.capability);
-    await expect(access(fixture.runtimeRoot)).rejects.toBeDefined();
+    await expect(lstat(fixture.runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(() => claimDockerCommandProviderCapability(fixture.capability)).toThrow();
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });

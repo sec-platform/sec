@@ -1,5 +1,7 @@
 const templatePipelines = Object.freeze({
   'empty-default': null,
+  // Authored minimal initial state only; each consumer owns its workspace and effects.
+  'empty-minimal': null,
   'resolved-default': Object.freeze({ through: 'resolve', verificationLane: 'all' } as const),
   'composed-default': Object.freeze({ through: 'compose', verificationLane: 'all' } as const),
   'verified-fast-default': Object.freeze({ through: 'verify', verificationLane: 'fast' } as const),

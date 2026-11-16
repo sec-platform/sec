@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { CommitFence } from "../../../contracts/commit-fence.ts";
 import { CodedFailure } from '../../../contracts/failure.ts';
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
+import { parseOverrideBlockConflict } from '../../../semantics/provenance/override-schema.ts';
 import type { OverrideEntry } from '../../../semantics/provenance/types.ts';
 import { deleteExpectedCanonicalWorkspaceFile, publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from "../../filesystem/file-publication.ts";
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
@@ -131,6 +132,16 @@ export async function applyOverrides(
   workspaceRoot = path.resolve(workspaceRoot);
   if (commitFence !== undefined && typeof commitFence !== 'function') throw new TypeError('Override commit fence must be callable');
   const manifest = await loadOverrideManifest(workspaceRoot);
+  for (const entry of manifest.overrides) {
+    const conflictId = entry.conflictsWith.find(reference => parseOverrideBlockConflict(reference) === null);
+    if (conflictId !== undefined) {
+      throw new CodedFailure(
+        'OVERRIDE-CONFLICT-001',
+        `Overrides "${entry.id}" and "${conflictId}" cannot be applied together`,
+        { overrideId: entry.id, conflictId }
+      );
+    }
+  }
   const entries = manifest.overrides.map(entry => Object.freeze({ ...entry }));
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
   const overrideRoot = path.dirname(overrideManifestPath);

@@ -1,0 +1,175 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { inspect } from 'node:util';
+import { boundedFailureCode, failureMessage, getErrorCode, inspectFailureValue } from '../../../src/contracts/failure-inspection.ts';
+import { CodedFailure } from '../../../src/contracts/failure.ts';
+import { PhysicalNoFollowError } from '../../../src/adapters/runtime-state/physical/runtime/physical-no-follow-contract.ts';
+
+const allowedCodes = new Set(['RUNTIME-DEPS-001', 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'ENOENT', 'EACCES']);
+const sentinel = 'private-dependency-stage-secret-7da130';
+
+test('all primitive failures preserve diagnostics without inventing codes', () => {
+  for (const reason of [undefined, null, false, 0, 7n, Symbol('failure'), 'text']) {
+    const context = `primitive: ${String(reason)}`;
+    assert.equal(failureMessage(reason), String(reason), context);
+    assert.equal(getErrorCode(reason), undefined, context);
+  }
+});
+
+test('native Error accessor fields are never invoked, including when nested', () => {
+  let reads = 0;
+  const error = new Error('initial');
+  for (const key of ['message', 'name', 'stack']) {
+    Object.defineProperty(error, key, {
+      configurable: true,
+      enumerable: true,
+      get() { reads++; throw new Error(`read ${key}`); }
+    });
+  }
+  assert.match(failureMessage(error), /Accessor not evaluated/u);
+  assert.match(inspectFailureValue({ nested: error }), /Accessor not evaluated/u);
+  assert.equal(reads, 0);
+});
+
+test('presentation keeps own data without inherited constructors or prototype setters', () => {
+  let inheritedReads = 0;
+  let hooks = 0;
+  const parent = Object.defineProperty({}, 'constructor', {
+    get() { inheritedReads++; throw new Error('constructor'); }
+  });
+  const value = Object.create(parent) as Record<string, unknown>;
+  Object.defineProperty(value, '__proto__', { value: 'retained', enumerable: true });
+  value.self = value;
+  value.toString = () => { hooks++; throw new Error('conversion'); };
+  Object.defineProperty(value, 'content', { enumerable: true, get() { hooks++; throw new Error('getter'); } });
+  Object.defineProperty(value, inspect.custom, { value: () => { hooks++; throw new Error('inspect'); } });
+  const rendered = inspectFailureValue(value);
+  assert.match(rendered, /__proto__/u);
+  assert.match(rendered, /retained/u);
+  assert.match(rendered, /Circular reference/u);
+  assert.equal(failureMessage(value), rendered);
+  assert.equal(inheritedReads, 0);
+  assert.equal(hooks, 0);
+});
+
+test('presentation bounds nested, wide and long diagnostic data', () => {
+  let deep: Record<string, unknown> = { terminal: 'retained' };
+  for (let index = 0; index < 10; index++) deep = { child: deep };
+  const wide = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`key${index}`, index]));
+  const rendered = inspectFailureValue({ deep, wide, long: 'x'.repeat(10000), exotic: new Map([['a', 1]]) });
+  assert.ok(rendered.length <= 4096);
+  assert.match(rendered, /Depth limit/u);
+  assert.match(rendered, /Key limit/u);
+  assert.match(rendered, /truncated/u);
+  assert.match(rendered, /Prototype and possible internal details not expanded/u);
+});
+
+test('presentation distinguishes marker-named and truncated colliding data keys', () => {
+  const common = 'k'.repeat(512);
+  const value = Object.create(null) as Record<string, unknown>;
+  value['[Key limit]'] = 'user key marker';
+  value['[Internal slots]'] = 'user slot marker';
+  value[`${common}first`] = 'first long key';
+  value[`${common}second`] = 'second long key';
+  const rendered = inspectFailureValue(value);
+  assert.match(rendered, /user key marker/u);
+  assert.match(rendered, /user slot marker/u);
+  assert.match(rendered, /first long key/u);
+  assert.match(rendered, /second long key/u);
+  assert.match(rendered, /key collision 2/u);
+});
+
+test('error codes read once, reject nonstrings, and do not throw through the projection', () => {
+  let reads = 0;
+  const inherited = Object.create({ get code() { reads++; return 'E-CODE'; } });
+  assert.equal(getErrorCode(inherited), 'E-CODE'); assert.equal(reads, 1);
+  assert.equal(getErrorCode({}), undefined);
+  assert.equal(getErrorCode({ code: '' }), '');
+  const readable = new Proxy({}, {
+    has() { throw new Error('presence is not an error-code read'); },
+    get(_target, key) { return key === 'code' ? 'READABLE' : undefined; }
+  });
+  assert.equal(getErrorCode(readable), 'READABLE');
+  let conversions = 0;
+  const nonStringCode = { toString() { conversions++; throw new Error('must not run'); } };
+  for (const code of [null, 0, nonStringCode, Symbol('code')]) assert.equal(getErrorCode({ code }), undefined);
+  assert.equal(conversions, 0);
+  const error = new CodedFailure('OWNER-INSPECTION-001', 'original');
+  assert.equal(getErrorCode(error), 'OWNER-INSPECTION-001');
+  Object.defineProperty(error, 'code', { get() { throw undefined; } });
+  assert.equal(getErrorCode(error), undefined);
+  // The allowlisted diagnostic-code projection is intentionally stricter than getErrorCode.
+  {
+   const inputs = [
+      [new CodedFailure('RUNTIME-DEPS-001', sentinel, { environment: sentinel }), 'RUNTIME-DEPS-001'],
+      [new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', sentinel,
+        { cause: new Error(sentinel) }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'],
+      [Object.assign(new Error(sentinel), { code: 'EACCES' }), 'EACCES']
+    ] as const;
+    for (const [error, expected] of inputs) assert.equal(boundedFailureCode(error, allowedCodes), expected);
+  }
+  {
+   for (const error of [undefined, null, new Error(sentinel),
+      { code: `EACCES${sentinel}` }, Object.assign(() => undefined, { code: 'ENOENT' }),
+      Object.create({ code: 'ENOENT' })]) {
+      assert.equal(boundedFailureCode(error, allowedCodes), 'UNKNOWN');
+    }
+    assert.equal(boundedFailureCode(Object.assign(Object.create(null), { code: 'ENOENT' }), allowedCodes), 'ENOENT');
+  }
+});
+
+test('live and revoked proxies reach no traps or renderer', () => {
+  let traps = 0;
+  const live = new Proxy({}, {
+    get() { traps++; throw new Error('get'); },
+    ownKeys() { traps++; throw new Error('ownKeys'); },
+    getOwnPropertyDescriptor() { traps++; throw new Error('descriptor'); },
+    getPrototypeOf() { traps++; throw new Error('prototype'); }
+  });
+  const { proxy: revoked, revoke } = Proxy.revocable({}, {});
+  revoke();
+  assert.equal(getErrorCode(revoked), undefined);
+  for (const value of [live, revoked, { nested: live }]) {
+    assert.match(inspectFailureValue(value), /Proxy not inspected/u);
+    assert.match(failureMessage(value), /Proxy not inspected/u);
+  }
+  assert.equal(traps, 0);
+  // Hostile failures must not execute accessors, conversions or Proxy traps.
+  {
+   let calls = 0;
+    const malicious = () => { calls++; throw new Error(sentinel); };
+    const error = Object.create(Object.defineProperty({}, 'code', { get: malicious }));
+    for (const field of ['message', 'details', 'cause', 'name', 'stack', 'path']) {
+      Object.defineProperty(error, field, { get: malicious });
+    }
+    error.toString = malicious;
+    error[inspect.custom] = malicious;
+    assert.equal(boundedFailureCode(error, allowedCodes), 'UNKNOWN');
+    Object.defineProperty(error, 'code', { get: malicious });
+    assert.equal(boundedFailureCode(error, allowedCodes), 'UNKNOWN');
+    const proxy = new Proxy({}, { get: malicious, getPrototypeOf: malicious,
+      getOwnPropertyDescriptor: malicious, ownKeys: malicious });
+    assert.equal(boundedFailureCode(proxy, allowedCodes), 'UNKNOWN');
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    assert.equal(boundedFailureCode(revoked.proxy, allowedCodes), 'UNKNOWN');
+    assert.equal(calls, 0);
+  }
+});
+
+test('nested native Error inspection never materializes its lazy stack', () => {
+  const original = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+  let stackReads = 0;
+  try {
+    Error.prepareStackTrace = () => { stackReads++; return 'rendered stack'; };
+    const error = new Error('lazy original');
+    assert.equal(failureMessage(error), 'lazy original');
+    const rendered = inspectFailureValue({ error });
+    const observedReads = stackReads;
+    assert.equal(observedReads, 0);
+    assert.match(rendered, /lazy original/u);
+  } finally {
+    if (original === undefined) Reflect.deleteProperty(Error, 'prepareStackTrace');
+    else Object.defineProperty(Error, 'prepareStackTrace', original);
+  }
+});
