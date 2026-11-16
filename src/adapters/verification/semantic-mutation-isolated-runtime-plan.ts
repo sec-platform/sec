@@ -191,12 +191,13 @@ const MAX_RUNTIME_SOURCE_SNAPSHOTS = 4;
 async function runCanonicalBatches<T, R>(
   items: readonly T[],
   worker: (item: T, canonicalIndex: number) => Promise<R>,
-  batchBoundary?: () => Promise<void>
+  batchBoundary?: () => Promise<void>,
+  batchWidth = RUNTIME_FILE_CONCURRENCY
 ): Promise<readonly R[]> {
   const output: R[] = [];
   if (items.length > 0 && batchBoundary) await batchBoundary();
-  for (let offset = 0; offset < items.length; offset += RUNTIME_FILE_CONCURRENCY) {
-    const batch = items.slice(offset, offset + RUNTIME_FILE_CONCURRENCY);
+  for (let offset = 0; offset < items.length; offset += batchWidth) {
+    const batch = items.slice(offset, offset + batchWidth);
     const settled = await Promise.allSettled(batch.map((item, index) =>
       Promise.resolve().then(() => worker(item, offset + index))));
     if (batchBoundary) await batchBoundary();
@@ -209,13 +210,17 @@ async function runCanonicalBatches<T, R>(
   return Object.freeze(output);
 }
 
-/** Test-only deterministic scheduler seam; production width remains fixed at eight. */
+/** Test-only deterministic scheduler seam; tests choose a width independently of production policy. */
 export function runSemanticMutationRuntimeCanonicalBatchesForTests<T, R>(
   items: readonly T[],
   worker: (item: T, canonicalIndex: number) => Promise<R>,
+  batchWidth: number,
   batchBoundary?: () => Promise<void>
 ): Promise<readonly R[]> {
-  return runCanonicalBatches(items, worker, batchBoundary);
+  if (!Number.isSafeInteger(batchWidth) || batchWidth < 1) {
+    throw new Error('Semantic Mutation test scheduler batch width must be a positive safe integer');
+  }
+  return runCanonicalBatches(items, worker, batchBoundary, batchWidth);
 }
 
 function foldedPath(filePath: string): string {

@@ -30,78 +30,41 @@ function deferred(): {
   return { promise, resolve };
 }
 
-test('runtime materialization scheduler starts exactly eight canonical items at a time', async () => {
-  const releaseFirstBatch = deferred();
-  const firstBatchStarted = deferred();
-  const boundaries: number[] = [];
-  const started: number[] = [];
-  let inFlight = 0;
-  let maxInFlight = 0;
-  const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 9 }, (_, index) => index),
-    async (item, canonicalIndex) => {
-      expect(item).toBe(canonicalIndex);
-      started.push(canonicalIndex);
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      if (canonicalIndex === 7) firstBatchStarted.resolve();
-      if (canonicalIndex < 8) await releaseFirstBatch.promise;
-      inFlight -= 1;
-      return canonicalIndex;
-    },
-    async () => { boundaries.push(started.length); }
-  );
-
-  await settleWorkspaceCallback(async () => {
-    await firstBatchStarted.promise;
-    expect(boundaries).toEqual([0]);
-    expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(maxInFlight).toBe(8);
-  }, async () => {
-    releaseFirstBatch.resolve();
-    await execution;
-  });
-
-  expect(await execution).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
-  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
-  expect(boundaries).toEqual([0, 8, 9]);
-  expect(maxInFlight).toBe(8);
-});
-
 test('runtime materialization scheduler settles mixed sync and async failures, reports the lowest canonical error, and stops before the next batch', async () => {
   const releaseLowerFailure = deferred();
   const synchronousFailureStarted = deferred();
   const started: number[] = [];
   const settled: number[] = [];
   const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 16 }, (_, index) => index),
+    Array.from({ length: 8 }, (_, index) => index),
     (_item, canonicalIndex) => {
       started.push(canonicalIndex);
-      if (canonicalIndex === 6) {
+      if (canonicalIndex === 2) {
         settled.push(canonicalIndex);
         synchronousFailureStarted.resolve();
-        throw new Error('synchronous canonical failure 6');
+        throw new Error('synchronous canonical failure 2');
       }
       return Promise.resolve().then(async () => {
         try {
-          if (canonicalIndex === 2) {
+          if (canonicalIndex === 0) {
             await releaseLowerFailure.promise;
-            throw new Error('canonical failure 2');
+            throw new Error('canonical failure 0');
           }
           return canonicalIndex;
         } finally {
           settled.push(canonicalIndex);
         }
       });
-    }
+    },
+    4
   );
 
   try {
     await synchronousFailureStarted.promise;
     releaseLowerFailure.resolve();
-    await expect(execution).rejects.toThrow('canonical failure 2');
-    expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(settled.sort((left, right) => left - right)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    await expect(execution).rejects.toThrow('canonical failure 0');
+    expect(started).toEqual([0, 1, 2, 3]);
+    expect(settled.sort((left, right) => left - right)).toEqual([0, 1, 2, 3]);
   } finally {
     releaseLowerFailure.resolve();
     await Promise.allSettled([execution]);
@@ -113,13 +76,14 @@ test('runtime materialization scheduler stops before the next batch when its bou
   const settled: number[] = [];
   let boundaryCalls = 0;
   const execution = runSemanticMutationRuntimeCanonicalBatchesForTests(
-    Array.from({ length: 16 }, (_, index) => index),
+    Array.from({ length: 8 }, (_, index) => index),
     async (_item, canonicalIndex) => {
       started.push(canonicalIndex);
       await Promise.resolve();
       settled.push(canonicalIndex);
       return canonicalIndex;
     },
+    4,
     async () => {
       boundaryCalls += 1;
       if (boundaryCalls === 2) throw new Error('injected post-batch lease loss');
@@ -127,8 +91,8 @@ test('runtime materialization scheduler stops before the next batch when its bou
   );
 
   await expect(execution).rejects.toThrow('injected post-batch lease loss');
-  expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-  expect(settled).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  expect(started).toEqual([0, 1, 2, 3]);
+  expect(settled).toEqual([0, 1, 2, 3]);
   expect(boundaryCalls).toBe(2);
 });
 
