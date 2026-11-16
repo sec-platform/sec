@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import ts from 'typescript';
 import path from 'node:path';
 import { rawSha256 } from '../../../contracts/canonical.ts';
+import { parseRepositoryModuleDescriptorJson, type RepositoryModuleDescriptor } from '../architecture/contract.ts';
 import { createTypeScriptSnapshotDirectoryReader } from '../../toolchain/typescript/snapshot-directory.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
@@ -61,7 +62,7 @@ function projectInput(config: Readonly<Record<string, unknown>>, source = 'expor
   });
 }
 
-test('ProjectInput signs one exact execution-config containment receipt', () => {
+test('ProjectInput signs exact config receipt and binds immutable source membership identity', () => {
   const config = Object.freeze({
     compilerOptions: Object.freeze({ strict: true }),
     include: Object.freeze(['src/**/*.ts'])
@@ -87,6 +88,40 @@ test('ProjectInput signs one exact execution-config containment receipt', () => 
   expect(changedClosure.input.executionConfigContainment.resolvedConfigDigest)
     .not.toBe(first.input.executionConfigContainment.resolvedConfigDigest);
   expect(changedClosure.input.projectInputDigest).not.toBe(first.input.projectInputDigest);
+
+  let current: RepositoryModuleDescriptor | null = null;
+  const membership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => current
+  });
+  const source = 'export const value = 1;\n';
+  const value = compileVirtualWorkspaceSourceSnapshot({
+    subject: {
+      kind: 'virtual-mutation',
+      provenance: {
+        kind: 'source-program-virtual-mutation',
+        baseSnapshotDigest: rawSha256('identity-base'),
+        mutationDigest: rawSha256(source)
+      }
+    },
+    files: [{ path: 'src/example/value.ts', source, contentDigest: rawSha256(source) }],
+    moduleMembership: membership
+  });
+  const input = { sourceRevision: value.sourceRevision, files: value.files, moduleMembership: membership };
+  expect(() => value.assertMatches(input)).not.toThrow();
+  expect(() => value.assertMatches({
+    ...input, files: value.files.map((file) => ({ ...file })), moduleMembership: { ...membership }
+  })).not.toThrow();
+  expect(() => value.assertMatches({
+    ...input, files: value.files.map((file) => ({ ...file, source: `${file.source}// changed\n` }))
+  })).toThrow();
+  expect(() => value.assertMatches({ ...input, sourceRevision: rawSha256('another-revision') })).toThrow();
+  current = parseRepositoryModuleDescriptorJson(
+    '{"importGraph":"runtime","externalEntrypoints":[]}', 'src/example/module.json'
+  );
+  expect(() => value.assertMatches(input)).toThrow('does not bind');
 });
 
 test('ProjectInput rejects configuration and source escapes before execution materialization', () => {
