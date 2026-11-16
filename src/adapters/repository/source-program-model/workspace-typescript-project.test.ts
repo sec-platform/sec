@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import ts from 'typescript';
+import path from 'node:path';
 import { rawSha256 } from '../../../contracts/canonical.ts';
+import { createTypeScriptSnapshotDirectoryReader } from '../../toolchain/typescript/snapshot-directory.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectFactIdentity,
@@ -14,6 +16,38 @@ import {
   compileTypeScriptProjectInput,
   projectTypeScriptProjectFactIdentity
 } from './workspace-typescript-project.ts';
+import {
+  parseContainedTypeScriptProjectConfig,
+  parseTypeScriptProjectConfiguration
+} from './workspace-typescript-config.ts';
+
+
+const configInventory = new Map([
+  ['src/root.ts', 'export const root = true;'],
+  ['packages/a/src/a.ts', 'export const a = true;'],
+  ['packages/a/src/excluded/e.ts', 'export const e = true;'],
+  ['packages/a/extra/manual.ts', 'export const manual = true;'],
+  ['packages/b/src/b.ts', 'export const b = true;']
+]);
+
+function parseConfig(source: string) {
+  const root = path.resolve('snapshot-config-fixture');
+  const configPath = 'packages/a/tsconfig.json';
+  const config = parseContainedTypeScriptProjectConfig(source, configPath);
+  const absolute = path.join(root, configPath);
+  const host: ts.ParseConfigHost = {
+    useCaseSensitiveFileNames: true,
+    readDirectory: createTypeScriptSnapshotDirectoryReader([...configInventory.keys()], root),
+    readFile: filename => configInventory.get(path.relative(root, filename).split(path.sep).join('/')),
+    fileExists: filename => configInventory.has(path.relative(root, filename).split(path.sep).join('/'))
+  };
+  const result = parseTypeScriptProjectConfiguration(absolute, source, config, host, root);
+  return {
+    root,
+    result,
+    files: result.fileNames.map(file => path.relative(root, file).split(path.sep).join('/'))
+  };
+}
 
 function projectInput(config: Readonly<Record<string, unknown>>, source = 'export const value = 1;\n') {
   const sources = Object.freeze({
@@ -113,6 +147,15 @@ test('nested JSONC project admission and Program agree on directory roots and tr
     'packages/a/src/a.ts', 'packages/a/src/excluded/dependency.ts'
   ]);
   assert.deepEqual(projectTypeScriptProjectFactIdentity(input), admission);
+
+  const explicit = parseConfig(JSON.stringify({
+    compilerOptions: { baseUrl: '.', rootDir: 'src', outDir: 'dist' },
+    files: ['extra/manual.ts'], include: ['src'], exclude: ['src/excluded']
+  }));
+  assert.deepEqual(explicit.files, ['packages/a/extra/manual.ts', 'packages/a/src/a.ts']);
+  assert.equal(explicit.result.options.rootDir, path.join(explicit.root, 'packages/a/src').replaceAll('\\', '/'));
+  assert.equal(explicit.result.options.outDir, path.join(explicit.root, 'packages/a/dist').replaceAll('\\', '/'));
+  assert.equal(explicit.result.options.baseUrl, path.join(explicit.root, 'packages/a').replaceAll('\\', '/'));
 });
 
 function virtualProjectSnapshot(
@@ -228,4 +271,49 @@ test('ProjectInput represents a valid config with no matched TypeScript inputs a
     explicitlyInvalidEmptySnapshot,
     'tsconfig.json'
   )).toThrow('TypeScript ProjectInput config is invalid');
+
+  const emptyNested = parseConfig(JSON.stringify({
+    compilerOptions: {
+      baseUrl: '.', rootDir: 'src', outDir: 'dist', declarationDir: 'declarations',
+      rootDirs: ['src', 'generated'], typeRoots: ['types']
+    },
+    include: ['unmatched']
+  }));
+  assert.equal(emptyNested.result.errors.length, 0);
+  assert.deepEqual(emptyNested.files, []);
+  assert.equal(emptyNested.result.options.configFilePath,
+    path.join(emptyNested.root, 'packages/a/tsconfig.json').replaceAll('\\', '/'));
+  assert.equal(emptyNested.result.options.baseUrl, path.join(emptyNested.root, 'packages/a').replaceAll('\\', '/'));
+  assert.equal(emptyNested.result.options.rootDir, path.join(emptyNested.root, 'packages/a/src').replaceAll('\\', '/'));
+  assert.equal(emptyNested.result.options.outDir, path.join(emptyNested.root, 'packages/a/dist').replaceAll('\\', '/'));
+  assert.equal(emptyNested.result.options.declarationDir,
+    path.join(emptyNested.root, 'packages/a/declarations').replaceAll('\\', '/'));
+  assert.deepEqual(emptyNested.result.options.rootDirs, [
+    path.join(emptyNested.root, 'packages/a/src').replaceAll('\\', '/'),
+    path.join(emptyNested.root, 'packages/a/generated').replaceAll('\\', '/')
+  ]);
+  assert.deepEqual(emptyNested.result.options.typeRoots,
+    [path.join(emptyNested.root, 'packages/a/types').replaceAll('\\', '/')]);
+
+  const capturedRoot = path.resolve('snapshot-config-fixture');
+  const capturedSource = '{"compilerOptions":{"strict":true},"include":["missing"]}';
+  const captured = parseContainedTypeScriptProjectConfig(capturedSource, 'tsconfig.json');
+  Object.freeze(captured.compilerOptions);
+  Object.freeze(captured.include);
+  const before = JSON.stringify(captured);
+  const host: ts.ParseConfigHost = {
+    useCaseSensitiveFileNames: true,
+    fileExists: () => false,
+    readFile: () => undefined,
+    readDirectory: createTypeScriptSnapshotDirectoryReader([], capturedRoot)
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = parseTypeScriptProjectConfiguration(
+      path.join(capturedRoot, 'tsconfig.json'), capturedSource, captured, host, capturedRoot
+    );
+    assert.deepEqual(result.fileNames, []);
+    assert.equal(result.errors.length, 0);
+    assert.equal(JSON.stringify(captured), before);
+    assert.equal(Object.hasOwn(captured, 'compileOnSave'), false);
+  }
 });
