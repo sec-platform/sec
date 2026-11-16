@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
-import { settleWorkspaceCallback } from '../../testkit/workspace-cleanup.ts';
 
 import {
   assertSemanticMutationRuntimeDestinationManifestForTests,
