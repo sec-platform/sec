@@ -35,8 +35,7 @@ import {
   DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS,
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
-  isDefaultFastTestFile,
-  planFastTestProcesses
+  isDefaultFastTestFile
 } from '../../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from '../../../src/adapters/self-hosting/development/runner/test-concurrency-policy.ts';
 import {
@@ -624,56 +623,9 @@ afterAll(() => {
   mock.restore();
 });
 
-test('TestImpact fixture authority is bound to its fixture-owned exact Git commit', () => {
-  expect(testImpactFixture.provider.projection.subject).toMatchObject({
-    kind: 'physical-repository',
-    provenance: {
-      kind: 'git-tree',
-      commitSha: testImpactFixture.fixtureCommitSha
-    }
-  });
-  expect(testImpactFixture.fixtureCommitSha).not.toBe(testImpactFixture.sourceCommitSha);
-  expect(path.resolve(testImpactFixture.repositoryRoot)).not.toBe(path.resolve(compilerRoot));
-});
-
 function portableTestSpellings(file: string): string[] {
   return [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
 }
-
-test('native parallel planning preserves every selected file and isolates external resources', () => {
-  {
-    const independent = [
-      'tests/unit/development/command-runner.test.ts',
-      'tests/integration/workspace/pipeline-kernel.test.ts',
-      'tests/integration/workspace/pipeline-workspace-write-lease.test.ts',
-      'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts'
-    ];
-    const shared = 'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts';
-    const original = ['tests/unit/z.test.ts', independent[0]!, 'src/alpha_spec.ts',
-      independent[1]!, shared, 'tests/unit/a.test.ts', independent[2]!, independent[3]!];
-    const input = original.map((file, index) => portableTestSpellings(file)[index % 4]!);
-    const before = [...input];
-    const plan = planFastTestProcesses(input);
-    assert.deepEqual(plan.parallelFiles, ['tests/unit/z.test.ts', 'src/alpha_spec.ts', 'tests/unit/a.test.ts']);
-    assert.deepEqual(plan.resourceQueues, {
-      'independent-process': independent,
-      'shared-host-runtime': [shared],
-      'repository-worktree': [],
-      'host-profile': []
-    });
-    assert.deepEqual(plan.resourceClassOrder, [
-      'independent-process', 'shared-host-runtime', 'repository-worktree', 'host-profile'
-    ]);
-    assert.deepEqual(plan.resourceLimits, DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
-    assert.deepEqual(input, before);
-    assert.deepEqual(plan, planFastTestProcesses(original));
-  }
-
-  {
-    const files = ['tests/unit/Sample.test.ts', 'tests/unit/sample.test.ts', 'src/sample.test.ts'];
-    assert.deepEqual(planFastTestProcesses(files).parallelFiles, files);
-  }
-});
 
 
 test('fast process policy covers default-excluded files and rejects stale or duplicate identities', () => {
@@ -717,9 +669,6 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   {
     // Identity rejection precedes resource classification; each spelling needs one witness.
     const file = 'tests/unit/development/command-runner.test.ts';
-    for (const spelling of portableTestSpellings(file)) {
-      assert.throws(() => planFastTestProcesses([file, spelling]), /unique files/);
-    }
   }
 
   {
@@ -742,26 +691,25 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   }
 });
 
-test('per-file execution rejects shared reporter and coverage output without an aggregate owner', () => {
-  const testInventory = testImpactFixture.provider.testInventory;
-  const budgetProjection = testBudgetProjection;
-  const selectedFiles = budgetProjection.fastTestFiles.slice(0, 2);
-  for (const bunOptions of [['--reporter-outfile', 'results.xml'], ['--reporter=junit'],
-    ['--coverage'], ['--coverage-dir=coverage'], ['--coverage-reporter', 'lcov']]) {
-    expect(() => issueFastTestBatchExecutionPolicy({testInventory, budgetProjection, selectedFiles, bunOptions}))
-      .toThrow('aggregate output owner');
-    expect(() => issueFastTestBatchExecutionPolicy({testInventory, budgetProjection,
-      selectedFiles: selectedFiles.slice(0, 1), bunOptions})).not.toThrow();
-  }
-});
-
-test('fast batch policy derives supervisor ceilings and waves from its canonical planner', () => {
+test('fast batch policy enforces output ownership and derives supervisor ceilings and waves', () => {
   const testInventory = testImpactFixture.provider.testInventory;
   const budgetProjection = testBudgetProjection;
   const selectedFiles = budgetProjection.fastTestFiles.slice(0, 20);
+  const multiFileSelection = selectedFiles.slice(0, 2);
+  for (const bunOptions of [['--reporter-outfile', 'results.xml'], ['--reporter=junit'],
+    ['--coverage'], ['--coverage-dir=coverage'], ['--coverage-reporter', 'lcov']]) {
+    expect(() => issueFastTestBatchExecutionPolicy({
+      testInventory, budgetProjection, selectedFiles: multiFileSelection, bunOptions
+    })).toThrow('aggregate output owner');
+    expect(() => issueFastTestBatchExecutionPolicy({
+      testInventory, budgetProjection, selectedFiles: multiFileSelection.slice(0, 1), bunOptions
+    })).not.toThrow();
+  }
   const policy = issueFastTestBatchExecutionPolicy({
     testInventory, budgetProjection, selectedFiles, bunOptions: []
   });
+  expect(policy.resourceClassOrder).toEqual(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
+  expect(policy.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
   expect(policy.testInventoryDigest).toBe(testInventory.inventoryDigest);
   expect(policy.budgetProjectionDigest).toBe(budgetProjection.projectionDigest);
   const canonicalSupervisorTimeoutMs = DEV_COMMAND_MAX_DURATION_MS;
@@ -803,9 +751,18 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(Object.isFrozen(admission.attempt)).toBe(true);
 });
 
-test('genuine issuer host requirements remain bound to exact inventory and policy without excluding files', () => {
+test('issuer host requirements bind the exact fixture and inventory without phantom residue', () => {
   const file = 'tests/unit/verification/verification-action-github-provider.test.ts';
   const ordinary = 'tests/unit/workspace/path-containment.test.ts';
+  expect(testImpactFixture.provider.projection.subject).toMatchObject({
+    kind: 'physical-repository',
+    provenance: {
+      kind: 'git-tree',
+      commitSha: testImpactFixture.fixtureCommitSha
+    }
+  });
+  expect(testImpactFixture.fixtureCommitSha).not.toBe(testImpactFixture.sourceCommitSha);
+  expect(path.resolve(testImpactFixture.repositoryRoot)).not.toBe(path.resolve(compilerRoot));
   const testInventory = testImpactFixture.provider.testInventory;
   const budgetProjection = testBudgetProjection;
   expect(budgetProjection.fastTestHostRequirements).toEqual([{ file, os: 'linux', arch: 'x64' }]);
@@ -845,11 +802,8 @@ test('genuine issuer host requirements remain bound to exact inventory and polic
     { os: 'linux', arch: 'arm64' }, { os: 'win32', arch: 'x64' },
     { os: 'darwin', arch: 'x64' }, { os: 'linux', arch: '' }
   ]) expect(testExecutionHostMatches(requirement, host)).toBe(false);
-});
 
-test('removed issuer tests do not leave a phantom host requirement in the snapshot inventory', () => {
   const snapshot = testImpactFixture.workingTreeSnapshot;
-  const file = 'tests/unit/verification/verification-action-github-provider.test.ts';
   const withoutIssuer = compileVirtualWorkspaceSourceSnapshot({
     subject: Object.freeze({ kind: 'virtual-mutation' as const, provenance: Object.freeze({
       kind: 'source-program-virtual-mutation' as const,
@@ -863,6 +817,7 @@ test('removed issuer tests do not leave a phantom host requirement in the snapsh
   const budget = compileTestBudgetProjection(inventory);
   expect(budget.testFiles).not.toContain(file);
   expect(budget.fastTestHostRequirements).toEqual([]);
+
 });
 
 for (const laterExitCode of [0, 7]) {

@@ -82,7 +82,7 @@ test('one pure capped budget covers every admitted allocation and excess CPU bou
   }
 });
 
-test('default concurrent tests receive the canonical inner budget', () => {
+test('default concurrency and resource partition preserve the canonical budget', () => {
   expect(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET).toEqual(
     resolveFastTestConcurrencyBudget(availableParallelism())
   );
@@ -99,9 +99,9 @@ test('default concurrent tests receive the canonical inner budget', () => {
     String(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.bunTestMaxConcurrency),
     'tests/unit/example.test.ts'
   ]);
-  // The separate harness also launches native fast-suite worker children;
-  // it must share the managed resource class rather than join unbounded files.
-  const selected = partitionFastTestFiles([
+
+  // These are real fast-suite registrations across tests/ and src/-co-located ownership.
+  const canonicalSelectedFiles = [
     'tests/unit/verification/verification-suite-harness.test.ts',
     'tests/unit/verification/verification-suite-process.test.ts',
     'tests/unit/verification/testkit-workspace-files.test.ts',
@@ -119,8 +119,25 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/toolchain/dependency-command-capture.test.ts',
     'tests/unit/verification/verification-session-command-cwd.test.ts',
     'tests/unit/verification/testkit-template-preparation.test.ts',
-    'tests/contract/cli/error-protocol-isolation.test.ts'
-  ]);
+    'tests/contract/cli/error-protocol-isolation.test.ts',
+    'tests/integration/workspace/pipeline-kernel.test.ts',
+    'tests/integration/workspace/pipeline-workspace-write-lease.test.ts',
+    'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts',
+    'tests/unit/development/command-runner.test.ts',
+    'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts',
+    'src/adapters/runtime-state/physical/runtime/windows-known-folders.test.ts',
+    'tests/unit/workspace/path-containment.test.ts'
+  ];
+  const selectedFiles = canonicalSelectedFiles.map((file, index) => (
+    index === 0 ? './' + file
+      : index === 1 ? file.replaceAll('/', '\\')
+        : file
+  ));
+  const selectedFilesBefore = [...selectedFiles];
+  const selected = partitionFastTestFiles(selectedFiles);
+  expect(selectedFiles).toEqual(selectedFilesBefore);
+  expect(selected).toEqual(partitionFastTestFiles(canonicalSelectedFiles));
+  expect(Object.keys(selected.resourceQueues)).toEqual([...FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER]);
   expect(selected.resourceQueues['independent-process']).toEqual([
     'tests/unit/verification/verification-suite-harness.test.ts',
     'tests/unit/verification/verification-suite-process.test.ts',
@@ -137,14 +154,40 @@ test('default concurrent tests receive the canonical inner budget', () => {
     'tests/unit/toolchain/dependency-rollover-recovery.test.ts',
     'tests/contract/cli/cli-usage-process.test.ts',
     'tests/unit/toolchain/dependency-command-capture.test.ts',
-    'tests/unit/verification/verification-session-command-cwd.test.ts'
+    'tests/unit/verification/verification-session-command-cwd.test.ts',
+    'tests/integration/workspace/pipeline-kernel.test.ts',
+    'tests/integration/workspace/pipeline-workspace-write-lease.test.ts',
+    'tests/integration/workspace/semantic-mutation-recovery-lifecycle.test.ts',
+    'tests/unit/development/command-runner.test.ts',
+    'src/adapters/runtime-state/physical/runtime/windows-known-folders.test.ts'
   ]);
+  expect(selected.resourceQueues['shared-host-runtime']).toEqual([
+    'tests/unit/runtime/windows-appcontainer-host-tool-lifecycle.test.ts'
+  ]);
+  expect(selected.resourceQueues['repository-worktree']).toEqual([]);
+  expect(selected.resourceQueues['host-profile']).toEqual([]);
   expect(selected.concurrent).toEqual([
     'tests/unit/verification/testkit-template-preparation.test.ts',
-    'tests/contract/cli/error-protocol-isolation.test.ts'
+    'tests/contract/cli/error-protocol-isolation.test.ts',
+    'tests/unit/workspace/path-containment.test.ts'
   ]);
-});
 
+  const identity = 'tests/unit/development/command-runner.test.ts';
+  for (const spelling of [
+    identity,
+    './' + identity,
+    identity.replaceAll('/', '\\'),
+    '.\\' + identity.replaceAll('/', '\\')
+  ]) {
+    expect(() => partitionFastTestFiles([identity, spelling])).toThrow('unique files');
+  }
+  const caseDistinctFiles = [
+    'tests/unit/Sample.test.ts',
+    'tests/unit/sample.test.ts',
+    'src/sample.test.ts'
+  ];
+  expect(partitionFastTestFiles(caseDistinctFiles).concurrent).toEqual(caseDistinctFiles);
+});
 test('explicit equals and split concurrency bytes are preserved exactly', () => {
   const forms = [
     [
