@@ -48,3 +48,21 @@ The current `gift-author-kernel` method remains `gift:finite-ordered-records/2`;
 
 - `relation-optimizer-20261119-source-and-tests.zip` — `relation_optimizer.py`, `test_relation_optimizer.py`, the local test log, and source checksums.
 - `README.md` — scope, verification, limitations, and provenance.
+
+## Readable source companion (2026-11-19 follow-up)
+
+The archive above remains the original 2026-11-19 bundle. Two separately committed, independently authored files now expose a smaller implementation in ordinary Git text form:
+
+- [relation_optimizer_readable.py](./relation_optimizer_readable.py) — typed Scope/Sort/Role/Binding, six annotation algebras, finite relation formation, Join, projection, support-only Semijoin, snapshot-bound Exclude, and reverse role-demand closure over shared plan DAGs.
+- [test_relation_optimizer_readable.py](./test_relation_optimizer_readable.py) — 16 test methods, including an independent nested-loop oracle over 6,561 Count source-weight combinations.
+
+Run from this directory:
+
+```sh
+python -m py_compile relation_optimizer_readable.py test_relation_optimizer_readable.py
+python -m unittest -v test_relation_optimizer_readable
+```
+
+The readable companion is **not extracted byte-for-byte from the ZIP**, does not claim the ZIP's source SHA values, and does not replace its 19-test report. Its independently executed result on 2026-11-19 was 16/16 test methods passing. Its role-demand analysis computes the liveness closure; it does **not** yet materialize per-consumer projection nodes, perform a complete Plan rewrite, or prove cycle handling. Those stronger optimizer features remain claims of the archived bundle until its exact source is independently inspected and executed.
+
+The companion is intentionally a bounded reference. It does not integrate with the production Rust QueryKind, MethodSpec, Reader, P0–P7 lowering, TypeScript target or SQL adapters. Production integration remains a separate qualification task.
