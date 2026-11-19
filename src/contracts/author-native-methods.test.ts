@@ -107,14 +107,16 @@ test('an unrelated repository has no native catalog while either surviving host 
   }
 });
 
-test('quick, risk and full selection preserve frontend and legacy target responsibilities without duplicate execution identities', () => {
+test('quick, risk and full selection follow the shared frontend and both targets without duplicate execution identities', () => {
   const { units } = closedControl();
   for (const path of [`${crate}/src/binding.rs`, `${crate}/Cargo.lock`, externalPath]) {
     expect(selected(units, [path, path], 'affected')).toEqual(['cargo-tests', 'reader-check']);
   }
   expect(selected(units, [`${crate}/tests/reader.rs`], 'affected')).toEqual(['cargo-tests']);
-  expect(selected(units, [`${crate}/src/binding.rs`], 'risk')).toEqual([]);
-  expect(selected(units, [externalPath], 'risk')).toEqual([]);
+  expect(selected(units, [`${crate}/src/binding.rs`], 'risk')).toEqual(['target-check']);
+  expect(selected(units, [`${crate}/src/new-method.rs`], 'risk')).toEqual(['target-check']);
+  expect(selected(units, [externalPath], 'risk')).toEqual(['target-check']);
+  expect(selected(units, [`${crate}/tests/reader.rs`], 'risk')).toEqual([]);
   for (const path of [`${crate}/src/typescript.rs`, `${crate}/Cargo.lock`, `${crate}/fixtures/shared-views.module.json`,
     `${crate}/tests/target-check.ts`, 'src/bootstrap/cli/cli.ts', supportPath]) {
     expect(selected(units, [path], 'risk')).toEqual(['target-check']);
@@ -124,7 +126,7 @@ test('quick, risk and full selection preserve frontend and legacy target respons
   expect(selected(units, [], 'full')).toEqual(['cargo-tests', 'reader-check', 'target-check']);
 });
 
-test('source and transitive rule bytes invalidate evidence even when the target risk trigger remains narrow', () => {
+test('source and transitive rule bytes invalidate all native evidence that consumes them', () => {
   const { value, units } = closedControl();
   for (const changedPath of [`${crate}/src/binding.rs`, externalPath, rulePath, inputRulePath, executionRulePath, supportPath]) {
     const changed = fixture();

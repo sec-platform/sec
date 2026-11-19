@@ -6,13 +6,18 @@ import { runCommandBytes } from '../runtime-state/physical/runtime/process.ts';
 import { readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import {
   analyzeAuthorModule,
+  generateAuthorProject,
   captureLocalNameAnalysisSchema as namesOutput,
   captureLocalNameResolutionSchema as resolution,
   type AuthorAnalysisOptions,
-  type AuthorAnalysisResult
+  type AuthorAnalysisResult,
+  type AuthorGenerationResult
 } from './author-analysis-transport.ts';
 
-export type { AuthorAnalysisResult } from './author-analysis-transport.ts';
+export type { AuthorAnalysisResult, AuthorGenerationResult } from './author-analysis-transport.ts';
+
+export type AuthorGenerationMode = Readonly<{ kind: 'generate'; target?: string }>;
+export type AuthorOperation = boolean | 'names' | 'analyze' | AuthorGenerationMode;
 
 // Transport validation only. Rust owns interpretation; this host never parses or rewrites author JSON.
 const artifact = z.object({ path: z.string(), content: z.string() }).strict();
@@ -100,7 +105,8 @@ export function compileAuthorModule(workspaceRoot: string, inputFile: string, ke
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, readOnly: boolean): Promise<AuthorCompilationBundle | AuthorReadOutput>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: 'names'): Promise<AuthorNameAnalysis>;
 export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: 'analyze', options?: AuthorAnalysisOptions): Promise<AuthorAnalysisResult>;
-export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: boolean | 'names' | 'analyze'): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis | AuthorAnalysisResult>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: AuthorGenerationMode, options?: AuthorAnalysisOptions): Promise<AuthorGenerationResult>;
+export function compileAuthorModule(workspaceRoot: string, inputFile: string, kernelFile: string, mode: AuthorOperation): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis | AuthorAnalysisResult | AuthorGenerationResult>;
 
 /** Explicit local compiler invocation. Generation returns a bundle; it does not write target files,
  * install a compiler, execute target code, or acquire project/default-branch mutation authority. */
@@ -108,15 +114,16 @@ export async function compileAuthorModule(
   workspaceRoot: string,
   inputFile: string,
   kernelFile: string,
-  mode: boolean | 'names' | 'analyze' = false,
+  mode: AuthorOperation = false,
   options: AuthorAnalysisOptions = {}
-): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis | AuthorAnalysisResult> {
+): Promise<AuthorCompilationBundle | AuthorReadOutput | AuthorNameAnalysis | AuthorAnalysisResult | AuthorGenerationResult> {
   const inputPath = resolvePathInside(workspaceRoot, inputFile);
   const kernelPath = resolvePathInside(workspaceRoot, kernelFile);
   if (inputPath === null || kernelPath === null) {
     throw new CodedFailure('AUTHOR-COMPILE-PATH', 'Author input and compiler must be workspace-relative paths without parent traversal');
   }
   if (mode === 'analyze') return analyzeAuthorModule(workspaceRoot, inputPath, kernelPath, options);
+  if (typeof mode === 'object') return generateAuthorProject(workspaceRoot, inputPath, kernelPath, { ...options, target: mode.target });
   const bytes = readOptionalRetainedOrdinaryFile(inputPath, 'Gift author source');
   if (bytes === null) throw new CodedFailure('AUTHOR-COMPILE-INPUT', 'Gift author source is missing');
   if (bytes.length > 4 * 1024 * 1024) throw new CodedFailure('AUTHOR-COMPILE-LIMIT', 'Gift author source exceeds the input budget');

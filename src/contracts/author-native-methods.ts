@@ -6,6 +6,7 @@ import {
   AUTHOR_KERNEL_TARGET_CHECK,
   AuthorKernelInputDeclarationError,
   authorKernelDeclaredInputPaths,
+  isAuthorKernelRuleSource,
   isAuthorKernelVerificationRootInput
 } from './author-kernel-verification.ts';
 import { compareCodeUnits, deepFreeze, rawSha256, sha256, uniqueSorted } from './canonical.ts';
@@ -86,13 +87,6 @@ const HOST_CONSUMERS = new Set([
   'src/adapters/compilation/author-kernel.ts',
   'src/adapters/compilation/author-analysis-transport.ts'
 ]);
-const LEGACY_NATIVE_INPUTS = new Set([
-  `${AUTHOR_KERNEL_ROOT}/src/lib.rs`,
-  `${AUTHOR_KERNEL_ROOT}/src/model.rs`,
-  `${AUTHOR_KERNEL_ROOT}/src/source.rs`,
-  `${AUTHOR_KERNEL_ROOT}/src/typescript.rs`,
-  `${AUTHOR_KERNEL_ROOT}/src/main.rs`
-]);
 
 function requirePath(path: string): void {
   if (!CodexDevelopmentIsCanonicalRepositoryPath(path)) {
@@ -114,8 +108,7 @@ function isCargoInput(path: string): boolean {
 
 function isBinaryInput(path: string): boolean {
   return isCargoControl(path) || path === `${AUTHOR_KERNEL_ROOT}/build.rs`
-    || (isAuthorKernelVerificationRootInput(path)
-      && path.startsWith(`${AUTHOR_KERNEL_ROOT}/src/`) && path.endsWith('.rs'));
+    || isAuthorKernelRuleSource(path);
 }
 
 interface Closure {
@@ -273,14 +266,10 @@ export function compileAuthorNativeMethodUnits(input: MethodInput): readonly Aut
   requireInputs(reader, [...buildInputs, SHARED_TARGET_FIXTURE, ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS]);
 
   const target = typeScriptClosure('target-check');
-  requireInputs(target, [SHARED_TARGET_FIXTURE, ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS]);
-  const targetLoadSelection = new Set(target.selection);
-  requireInputs(target, buildInputs);
-  // Evidence retains all binary bytes. Risk selection follows the reviewed
-  // legacy native responsibility and conservatively complete TS module loads.
-  for (const path of buildInputs) {
-    if (!targetLoadSelection.has(path) && !LEGACY_NATIVE_INPUTS.has(path) && !isCargoControl(path)) target.selection.delete(path);
-  }
+  // The target oracle now consumes the common captured frontend and actual
+  // Rust Method as well as the retained TypeScript target. Both depend on the
+  // complete binary/grammar closure already issued by this owner.
+  requireInputs(target, [...buildInputs, SHARED_TARGET_FIXTURE, ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS]);
   return deepFreeze([
     makeUnit('cargo-tests', cargo, files),
     makeUnit('reader-check', reader, files),
@@ -307,8 +296,7 @@ export function selectAuthorNativeMethods(
     seen.add(unit.id);
     if (scope !== 'full' && unit.phase !== (scope === 'affected' ? 'quick' : 'risk')) continue;
     const matches = scope === 'full' || unit.selectionPaths.some(path => changed.has(path))
-      || changedPaths.some(path => unit.id === 'cargo-tests' ? isCargoInput(path)
-        : unit.id === 'reader-check' ? isBinaryInput(path) : isCargoControl(path) || LEGACY_NATIVE_INPUTS.has(path));
+      || changedPaths.some(path => unit.id === 'cargo-tests' ? isCargoInput(path) : isBinaryInput(path));
     if (matches) selected.set(unit.id, unit);
   }
   return Object.freeze([...selected.values()].sort((left, right) => compareCodeUnits(left.id, right.id)));

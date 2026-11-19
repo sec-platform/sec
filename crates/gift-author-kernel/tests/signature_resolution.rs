@@ -106,6 +106,27 @@ fn aliases_expand_but_distinct_nominal_records_keep_identity() {
 }
 
 #[test]
+fn type_declaration_readiness_is_typing_only_and_never_a_runtime_value_signature() {
+    let result=resolve(json!({
+        "Ready":definition(scalar("bool")),"Alias":definition(reference("Ready")),
+        "Generic":{"kind":"core:type","body":{"typeParams":[{"name":"T"}],"type":{"tag":"param","name":"T"}}},
+        "Invalid":definition(reference("Generic")),"Unknown":definition(reference("Missing")),
+        "AsValue":function(json!([]),Some(scalar("bool")),symbol("Ready"))
+    }));
+    for name in ["Ready","Alias","Generic"] {
+        let signature=signature(&result,name);assert_eq!(signature.state,SignatureState::TypeReady,"{name}");
+        assert_eq!(signature.ty,None,"A type declaration is not a runtime value");assert!(!signature.body_type_checked);
+    }
+    assert_eq!(signature(&result,"Invalid").state,SignatureState::Rejected);
+    assert_ne!(signature(&result,"Unknown").state,SignatureState::TypeReady);
+    // Its explicit function shape is available for forward references. That
+    // does not check the body or turn Ready's absent runtime ty into a value.
+    assert_eq!(signature(&result,"AsValue").state,SignatureState::TypeReady);assert!(!signature(&result,"AsValue").body_type_checked);
+    let declaration=signature(&result,"AsValue").declaration;
+    assert!(result.needs.iter().any(|need|need.code=="NeedsProfessionalValueSignature"&&result.types.source(need.source).owner==Some(declaration)));
+}
+
+#[test]
 fn errors_in_unrelated_declarations_remain_visible_with_exact_source_paths() {
     let result=resolve(json!({"Good":constant(literal("bool",json!(true))),
         "Bad":function(json!([]),Some(scalar("bool")),literal("int",json!("1")))}));

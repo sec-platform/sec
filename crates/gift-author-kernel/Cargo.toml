@@ -12,6 +12,9 @@ serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] 
 sha2 = "0.10.9"
 jsonschema = { version = "=0.60.2", default-features = false, features = ["arbitrary-precision"] }
 percent-encoding = "2.3"
+proc-macro2 = { version = "=1.0.107", default-features = false }
+syn = { version = "=2.0.119", default-features = false, features = ["parsing"] }
+unicode-normalization = { version = "=0.1.26", default-features = false }
 
 [build-dependencies]
 serde_json = "1.0"

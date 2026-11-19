@@ -10,6 +10,12 @@ export const AUTHOR_KERNEL_LOCK_SCHEMA = 'schema/source/binding-lock-1.schema.js
 export const AUTHOR_KERNEL_READER_CHECK = `${AUTHOR_KERNEL_ROOT}/tests/reader-check.ts`;
 export const AUTHOR_KERNEL_TARGET_CHECK = `${AUTHOR_KERNEL_ROOT}/tests/target-check.ts`;
 
+/** Fixed installed-rule source domain shared by capture and native admission. */
+export function isAuthorKernelRuleSource(repositoryPath: string): boolean {
+  return CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)
+    && repositoryPath.startsWith(`${AUTHOR_KERNEL_ROOT}/src/`) && repositoryPath.endsWith('.rs');
+}
+
 const READER_ORACLE_INPUTS = new Set([
   'tools/documentation/codec_parameters.py',
   'tools/documentation/source_inventory.py'

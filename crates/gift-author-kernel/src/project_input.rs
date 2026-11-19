@@ -42,6 +42,18 @@ struct NativeRequest<'a> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct NativeGenerationRequest<'a> {
+    schema:&'a str,purpose:&'a str,
+    #[serde(borrow)] root:&'a serde_json::value::RawValue,
+    #[serde(borrow)] context:&'a serde_json::value::RawValue,
+    interpretation:Option<&'a str>,target:Option<&'a str>,
+    #[serde(borrow)] observations:&'a serde_json::value::RawValue,
+    #[serde(default)] budget:NativeBudget,
+}
+#[derive(Clone,Copy)]
+enum NativeOperation<'a> {Analyze,Generate(Option<&'a str>)}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NativeRoot {locator:String,bytes:Vec<u8>}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -81,6 +93,12 @@ struct NativeResult<'a> {
     schema:&'static str,purpose:&'static str,state:PreparationState,basis:&'a str,interpretation:&'static str,
     requests:&'a [CaptureRequest],needs:&'a [PreparationNeed],sources:&'a [CapturedSourceInfo],module_uses:&'a [ModuleUse],
     modules:Vec<ModuleReport>,analysis:Option<AnalysisReport<'a>>,budget:NativeBudgetReport,
+    #[serde(flatten)] generation:Option<GenerationReport<'a>>,
+}
+#[derive(Serialize)]
+struct GenerationReport<'a> {
+    grammar_revision:String,resolver_binding:crate::captured_input::ResolverBinding,
+    generation:Option<&'a crate::rust_target::RustGenerationResult>,
 }
 fn report_analysis<'a>(result:&'a crate::signature_resolution::SignatureResolution,budget:&mut Budget)->Result<AnalysisReport<'a>> {
     use crate::{body_analysis::{NormalResult,BodyState},signature_resolution::SignatureState,effect_analysis::EffectState};
@@ -111,13 +129,25 @@ pub fn analyze_request(bytes:&[u8])->Result<Vec<u8>> {
     if bytes.len()>MAX_REQUEST_BYTES{return Err(fail("ResourceLimit","","Analysis request exceeds transport limit"));}
     let request:NativeRequest<'_>=serde_json::from_slice(bytes).map_err(|e|fail("InvalidAnalysisRequest","",e.to_string()))?;
     if request.schema!="gift.author-analysis-request/1"||request.purpose!="analyze"{return Err(fail("InvalidAnalysisRequest","","Expected the selected analysis transport/purpose"));}
+    execute_request(request,NativeOperation::Analyze,bytes.len())
+}
+/// Generation is another consumer of the original capture/analysis session.
+/// It neither acquires files nor launches a target compiler.
+pub fn generate_request(bytes:&[u8])->Result<Vec<u8>> {
+    if bytes.len()>MAX_REQUEST_BYTES{return Err(fail("ResourceLimit","","Generation request exceeds transport limit"));}
+    let request:NativeGenerationRequest<'_>=serde_json::from_slice(bytes).map_err(|e|fail("InvalidGenerationRequest","",e.to_string()))?;
+    if request.schema!="gift.author-generation-request/1"||request.purpose!="generate"{return Err(fail("InvalidGenerationRequest","","Expected the selected generation transport/purpose"));}
+    execute_request(NativeRequest {schema:request.schema,purpose:request.purpose,root:request.root,context:request.context,
+        interpretation:request.interpretation,observations:request.observations,budget:request.budget},NativeOperation::Generate(request.target),bytes.len())
+}
+fn execute_request(request:NativeRequest<'_>,operation:NativeOperation<'_>,request_bytes:usize)->Result<Vec<u8>> {
     let mut budget=Budget::new();budget.tighten(request.budget.work,request.budget.allocation_bytes);let observer=budget.observer();
     let (initial_work,initial_bytes)=observer.remaining();let requested=NativeBudget {work:initial_work,allocation_bytes:initial_bytes};
     // Reserve a bounded terminal report before any stage may exhaust the run.
     let reserve=4096;let mut output_budget;
     let parsed:Result<(NativeRoot,FixedContext,Vec<CaptureObservation>)>=(|| {
         budget.charge(reserve)?;budget.work(32)?;
-        budget.work(bytes.len()/16+1)?;budget.charge(bytes.len().saturating_mul(2))?;
+        budget.work(request_bytes/16+1)?;budget.charge(request_bytes.saturating_mul(2))?;
         let root:NativeRoot=serde_json::from_str(request.root.get()).map_err(|e|fail("InvalidAnalysisRequest","/root",e.to_string()))?;
         let context:NativeContext=serde_json::from_str(request.context.get()).map_err(|e|fail("InvalidAnalysisRequest","/context",e.to_string()))?;
         let observations:Vec<CaptureObservation>=serde_json::from_str(request.observations.get()).map_err(|e|fail("InvalidAnalysisRequest","/observations",e.to_string()))?;
@@ -126,7 +156,12 @@ pub fn analyze_request(bytes:&[u8])->Result<Vec<u8>> {
         Ok((root,context,observations))
     })();
     let (root,context,observations)=parsed?;
+    let generation_metadata=if matches!(operation,NativeOperation::Generate(_)) {
+        budget.work(1)?;budget.charge(512)?;
+        Some((crate::grammar::revision(),context.resolver_binding()))
+    }else{None};
     let mut preparation=Preparation::with_budget(&root.bytes,&root.locator,context,PreparationLimits::default(),budget)?;
+    if let NativeOperation::Generate(target)=operation{preparation.select_target(target)?;}
     let mut status=preparation.advance(&observations)?;
     if matches!(status.state,PreparationState::Stopped|PreparationState::Conflict) {
         // A failed acquisition may have retained only a compatible prefix.
@@ -135,16 +170,33 @@ pub fn analyze_request(bytes:&[u8])->Result<Vec<u8>> {
         let need=status.needs.first().ok_or_else(||fail("ReaderInvariant","","Terminal preparation lost its reason"))?;
         return Err(fail(&need.code,&need.path,&need.message));
     }
-    let mut resolution=None;let mut modules=Vec::new();
+    let mut resolution=None;let mut generated=None;let mut capture=None;let mut modules=Vec::new();
     if !matches!(status.state,PreparationState::Stopped|PreparationState::Conflict)&&!preparation.modules.is_empty() {
-        let analysis=preparation.finish().and_then(crate::signature_resolution::prepare_input).and_then(|prepared|prepared.close_effects_retained(crate::effect_analysis::EffectLimits::default()));
-        match analysis {Ok((result,remaining))=>{resolution=Some(result);output_budget=Some(remaining);},Err(error)=>return Err(error)}
+        let input=preparation.finish()?;
+        capture=Some(input.capture.clone());
+        if matches!(operation,NativeOperation::Generate(_))&&status.state!=PreparationState::Prepared {
+            // Keep captured module metadata, but do not repeat semantic work
+            // while the selected profile or source closure is still waiting.
+            output_budget=Some(input.budget);
+        }else {
+            let closed=crate::signature_resolution::prepare_input(input)?
+                .close_analysis(crate::effect_analysis::EffectLimits::default())?;
+            let (result,remaining)=match operation {
+                NativeOperation::Analyze=>closed.into_report_parts(),
+                NativeOperation::Generate(_)=>{
+                    let session=crate::rust_target::rust_library_method().generate(closed.freeze_callables()?)?;
+                    let (result,generation,remaining)=session.into_report_parts();
+                    generated=Some(generation);(result,remaining)
+                }
+            };
+            resolution=Some(result);output_budget=Some(remaining);
+        }
     }else{output_budget=Some(preparation.budget);}
-    if let (Some(result),Some(budget))=(&resolution,&mut output_budget) {
-        let copied_strings=result.input().locators().iter().map(String::len).sum::<usize>()+result.input().module_uses().iter().map(module_use_length).sum::<usize>()*2;
-        budget.work(result.input().sources().len()+copied_strings/16)?;budget.charge(result.input().sources().len()*1024+copied_strings*6)?;
-        modules=result.input().sources().iter().enumerate().map(|(id,source)|ModuleReport {id,locator:result.input().locators()[id].clone(),module_use:result.input().module_uses()[id].clone(),source_revision:crate::digest(source.bytes())}).collect();
-        status.module_uses=result.input().module_uses().to_vec();
+    if let (Some(input),Some(budget))=(&capture,&mut output_budget) {
+        let copied_strings=input.locators().iter().map(String::len).sum::<usize>()+input.module_uses().iter().map(module_use_length).sum::<usize>()*2;
+        budget.work(input.sources().len()+copied_strings/16)?;budget.charge(input.sources().len()*1024+copied_strings*6)?;
+        modules=input.sources().iter().enumerate().map(|(id,source)|ModuleReport {id,locator:input.locators()[id].clone(),module_use:input.module_uses()[id].clone(),source_revision:crate::digest(source.bytes())}).collect();
+        status.module_uses=input.module_uses().to_vec();
     }
     let mut analysis=None;
     if let (Some(result),Some(budget))=(&resolution,&mut output_budget) {
@@ -154,9 +206,11 @@ pub fn analyze_request(bytes:&[u8])->Result<Vec<u8>> {
         match projection {Ok(report)=>analysis=Some(report),Err(error)=>{status.state=PreparationState::Stopped;status.needs.push(PreparationNeed::new("",&error.path,&error.code,&error.message));}}
     }
     // Prepared module metadata is still useful in a waiting successor.
-    if matches!(status.state,PreparationState::Stopped|PreparationState::Conflict){status.requests.clear();status.module_uses.clear();modules.clear();analysis=None;}
+    if matches!(status.state,PreparationState::Stopped|PreparationState::Conflict){status.requests.clear();status.module_uses.clear();modules.clear();analysis=None;generated=None;}
     let (work,allocation_bytes)=observer.remaining();
-    let mut result=NativeResult {schema:"gift.author-analysis/1",purpose:"analyze",state:status.state,basis:&status.basis,interpretation:crate::captured_input::current_interpretation(),requests:&status.requests,needs:&status.needs,sources:&status.sources,module_uses:&status.module_uses,modules,analysis,
+    let (schema,purpose)=match operation {NativeOperation::Analyze=>("gift.author-analysis/1","analyze"),NativeOperation::Generate(_)=>("gift.author-generation/1","generate")};
+    let mut result=NativeResult {schema,purpose,state:status.state,basis:&status.basis,interpretation:crate::captured_input::current_interpretation(),requests:&status.requests,needs:&status.needs,sources:&status.sources,module_uses:&status.module_uses,modules,analysis,
+        generation:generation_metadata.map(|(grammar_revision,resolver_binding)|GenerationReport {grammar_revision,resolver_binding,generation:generated.as_ref()}),
         budget:NativeBudgetReport {requested,remaining:NativeBudget {work,allocation_bytes},consumed:NativeBudget {work:initial_work-work,allocation_bytes:initial_bytes-allocation_bytes}}};
     if let Some(budget)=&mut output_budget {
         let mut counter=OutputCounter {size:0,budget};serde_json::to_writer(&mut counter,&result).map_err(|e|fail("ResourceLimit","",e.to_string()))?;
@@ -365,7 +419,14 @@ pub struct Preparation {
     root:DecodedSource,locator:String,base:String,context:FixedContext,basis:String,observations:BTreeMap<(CaptureKind,String),CaptureObservation>,
     budget:Budget,remaining_entries:u64,remaining_bytes:u64,terminal:Option<PreparationState>,terminal_needs:Vec<PreparationNeed>,
     modules:Vec<ModuleCapture>,imports:Vec<ImportBinding>,root_module:usize,qualified:BTreeSet<(usize,String)>,last_status:Option<PreparationStatus>,
+    target_request:Option<Option<String>>,selected_target:Option<crate::target_profile::CapturedTarget>,
 }
+pub(crate) struct LockedContent {
+    pub bytes:Vec<u8>,pub locator:String,pub lock_locator:String,pub lock_revision:String,
+    pub node_id:String,pub node:Node,pub resolution_domain:String,
+}
+enum LockedSelector<'a> {Bound,Exact(Option<&'a str>)}
+struct LockedExpectation<'a> {kind:&'a str,subject:Option<&'a str>,selector:LockedSelector<'a>,format:&'a str}
 impl Preparation {
     pub fn new(bytes:&[u8],locator:&str,context:FixedContext)->Result<Self> {Self::with_limits(bytes,locator,context,PreparationLimits::default())}
     pub fn with_limits(bytes:&[u8],locator:&str,context:FixedContext,limits:PreparationLimits)->Result<Self> {
@@ -380,10 +441,23 @@ impl Preparation {
         let remaining_bytes=limits.bytes.checked_sub(bytes.len() as u64).ok_or_else(||fail("ResourceLimit",&locator,"Root capture exceeds the run byte budget"))?;
         let basis=crate::digest(&serde_json::to_vec(&(&locator,crate::digest(bytes),context.module_use(""),"analyze")).map_err(|e|fail("InputEncoding","",e.to_string()))?);
         Ok(Self {root,locator,base,context,basis,observations:BTreeMap::new(),budget,remaining_entries:limits.entries,remaining_bytes,terminal:None,
-            terminal_needs:Vec::new(),modules:Vec::new(),imports:Vec::new(),root_module:0,qualified:BTreeSet::new(),last_status:None})
+            terminal_needs:Vec::new(),modules:Vec::new(),imports:Vec::new(),root_module:0,qualified:BTreeSet::new(),last_status:None,target_request:None,selected_target:None})
     }
     pub fn basis(&self)->&str {&self.basis}
     pub fn root(&self)->&DecodedSource {&self.root}
+    /// Explicitly enter target preparation. None requests the authored default;
+    /// an ordinary analysis never performs this action implicitly.
+    pub fn select_target(&mut self,target:Option<&str>)->Result<()> {
+        if let Some(previous)=&self.target_request {
+            if previous.as_deref()==target{return Ok(());}
+            return Err(fail("InputConflict","/targets","A fixed preparation cannot switch its target request"));
+        }
+        if self.terminal.is_some(){return Err(fail("PreparationStopped","/targets","Stopped preparation cannot acquire a target"));}
+        self.budget.work(target.map_or(1,|name|name.len()/16+1))?;
+        self.budget.charge(1024+target.map_or(0,|name|name.len()*6))?;
+        self.basis=crate::digest(&serde_json::to_vec(&(&self.basis,"target",target)).map_err(|e|fail("InputEncoding","",e.to_string()))?);
+        self.target_request=Some(target.map(str::to_owned));self.last_status=None;Ok(())
+    }
     pub fn advance(&mut self,facts:&[CaptureObservation])->Result<PreparationStatus> {
         if self.terminal.is_some(){let needs=copy_needs(&self.terminal_needs,&mut self.budget)?;return self.status(Vec::new(),needs);}
         let mut changed=false;
@@ -443,7 +517,7 @@ impl Preparation {
     }
     fn evaluate(&mut self)->Result<(Vec<CaptureRequest>,Vec<PreparationNeed>)> {
         let mut requests=BTreeSet::new();let mut needs=Vec::new();let mut index_frontier=BTreeSet::new();
-        self.modules.clear();self.imports.clear();self.qualified.clear();self.root_module=0;
+        self.modules.clear();self.imports.clear();self.qualified.clear();self.root_module=0;self.selected_target=None;
         if self.root.source_format()=="gift.author-module/design-converged" {
             self.modules.push(ModuleCapture::read(self.root.bytes(),&self.locator,&self.context)?);
         }else {
@@ -514,6 +588,7 @@ impl Preparation {
             }
         }
         self.resolve_imports(&mut requests,&mut needs,&index_frontier)?;
+        if self.target_request.is_some(){self.resolve_target_profile(&mut requests,&mut needs)?;}
         if !self.modules.is_empty(){crate::captured_input::canonicalize_modules(&mut self.modules,&mut self.imports,&mut self.root_module,&mut self.qualified,&mut self.budget)?;}
         if !requests.is_empty(){needs.push(PreparationNeed::new(&self.locator,"","NeedsSourceCapture","Actual source/coverage requests remain"));}
         if self.modules.is_empty(){needs.push(PreparationNeed::new(&self.locator,"","NeedsModuleCapture","No author module is captured in the selected scope"));}
@@ -566,6 +641,50 @@ impl Preparation {
         Ok(())
     }
     fn locked_target(&mut self,module:&ModuleCapture,alias:&str,request:&Node,requests:&mut BTreeSet<CaptureRequest>,needs:&mut Vec<PreparationNeed>)->Result<Option<ModuleCapture>> {
+        self.budget.charge(module_use_length(&module.module_use)*6+alias.len()*6+512)?;
+        let mut location=BindingLocation::import(module.module_use.clone(),alias);
+        if let Some(project)=self.root.expanded().get("projectId").and_then(Node::as_str){location.project_scope=self.budget.copy(project)?;}
+        let expectation=LockedExpectation {kind:"module",subject:Some(text(request,"moduleId")?),
+            selector:LockedSelector::Exact(request.get("constraint").and_then(Node::as_str)),format:"gift.author-module/design-converged"};
+        let Some(content)=self.locked_content(&location,request,expectation,requests,needs)? else{return Ok(None);};
+        self.budget.work(content.bytes.len()/16+1)?;self.budget.charge(content.bytes.len().saturating_mul(4)+1024)?;
+        let mut target=ModuleCapture::read(&content.bytes,&content.locator,&self.context)?;
+        if target.module_use.module_id!=text(request,"moduleId")?{return Err(fail("ImportModuleMismatch",&content.locator,"Locked content self-reports another module"));}
+        target.module_use.resolution_domain=content.resolution_domain;Ok(Some(target))
+    }
+    fn resolve_target_profile(&mut self,requests:&mut BTreeSet<CaptureRequest>,needs:&mut Vec<PreparationNeed>)->Result<()> {
+        if self.root.source_format()!="gift.project/design-converged" {
+            needs.push(PreparationNeed::new(&self.locator,"/targets","NeedsTargetProject","Target selection needs its actual Project occurrence"));return Ok(());
+        }
+        let name=match self.target_request.as_ref().and_then(|request|request.as_deref()) {
+            Some(name)=>self.budget.copy(name)?,
+            None=>match self.root.expanded().get("defaultTarget").and_then(Node::as_str) {
+                Some(name)=>self.budget.copy(name)?,
+                None=>{needs.push(PreparationNeed::new(&self.locator,"/defaultTarget","NeedsTargetSelection","No target was explicitly selected and the Project has no defaultTarget"));return Ok(());},
+            },
+        };
+        let pointer=crate::source::pointer("/targets",&name);
+        let Some(target)=self.root.expanded().get("targets").and_then(|targets|targets.get(&name)).cloned() else{
+            needs.push(PreparationNeed::new(&self.locator,&pointer,"NeedsTargetSelection","The requested target does not exist in this fixed Project"));return Ok(());
+        };
+        let project_id=self.budget.copy(text(self.root.expanded(),"projectId")?)?;
+        self.context.charge(&mut self.budget)?;
+        self.budget.charge(project_id.len()*6+name.len()*6+crate::captured_input::current_interpretation().len()*6+512)?;
+        let binding=BindingLocation::for_target_profile(&self.context,&project_id,&name);
+        let request=target.get("profileRef").expect("Reader-validated target profile request");
+        let expectation=if request.as_str().is_some() {
+            LockedExpectation {kind:"target-profile",subject:None,selector:LockedSelector::Bound,format:crate::target_profile::PROFILE_FORMAT}
+        }else{
+            LockedExpectation {kind:"target-profile",subject:Some(text(request,"id")?),selector:LockedSelector::Exact(Some(text(request,"revision")?)),format:crate::target_profile::PROFILE_FORMAT}
+        };
+        let content=self.locked_content(&binding,request,expectation,requests,needs)?;
+        let mut selected=crate::target_profile::CapturedTarget::new(name,project_id,binding,target,&mut self.budget)?;
+        if let Some(content)=content {
+            selected.set_profile(crate::target_profile::CapturedTargetProfile::read(self.root.reader(),content,&mut self.budget)?);
+        }
+        self.selected_target=Some(selected);Ok(())
+    }
+    fn locked_content(&mut self,location:&BindingLocation,request:&Node,expected:LockedExpectation<'_>,requests:&mut BTreeSet<CaptureRequest>,needs:&mut Vec<PreparationNeed>)->Result<Option<LockedContent>> {
         let path=join(&self.base,"gift.lock.json")?;
         let Some((outcome,bytes))=file_observation(&self.observations,&path,&mut self.budget)? else{self.request(requests,CaptureKind::File,&path)?;return Ok(None);};
         if outcome!=CaptureOutcome::Found{needs.push(self.unavailable(&path,outcome));return Ok(None);}
@@ -580,24 +699,28 @@ impl Preparation {
         if inputs.and_then(|input|input.get("resolver")).map(Node::to_value)!=Some(binding)||inputs.and_then(|input|input.get("grammarRevision")).and_then(Node::as_str)!=Some(crate::grammar::revision().as_str()) {
             needs.push(PreparationNeed::new(&path,"/resolutionInputs","NeedsLockInterpretation","The lock's exact Resolver/grammar protocol is missing or unsupported"));return Ok(None);
         }
-        let mut location=BindingLocation::import(module.module_use.clone(),alias);location.project_scope=expected_project.unwrap().into();
+        let slot_length=match &location.slot {crate::captured_input::BindingSlot::Import {alias}=>alias.len(),crate::captured_input::BindingSlot::TargetProfile {target}=>target.len()};
+        self.budget.charge(location.project_scope.len()*6+location.resolution_domain.len()*6+location.interpretation.len()*6+location.module_id.as_ref().map_or(0,|id|id.len()*6)+slot_length*6+512)?;
         let key=location.encode()?;
         if inputs.and_then(|input|input.get("requests")).and_then(|requests|requests.get(&key)).map(Node::to_value)!=Some(request.to_value()) {
-            needs.push(PreparationNeed::new(&path,"/resolutionInputs/requests","NeedsLockRequestBasis","The lock does not bind this exact source import request"));return Ok(None);
+            needs.push(PreparationNeed::new(&path,"/resolutionInputs/requests","NeedsLockRequestBasis","The lock does not bind this exact source request"));return Ok(None);
         }
-        let Some(node_id)=lock.get("bindings").and_then(|bindings|bindings.get(&key)).and_then(Node::as_str) else{needs.push(PreparationNeed::new(&path,"/bindings","NeedsLockBinding","No binding exists for this typed import occurrence"));return Ok(None);};
+        let Some(node_id)=lock.get("bindings").and_then(|bindings|bindings.get(&key)).and_then(Node::as_str) else{needs.push(PreparationNeed::new(&path,"/bindings","NeedsLockBinding","No binding exists for this typed source occurrence"));return Ok(None);};
         let nodes=lock.get("nodes").and_then(Node::as_object).ok_or_else(||fail("InvalidBindingLock",&path,"Missing lock nodes"))?;
         for target in lock.get("bindings").and_then(Node::as_object).into_iter().flat_map(|bindings|bindings.values()) {
+            self.budget.work(1+4*(nodes.len()+1).ilog2() as usize)?;
             if target.as_str().is_none_or(|id|!nodes.contains_key(id)){return Err(fail("InvalidLockNode",&path,"Binding targets a missing node"));}
         }
-        for node in nodes.values(){for dependency in node.get("dependencies").and_then(Node::as_array).unwrap_or(&[]){if dependency.as_str().is_none_or(|id|!nodes.contains_key(id)){return Err(fail("InvalidLockDependency",&path,"Node dependency is missing"));}}}
+        for node in nodes.values(){self.budget.work(1)?;for dependency in node.get("dependencies").and_then(Node::as_array).unwrap_or(&[]){self.budget.work(1+4*(nodes.len()+1).ilog2() as usize)?;if dependency.as_str().is_none_or(|id|!nodes.contains_key(id)){return Err(fail("InvalidLockDependency",&path,"Node dependency is missing"));}}}
         let node=nodes.get(node_id).ok_or_else(||fail("InvalidLockNode",&path,"Selected lock node is absent"))?;
-        if text(node,"kind")?!="module"||text(node,"subjectId")?!=text(request,"moduleId")? {return Err(fail("InvalidLockNode",&path,"Selected node has the wrong kind or subject"));}
-        if request.get("constraint").and_then(Node::as_str)!=Some(text(node,"revision")?) {
-            needs.push(PreparationNeed::new(&path,"/nodes","NeedsLockedSelector","The fixed Resolver only supports exact opaque revision selectors"));return Ok(None);
+        if text(node,"kind")?!=expected.kind||expected.subject.is_some_and(|subject|node.get("subjectId").and_then(Node::as_str)!=Some(subject)) {return Err(fail("InvalidLockNode",&path,"Selected node has the wrong kind or subject"));}
+        if let LockedSelector::Exact(revision)=expected.selector {
+            if revision!=Some(text(node,"revision")?) {
+                needs.push(PreparationNeed::new(&path,"/nodes","NeedsLockedSelector","The fixed Resolver only supports exact opaque revision selectors"));return Ok(None);
+            }
         }
         let content=node.get("content").ok_or_else(||fail("InvalidLockNode",&path,"Missing node content"))?;
-        if text(content,"algorithm")?!="sha256"||text(content,"format")?!="gift.author-module/design-converged" {needs.push(PreparationNeed::new(&path,"/nodes","NeedsLockedContentProfile","Unsupported locked content profile or digest domain"));return Ok(None);}
+        if text(content,"algorithm")?!="sha256"||text(content,"format")?!=expected.format {needs.push(PreparationNeed::new(&path,"/nodes","NeedsLockedContentProfile","Unsupported locked content profile or digest domain"));return Ok(None);}
         let Some(hint)=node.get("locationHint").and_then(Node::as_str) else{needs.push(PreparationNeed::new(&path,"/nodes","NeedsLockedContent","Selected bytes have no local captured locator"));return Ok(None);};
         let hint=join(&self.base,hint)?;
         let Some((outcome,bytes))=file_observation(&self.observations,&hint,&mut self.budget)? else{self.request(requests,CaptureKind::File,&hint)?;return Ok(None);};
@@ -607,10 +730,11 @@ impl Preparation {
         if node.get("dependencies").and_then(Node::as_array).is_some_and(|dependencies|!dependencies.is_empty()) {
             // Validate the selected finite dependency closure before issuing a
             // qualified edge. No dependency is inferred from a display name.
-            let mut queue=node.get("dependencies").and_then(Node::as_array).unwrap().iter().map(|id|id.as_str().unwrap().to_owned()).collect::<VecDeque<_>>();
-            self.budget.charge(queue.iter().map(|id|id.len()+96).sum())?;let mut seen=BTreeSet::new();
+            let mut queue=VecDeque::new();
+            for id in node.get("dependencies").and_then(Node::as_array).unwrap(){self.budget.charge(96)?;queue.push_back(self.budget.copy(id.as_str().unwrap())?);}
+            let mut seen=BTreeSet::new();
             while let Some(id)=queue.pop_front() {
-                self.budget.work(1)?;self.budget.text(&id)?;if !seen.insert(id.clone()){continue;}
+                self.budget.work(1)?;self.budget.charge(id.len()+96)?;self.budget.text(&id)?;if !seen.insert(id.clone()){continue;}
                 let dependency=&nodes[&id];
                 for next in dependency.get("dependencies").and_then(Node::as_array).unwrap_or(&[]) {
                     self.budget.work(1)?;let next=next.as_str().unwrap();self.budget.text(next)?;queue.push_back(next.to_owned());
@@ -621,15 +745,14 @@ impl Preparation {
                 if outcome!=CaptureOutcome::Found{needs.push(self.unavailable(&locator,outcome));return Ok(None);}
                 let content=dependency.get("content").ok_or_else(||fail("InvalidLockDependency",&path,"Dependency content missing"))?;
                 self.budget.work(bytes.len()/16+1)?;
-                if text(content,"algorithm")?!="sha256"||text(content,"format")?!="gift.author-module/design-converged" {needs.push(PreparationNeed::new(&locator,"","NeedsLockedDependencyContent","Dependency content interpretation is unsupported"));return Ok(None);}
+                if text(content,"algorithm")?!="sha256"||!matches!(text(content,"format")?,"gift.author-module/design-converged"|crate::target_profile::PROFILE_FORMAT) {needs.push(PreparationNeed::new(&locator,"","NeedsLockedDependencyContent","Dependency content interpretation is unsupported"));return Ok(None);}
                 if crate::digest(bytes).strip_prefix("sha256:")!=content.get("digest").and_then(Node::as_str)||content.get("byteLength").and_then(|n|n.to_value().as_u64())!=Some(bytes.len() as u64){return Err(fail("LockedContentMismatch",&locator,"Dependency content mismatch"));}
             }
         }
-        self.budget.work(bytes.len()/16+1)?;self.budget.charge(bytes.len().saturating_mul(4)+1024)?;
-        let mut target=ModuleCapture::read(bytes,&hint,&self.context)?;
-        if target.module_use.module_id!=text(request,"moduleId")?{return Err(fail("ImportModuleMismatch",&hint,"Locked content self-reports another module"));}
-        target.module_use.resolution_domain=crate::digest(&serde_json::to_vec(&(self.context.module_use("").resolution_domain,value["projectId"].clone(),node_id)).unwrap());
-        Ok(Some(target))
+        self.budget.work(bytes.len()/16+1)?;self.budget.charge(bytes.len()+path.len()*6+hint.len()*6+node_id.len()*6+2048)?;
+        let lock_revision=crate::digest(self.observations.get(&(CaptureKind::File,path.clone())).and_then(|fact|match fact{CaptureObservation::File {bytes,..}=>Some(bytes.as_slice()),_=>None}).unwrap());
+        let resolution_domain=crate::digest(&serde_json::to_vec(&(self.context.module_use("").resolution_domain,value["projectId"].clone(),node_id)).unwrap());
+        Ok(Some(LockedContent {bytes:bytes.to_vec(),locator:hint,lock_locator:path,lock_revision,node_id:node_id.into(),node:node.clone(),resolution_domain}))
     }
     fn status(&mut self,requests:Vec<CaptureRequest>,needs:Vec<PreparationNeed>)->Result<PreparationStatus> {
         let hash_work=self.root.bytes().len()/16+self.observations.values().map(|fact|if let CaptureObservation::File {outcome:CaptureOutcome::Found,bytes,..}=fact{bytes.len()/16+1}else{1}).sum::<usize>();
@@ -647,10 +770,15 @@ impl Preparation {
         if self.terminal.is_some(){return Err(fail("PreparationStopped",&self.locator,"Conflicting or stopped preparation cannot issue an analysis input"));}
         let needs=if let Some(status)=&self.last_status{copy_needs(&status.needs,&mut self.budget)?}else{Vec::new()};
         let mut input=PreparedInput::build(self.modules,self.imports,self.root_module,needs,self.qualified,self.budget)?;
-        input.retain_preparation(self.root,self.locator,self.observations,self.basis)?;Ok(input)
+        input.retain_preparation(self.root,self.locator,self.observations,self.basis)?;
+        input.retain_target(self.selected_target)?;Ok(input)
     }
     pub fn binding_location(&self,module_id:&str,alias:&str)->Result<BindingLocation> {
         let project_scope=self.root.expanded().get("projectId").and_then(Node::as_str).ok_or_else(||fail("NeedsStableProjectScope","","A durable lock occurrence requires an actual Project logical identity"))?;
         let mut location=BindingLocation::for_import(&self.context,module_id,alias);location.project_scope=project_scope.into();Ok(location)
+    }
+    pub fn target_profile_binding_location(&self,target:&str)->Result<BindingLocation> {
+        let project_scope=self.root.expanded().get("projectId").and_then(Node::as_str).ok_or_else(||fail("NeedsStableProjectScope","","A target lock occurrence requires an actual Project logical identity"))?;
+        Ok(BindingLocation::for_target_profile(&self.context,project_scope,target))
     }
 }

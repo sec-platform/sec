@@ -270,7 +270,13 @@ impl<'a> Engine<'a> {
                     self.signatures[index].state=SignatureState::NeedsInput;
                     self.blocked_headers.insert(declaration);
                 },
-                Ok(Relation::Equal)=>{},
+                Ok(Relation::Equal)=>{
+                    // Type declarations have no runtime signature/body. Their
+                    // successful header judgment still closes module typing.
+                    if matches!(self.headers[index].kind,HeaderKind::Type {..}) {
+                        self.signatures[index].state=SignatureState::TypeReady;
+                    }
+                },
             }
         }
         let mut queue:VecDeque<_>=self.headers.iter().filter(|h|matches!(h.kind,HeaderKind::Function {..}|HeaderKind::Constant {..})).map(|h|h.declaration).collect();
@@ -1326,7 +1332,7 @@ impl<'a> Engine<'a> {
         }
         let slot=self.slots[&declaration];
         let signature=&self.signatures[slot];
-        if signature.state==SignatureState::TypeReady {
+        if signature.state==SignatureState::TypeReady&&signature.ty.is_some() {
             if let Some(ty)=signature.ty {
                 let normalized=self.solver.normalize(ty,source)?;
                 if matches!(self.headers[slot].kind,HeaderKind::Function {..}) {

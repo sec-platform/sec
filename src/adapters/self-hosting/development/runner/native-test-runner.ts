@@ -5,7 +5,7 @@ import {
   AUTHOR_KERNEL_ROOT,
   AUTHOR_KERNEL_TARGET_CHECK
 } from '../../../../contracts/author-kernel-verification.ts';
-import { AUTHOR_NATIVE_METHOD_IDS, type AuthorNativeMethodUnit } from '../../../../contracts/author-native-methods.ts';
+import { AUTHOR_NATIVE_METHOD_IDS } from '../../../../contracts/author-native-methods.ts';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { CodedFailure } from '../../../../contracts/failure.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
@@ -68,6 +68,7 @@ import { compileAffectedTestSelectionSemanticOperation } from './affected-plan-c
 import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import { reportDevExecutionProgress } from './execution-progress.ts';
 import { parseNativeCargoBinaryArtifact, parseNativeCargoTestBinaryArtifact } from './native-cargo-artifact.ts';
+import { assertNativeRuleSourceMembership, selectNativeExecutionMethods, type NativeMethodRequest } from './native-source-membership.ts';
 import { withNativeTestWorkspace } from './native-test-workspace.ts';
 import { runRepositorySourceInputOperation } from './repository-mutation-fence.ts';
 import { compileRepositoryObservationOperation } from './repository-observation.ts';
@@ -131,7 +132,7 @@ async function retainNativeExecutionInputs(
 
 export type NativeTestExecutionInput = Readonly<{
   projection: IssuedTestImpactProjection;
-  methods: readonly AuthorNativeMethodUnit[];
+  methods: readonly NativeMethodRequest[];
   dependencyGeneration: RetainedCompilerDependencyReadGeneration;
   reobserve: (deadlineAtUnixMs: number) => Promise<boolean>;
   environment?: NodeJS.ProcessEnv;
@@ -148,14 +149,8 @@ export async function runNativeTests(input: NativeTestExecutionInput): Promise<n
       || input.projection.subject.provenance.kind !== 'working-tree-observation') {
     throw new CodedFailure('NATIVE-TEST-SOURCE', 'Native execution requires an issued working-tree source projection');
   }
-  const selected = new Map(input.methods.map(method => [method.id, method]));
-  for (const method of input.methods) {
-    const original = input.projection.nativeMethods.find(candidate => candidate.id === method.id);
-    if (original === undefined || original.inputClosureDigest !== method.inputClosureDigest
-        || original.unresolvedInputs.length !== 0) {
-      throw new CodedFailure('NATIVE-TEST-SOURCE', 'Selected native method does not match a complete issued source closure');
-    }
-  }
+  const selected = new Map(selectNativeExecutionMethods(input.projection.nativeMethods, input.methods)
+    .map(method => [method.id, method]));
   const methods = AUTHOR_NATIVE_METHOD_IDS.filter(id => selected.has(id));
   const needsBinary = methods.some(id => id !== 'cargo-tests');
   const hasCargoTests = selected.has('cargo-tests');
@@ -163,6 +158,7 @@ export async function runNativeTests(input: NativeTestExecutionInput): Promise<n
   // descendants, just as compiler/build-script descendants are during build.
   const rootCommands = 1 + methods.length + (needsBinary && !hasCargoTests ? 1 : 0);
   const deadlineAtUnixMs = Date.now() + DEV_COMMAND_MAX_DURATION_MS;
+  const deadlineAtMonotonicMs = performance.now() + DEV_COMMAND_MAX_DURATION_MS;
   const observerOperation = compileRepositoryObservationOperation();
   let executionTreesClosed = true;
   const sourceInputs = await observeExecutionProgressPhase('test:native', 'source-retention', () =>
@@ -179,6 +175,15 @@ export async function runNativeTests(input: NativeTestExecutionInput): Promise<n
       if (!await observeExecutionProgressPhase('test:native', 'source-reobserve', () => input.reobserve(deadlineAtUnixMs))) {
         throw new CodedFailure('NATIVE-TEST-SOURCE', 'Native source changed before execution');
       }
+      sourceInputs.assertCurrent();
+      assertNativeRuleSourceMembership({
+        repositoryRoot: compilerRoot,
+        issuedInputPaths: [...selected.values()].flatMap(method => method.inputs.map(source => source.path)),
+        deadlineAtMs: deadlineAtMonotonicMs,
+        maximumEntries: GIT_READ_OPERATION_BUDGET.maxRecords,
+        signal: input.signal
+      });
+      sourceInputs.assertCurrent();
       const targetDirectory = path.join(work, 'cargo-target');
       let environment: NodeJS.ProcessEnv = composeCargoProcessEnvironment(process.env, input.environment ?? {}, {
         CARGO_TARGET_DIR: targetDirectory,

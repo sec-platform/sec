@@ -127,6 +127,40 @@ const analysisResult = z.object({
 }).strict();
 export type AuthorAnalysisResult = z.infer<typeof analysisResult>;
 
+const targetBindingLocation = z.object({
+  project_scope: z.string().min(1), resolution_domain: z.string().min(1), interpretation: digest,
+  slot: z.object({ role: z.literal('target_profile'), target: z.string() }).strict()
+}).strict();
+const rustGeneration = z.object({
+  state: z.enum(['complete', 'needs', 'rejected']), input_basis: digest,
+  method: z.object({ module_id: z.literal('gift:rust-source-library'), export: z.literal('emit'),
+    implementation_revision: digest }).strict(),
+  provenance: z.object({ target: z.string(), binding: targetBindingLocation,
+    profile_id: z.string().min(1), profile_revision: z.string().min(1), profile_source_revision: digest,
+    profile_locator: z.string(), lock_locator: z.string(), lock_revision: digest, node_id: z.string().min(1) }).strict().nullable(),
+  context: z.object({ crate_name: z.string().min(1), edition: z.enum(['2021', '2024']), std_profile: z.literal('std'),
+    crate_shape: z.literal('library'), emit: z.literal('source'),
+    toolchain_requirements: z.array(z.object({ id: z.string(), revision: z.string() }).strict()),
+    runtime_requirements: z.array(z.string()), evidence_obligations: z.array(z.string()) }).strict().nullable(),
+  members_complete: z.boolean(),
+  artifacts: z.array(z.object({ path: z.string(), content: z.string() }).strict()),
+  source_map: z.array(z.object({ source_module: natural, declaration: natural, definition: z.string(),
+    source_pointer: z.string(), source_revision: digest, artifact: z.string(),
+    start_line: natural.min(1), end_line: natural.min(1) }).strict()),
+  exports: z.array(z.object({ root_id: z.string(), export: z.string(), rust_name: z.string(),
+    root_module: natural, declaration: natural, route: z.array(exportHop) }).strict()),
+  dependencies: z.array(z.object({ source_module: natural, declaration: natural, source_revision: digest,
+    callees: z.array(natural) }).strict()),
+  needs: z.array(need), problems: z.array(need), unrequested_checks: z.array(z.string())
+}).strict();
+const generationResult = analysisResult.omit({ schema: true, purpose: true }).extend({
+  schema: z.literal('gift.author-generation/1'), purpose: z.literal('generate'),
+  grammar_revision: digest,
+  resolver_binding: z.object({ id: z.literal('gift:captured-author-resolver/1'), revision: digest }).strict(),
+  generation: rustGeneration.nullable()
+}).strict();
+export type AuthorGenerationResult = z.infer<typeof generationResult>;
+
 type CaptureRequest = z.infer<typeof captureRequest>;
 type CaptureOutcome = 'complete' | 'found' | 'partial' | 'absent' | 'denied' | 'unavailable' | 'failed';
 type DirectoryEntry = Readonly<{ name: string; kind: 'file' | 'directory' | 'link' | 'other'; byte_length: number }>;
@@ -301,7 +335,12 @@ export function parseAuthorAnalysis(
 ): AuthorAnalysisResult {
   const parsed = analysisResult.safeParse(value);
   if (!parsed.success) return protocol(`Native analysis returned an invalid result at ${parsed.error.issues[0]?.path.join('.') ?? ''}`);
-  const data = parsed.data;
+  return validateCapturedResult(parsed.data, capturedSources, expected);
+}
+
+function validateCapturedResult<Result extends AuthorAnalysisResult | AuthorGenerationResult>(
+  data: Result, capturedSources: ReadonlyMap<string, Uint8Array>, expected: AuthorAnalysisExpectation
+): Result {
   const rootLocator = locator(expected.rootLocator ?? capturedSources.keys().next().value ?? '');
   if (!capturedSources.has(rootLocator)) return protocol('Analysis root is not in the captured source set');
   const scopeRoot = path.posix.dirname(rootLocator);
@@ -423,7 +462,98 @@ export function parseAuthorAnalysis(
   return data;
 }
 
+/** Checks source/target associations in this native result. It does not replay
+ * the Resolver, type checker or Method and cannot issue their qualification. */
+export function parseAuthorGeneration(
+  value: unknown, capturedSources: ReadonlyMap<string, Uint8Array>,
+  expected: AuthorAnalysisExpectation & Readonly<{ target?: string }>
+): AuthorGenerationResult {
+  const parsed = generationResult.safeParse(value);
+  if (!parsed.success) return protocol(`Native generation returned an invalid result at ${parsed.error.issues[0]?.path.join('.') ?? ''}`);
+  const data = validateCapturedResult(parsed.data, capturedSources, expected);
+  if (revision(Buffer.from(`${data.grammar_revision}\n${data.resolver_binding.revision}`)) !== data.interpretation) {
+    return protocol('Native generation metadata does not bind the fixed grammar and installed interpretation');
+  }
+  if (data.analysis?.names.modules.some(module => module.grammar_revision !== data.grammar_revision)) {
+    return protocol('Native generation changed grammar within the captured module set');
+  }
+  const generated = data.generation;
+  if (generated === null) {
+    if (data.state === 'prepared') return protocol('Prepared generation omitted its actual Method result');
+    return data;
+  }
+  const analyzed = data.analysis;
+  if (data.state !== 'prepared' || analyzed === null || generated.input_basis !== analyzed.input_basis
+      || generated.method.implementation_revision !== data.resolver_binding.revision) {
+    return protocol('Generation is not bound to its actual retained analysis and implementation');
+  }
+  const provenance = generated.provenance;
+  if (provenance !== null) {
+    const profile = data.sources.find(source => source.locator === provenance.profile_locator);
+    const lock = data.sources.find(source => source.locator === provenance.lock_locator);
+    if (profile?.revision !== provenance.profile_source_revision || lock?.revision !== provenance.lock_revision
+        || provenance.binding.interpretation !== data.interpretation
+        || provenance.binding.slot.target !== provenance.target
+        || (expected.target !== undefined && provenance.target !== expected.target)) {
+      return protocol('Generation profile provenance does not bind the captured bytes and requested target');
+    }
+  }
+  if (generated.members_complete && (provenance === null || generated.context === null)
+      || generated.state === 'complete' && (!generated.members_complete || generated.needs.length !== 0 || generated.problems.length !== 0)
+      || generated.state === 'rejected' && generated.problems.length === 0) {
+    return protocol('Generation state conflicts with its members, context or residual obligations');
+  }
+  if (!generated.members_complete && (generated.artifacts.length !== 0 || generated.source_map.length !== 0)
+      || generated.members_complete && (generated.artifacts.length !== 1 || generated.artifacts[0]?.path !== 'lib.rs')) {
+    return protocol('Generation exposed a partial or unexpected crate-root member set');
+  }
+  const declarations = analyzed.names.declarations;
+  const validDeclaration = (id: number): boolean => id < declarations.length;
+  const lines = new Map(generated.artifacts.map(artifact => [artifact.path, artifact.content.split('\n').length]));
+  for (const mapping of generated.source_map) {
+    const module = data.modules[mapping.source_module];
+    const lineCount = lines.get(mapping.artifact);
+    if (module === undefined || !validDeclaration(mapping.declaration)
+        || declarations[mapping.declaration]?.module !== mapping.source_module
+        || declarations[mapping.declaration]?.name !== mapping.definition
+        || mapping.source_revision !== module.source_revision || lineCount === undefined
+        || mapping.start_line > mapping.end_line || mapping.end_line > lineCount
+        || !analyzed.sources.some(source => source.module === mapping.source_module && source.owner === mapping.declaration
+          && (source.origin?.pointer ?? source.path) === mapping.source_pointer)) {
+      return protocol('Rust source map lost its captured module, declaration, revision or output range');
+    }
+  }
+  const exports = new Set<string>();
+  for (const exported of generated.exports) {
+    const key = JSON.stringify([exported.root_id, exported.export]);
+    const original = analyzed.names.exports.find(entry => entry.module === exported.root_module && entry.name === exported.export)?.resolution;
+    if (exports.has(key) || data.modules[exported.root_module] === undefined || !validDeclaration(exported.declaration)
+        || original?.state !== 'resolved' || original.declaration !== exported.declaration
+        || original.route.length !== exported.route.length || original.route.some((hop, index) => {
+          const projected = exported.route[index]!;
+          return hop.module !== projected.module || hop.export !== projected.export
+            || hop.via_import !== projected.via_import || hop.qualification !== projected.qualification;
+        })) {
+      return protocol('Rust export contains duplicate roots or invalid source associations');
+    }
+    exports.add(key);
+  }
+  const dependencies = new Set<number>();
+  for (const dependency of generated.dependencies) {
+    if (dependencies.has(dependency.declaration) || !validDeclaration(dependency.declaration)
+        || declarations[dependency.declaration]?.module !== dependency.source_module
+        || data.modules[dependency.source_module]?.source_revision !== dependency.source_revision
+        || dependency.callees.some(callee => !validDeclaration(callee))
+        || new Set(dependency.callees).size !== dependency.callees.length) {
+      return protocol('Rust dependency result contains invalid same-generation declarations');
+    }
+    dependencies.add(dependency.declaration);
+  }
+  return data;
+}
+
 export interface AuthorAnalysisOptions { readonly signal?: AbortSignal }
+export interface AuthorGenerationOptions extends AuthorAnalysisOptions { readonly target?: string }
 
 /** Original author transport with one capture and budget lifetime. Rust owns
  * Project selection and semantic interpretation. The host executes typed reads. */
@@ -433,6 +563,29 @@ export async function analyzeAuthorModule(
   kernelPath: string,
   options: AuthorAnalysisOptions = {}
 ): Promise<AuthorAnalysisResult> {
+  return runCapturedAuthorOperation(workspaceRoot, inputPath, kernelPath, { purpose: 'analyze' }, options);
+}
+
+export async function generateAuthorProject(
+  workspaceRoot: string, inputPath: string, kernelPath: string, options: AuthorGenerationOptions = {}
+): Promise<AuthorGenerationResult> {
+  return runCapturedAuthorOperation(workspaceRoot, inputPath, kernelPath,
+    { purpose: 'generate', target: options.target }, options);
+}
+
+function runCapturedAuthorOperation(
+  workspaceRoot: string, inputPath: string, kernelPath: string,
+  operation: Readonly<{ purpose: 'analyze' }>, options: AuthorAnalysisOptions
+): Promise<AuthorAnalysisResult>;
+function runCapturedAuthorOperation(
+  workspaceRoot: string, inputPath: string, kernelPath: string,
+  operation: Readonly<{ purpose: 'generate'; target?: string }>, options: AuthorAnalysisOptions
+): Promise<AuthorGenerationResult>;
+async function runCapturedAuthorOperation(
+  workspaceRoot: string, inputPath: string, kernelPath: string,
+  operation: Readonly<{ purpose: 'analyze' }> | Readonly<{ purpose: 'generate'; target?: string }>,
+  options: AuthorAnalysisOptions
+): Promise<AuthorAnalysisResult | AuthorGenerationResult> {
   let capture: LocalCapture;
   try {
     capture = new LocalCapture(workspaceRoot, inputPath, performance.now() + RUN_MILLISECONDS, options.signal);
@@ -449,7 +602,9 @@ export async function analyzeAuthorModule(
   while (true) {
     capture.current();
     const serialized = JSON.stringify({
-      schema: 'gift.author-analysis-request/1', purpose: 'analyze', root, context: capture.context,
+      schema: operation.purpose === 'analyze' ? 'gift.author-analysis-request/1' : 'gift.author-generation-request/1',
+      purpose: operation.purpose, root, context: capture.context,
+      ...(operation.purpose === 'generate' && operation.target !== undefined ? { target: operation.target } : {}),
       ...(interpretation === undefined ? {} : { interpretation }),
       observations: [...capture.observations.values()], budget
     });
@@ -458,7 +613,7 @@ export async function analyzeAuthorModule(
     }
     let outcome: Awaited<ReturnType<typeof runCommandBytes>>;
     try {
-      outcome = await runCommandBytes(kernelPath, ['--analyze'], {
+      outcome = await runCommandBytes(kernelPath, [operation.purpose === 'analyze' ? '--analyze' : '--generate'], {
         cwd: workspaceRoot, input: Buffer.from(serialized), maxStdinBytes: MAXIMUM_TRANSPORT_BYTES,
         maxStdoutBytes: MAXIMUM_OUTPUT_BYTES, maxStderrBytes: 64 * 1024,
         timeoutMs: Math.max(1, Math.floor(capture.deadline - performance.now())), signal: options.signal
@@ -477,7 +632,9 @@ export async function analyzeAuthorModule(
       throw new CodedFailure(failure.data.diagnostic.code === 'ResourceLimit' ? 'AUTHOR-ANALYSIS-RESOURCE' : 'AUTHOR-ANALYSIS-NATIVE',
         failure.data.diagnostic.message, failure.data.diagnostic);
     }
-    const result = parseAuthorAnalysis(value, capture.sources, { budget, basis, interpretation, rootLocator: capture.rootLocator });
+    const expected = { budget, basis, interpretation, rootLocator: capture.rootLocator };
+    const result = operation.purpose === 'analyze' ? parseAuthorAnalysis(value, capture.sources, expected)
+      : parseAuthorGeneration(value, capture.sources, { ...expected, target: operation.target });
     basis = result.basis;
     interpretation = result.interpretation;
     budget = result.budget.remaining;
