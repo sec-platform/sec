@@ -54,7 +54,7 @@ The current `gift-author-kernel` method remains `gift:finite-ordered-records/2`;
 The archive above remains the original 2026-11-19 bundle. Two separately committed, independently authored files now expose a smaller implementation in ordinary Git text form:
 
 - [relation_optimizer_readable.py](./relation_optimizer_readable.py) — typed Scope/Sort/Role/Binding, six annotation algebras, finite relation formation, Join, projection, support-only Semijoin, snapshot-bound Exclude, and reverse role-demand closure over shared plan DAGs.
-- [test_relation_optimizer_readable.py](./test_relation_optimizer_readable.py) — 16 test methods, including an independent nested-loop oracle over 6,561 Count source-weight combinations.
+- [test_relation_optimizer_readable.py](./test_relation_optimizer_readable.py) — 18 test methods, including an independent nested-loop oracle over 6,561 Count source-weight combinations. The implementation coalesces duplicate tuples with algebra addition and rejects Semijoin output demand on right-side roles.
 
 Run from this directory:
 
@@ -63,6 +63,8 @@ python -m py_compile relation_optimizer_readable.py test_relation_optimizer_read
 python -m unittest -v test_relation_optimizer_readable
 ```
 
-The readable companion is **not extracted byte-for-byte from the ZIP**, does not claim the ZIP's source SHA values, and does not replace its 19-test report. Its independently executed result on 2026-11-19 was 16/16 test methods passing. Its role-demand analysis computes the liveness closure; it does **not** yet materialize per-consumer projection nodes, perform a complete Plan rewrite, or prove cycle handling. Those stronger optimizer features remain claims of the archived bundle until its exact source is independently inspected and executed.
+The readable companion is **not extracted byte-for-byte from the ZIP**, does not claim the ZIP's source SHA values, and does not replace its 19-test report. Its independently executed result on 2026-11-19 was 18/18 test methods passing. SHA-256: source `5a1e436ed6055dc843080cafe26c8dc900d51162f7df21be0eda128b759238fc`; tests `1767ae11907da5c4cc606f3eba4388ad6390d4f7f0a77c99390ce60f04ff0d79`. Its role-demand analysis computes the liveness closure; it does **not** yet materialize per-consumer projection nodes, perform a complete Plan rewrite, or prove cycle handling. Those stronger optimizer features remain claims of the archived bundle until its exact source is independently inspected and executed.
 
 The companion is intentionally a bounded reference. It does not integrate with the production Rust QueryKind, MethodSpec, Reader, P0–P7 lowering, TypeScript target or SQL adapters. Production integration remains a separate qualification task.
+
+Production seam analysis: [Gift 关系投影优化生产接合缺口与实施边界](../records/2026-11-19/Gift_关系投影优化生产接合缺口与实施边界_20261119.md) maps the current Reader, QueryKind, Method and TypeScript Target boundaries and records why this work must enter through a separate relation Method rather than widening the existing ordered `/2` method.
