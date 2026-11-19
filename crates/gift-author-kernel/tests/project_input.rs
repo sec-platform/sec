@@ -435,6 +435,9 @@ fn native_budget_boundaries_preserve_a_faithful_terminal_record_or_return_resour
     };
     let assert_faithful = |wire: &Value, work: u64, allocation_bytes: u64| {
         assert_eq!(wire["schema"], "gift.author-analysis/1");
+        for field in ["generation", "grammar_revision", "resolver_binding"] {
+            assert!(wire.get(field).is_none(), "Analysis must retain its original wire fields");
+        }
         assert_eq!(wire["basis"], prepared.basis);
         let actual_sources = wire["sources"].as_array().unwrap().iter().map(|source| {
             assert_eq!(source["layer"], "captured");
@@ -472,6 +475,76 @@ fn native_budget_boundaries_preserve_a_faithful_terminal_record_or_return_resour
             Err(diagnostic) => assert_eq!(diagnostic.code, "ResourceLimit"),
         }
     }
+}
+
+#[test]
+fn native_generation_waits_for_profile_without_analyzing_or_refilling_the_capture_session() {
+    let root = serde_json::to_vec(&json!({"schema":"gift.project/design-converged",
+        "projectId":"project:generation", "sourceScopes":[scope("src")], "defaultTarget":"rust",
+        "targets":{"rust":{"profileRef":"opaque:profile", "parameters":{},
+            "outputRoots":[{"rootId":"main", "moduleId":"Main", "export":"run"}]}}})).unwrap();
+    let source = serde_json::to_vec(&module("Main", json!({"Run":integer_function("42")}))).unwrap();
+    let observations = vec![directory("src", CaptureOutcome::Complete,
+        vec![entry("main.json", EntryKind::File, source.len())]), file("src/main.json", &source)];
+    let mut request = json!({"schema":"gift.author-generation-request/1", "purpose":"generate",
+        "root":{"locator":"gift.project.json", "bytes":root},
+        "context":{"project_instance":"physical:generation", "resolution_domain":"resolution:test"},
+        "observations":observations});
+    let generate = |request:&Value| -> Value {
+        serde_json::from_slice(&gift_author_kernel::project_input::generate_request(
+            &serde_json::to_vec(request).unwrap()).unwrap()).unwrap()
+    };
+    let first = generate(&request);
+    assert_eq!(first["schema"], "gift.author-generation/1");
+    assert_eq!(first["state"], "waiting");
+    assert!(first["analysis"].is_null() && first["generation"].is_null());
+    assert_eq!(first["modules"].as_array().unwrap().len(), 1);
+    assert_eq!(first["module_uses"][0], first["modules"][0]["module_use"]);
+    assert_eq!(first["modules"][0]["source_revision"], format!("sha256:{:x}", Sha256::digest(&source)));
+    assert_eq!(first["sources"].as_array().unwrap().len(), 2);
+    assert_eq!(first["requests"], json!([{"kind":"file", "path":"gift.lock.json", "scope_root":"."}]));
+    assert_eq!(first["grammar_revision"], grammar::revision());
+    assert_eq!(first["resolver_binding"], serde_json::to_value(context().resolver_binding()).unwrap());
+    request["budget"] = first["budget"]["remaining"].clone();
+    request["interpretation"] = first["interpretation"].clone();
+    let second = generate(&request);
+    assert_eq!(second["basis"], first["basis"]);
+    assert_eq!(second["budget"]["requested"], first["budget"]["remaining"]);
+    for dimension in ["work", "allocation_bytes"] {
+        assert!(second["budget"]["remaining"][dimension].as_u64().unwrap()
+            < first["budget"]["remaining"][dimension].as_u64().unwrap());
+    }
+    assert!(second["analysis"].is_null() && second["generation"].is_null());
+    request["schema"] = json!("gift.author-analysis-request/1");
+    request["purpose"] = json!("analyze");
+    let analysis:Value = serde_json::from_slice(&gift_author_kernel::project_input::analyze_request(
+        &serde_json::to_vec(&request).unwrap()).unwrap()).unwrap();
+    assert_eq!(analysis["state"], "prepared");
+    assert!(!analysis["analysis"].is_null());
+    assert!(analysis["requests"].as_array().unwrap().is_empty());
+    for field in ["generation", "grammar_revision", "resolver_binding"] {assert!(analysis.get(field).is_none());}
+}
+
+#[test]
+fn native_generation_protocol_does_not_turn_analysis_or_exhaustion_into_generation() {
+    let root = project(json!([]));
+    let generation = json!({"schema":"gift.author-generation-request/1", "purpose":"generate",
+        "root":{"locator":"gift.project.json", "bytes":root},
+        "context":{"project_instance":"physical:generation", "resolution_domain":"resolution:test"},
+        "observations":[]});
+    let encode = |value:&Value| serde_json::to_vec(value).unwrap();
+    assert_eq!(gift_author_kernel::project_input::analyze_request(&encode(&generation)).unwrap_err().code,
+        "InvalidAnalysisRequest");
+    let mut wrong = generation.clone();wrong["purpose"] = json!("analyze");
+    assert_eq!(gift_author_kernel::project_input::generate_request(&encode(&wrong)).unwrap_err().code,
+        "InvalidGenerationRequest");
+    let mut exhausted = generation.clone();exhausted["budget"] = json!({"work":0,"allocation_bytes":0});
+    assert_eq!(gift_author_kernel::project_input::generate_request(&encode(&exhausted)).unwrap_err().code,
+        "ResourceLimit");
+    let mut analysis = generation;analysis["schema"] = json!("gift.author-analysis-request/1");
+    analysis["purpose"] = json!("analyze");analysis["target"] = json!("rust");
+    assert_eq!(gift_author_kernel::project_input::analyze_request(&encode(&analysis)).unwrap_err().code,
+        "InvalidAnalysisRequest");
 }
 
 #[test]

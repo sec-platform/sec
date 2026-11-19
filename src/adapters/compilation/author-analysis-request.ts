@@ -11,6 +11,11 @@ export type AuthorCaptureObservation =
 export interface AuthorAnalysisRequestInput {
   readonly root: Readonly<{ locator: string; bytes: Uint8Array }>;
   readonly context: Readonly<{ project_instance: string; resolution_domain: string }>;
+  /** Absent selects the historical analysis purpose. Generation uses its own
+   * wire schema so a receiver never has to infer intent from optional fields. */
+  readonly purpose?: 'analyze' | 'generate';
+  /** Only a generate request may name a target; absent requests the authored default. */
+  readonly target?: string;
   readonly interpretation?: string;
   readonly observations: ReadonlyMap<string, AuthorCaptureObservation>;
   readonly budget: Readonly<{ work: number; allocation_bytes: number }>;
@@ -113,7 +118,11 @@ class RequestWriter {
 
   request(input: AuthorAnalysisRequestInput): void {
     this.current();
-    this.raw('{"schema":"gift.author-analysis-request/1","purpose":"analyze","root":{"locator":');
+    if (input.purpose === 'generate') {
+      this.raw('{"schema":"gift.author-generation-request/1","purpose":"generate","root":{"locator":');
+    } else {
+      this.raw('{"schema":"gift.author-analysis-request/1","purpose":"analyze","root":{"locator":');
+    }
     this.string(input.root.locator);
     this.raw(',"bytes":');
     this.bytes(input.root.bytes);
@@ -122,6 +131,10 @@ class RequestWriter {
     this.raw(',"resolution_domain":');
     this.string(input.context.resolution_domain);
     this.raw('}');
+    if (input.target !== undefined) {
+      this.raw(',"target":');
+      this.string(input.target);
+    }
     if (input.interpretation !== undefined) {
       this.raw(',"interpretation":');
       this.string(input.interpretation);
@@ -176,6 +189,9 @@ export function encodeAuthorAnalysisRequest(
   maximumBytes: number = AUTHOR_ANALYSIS_MAXIMUM_REQUEST_BYTES
 ): Buffer {
   current();
+  if ((input.purpose ?? 'analyze') !== 'generate' && input.target !== undefined) {
+    invalid('Only a generation request may name a target');
+  }
   natural(input.budget.work);
   natural(input.budget.allocation_bytes);
   natural(maximumBytes);

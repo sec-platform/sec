@@ -10,10 +10,14 @@ pub mod semantic_types;
 pub mod header_seeds;
 pub mod type_constraints;
 pub mod signature_resolution;
+pub mod callable_analysis;
 pub mod body_analysis;
 pub mod effect_analysis;
 pub mod captured_input;
 pub mod project_input;
+pub mod target_profile;
+pub mod rust_target;
+mod rust_syntax;
 mod reference_slots;
 mod typescript;
 

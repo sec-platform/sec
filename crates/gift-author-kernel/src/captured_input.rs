@@ -38,15 +38,30 @@ pub struct ModuleUse {pub project_instance:String,pub module_id:String,pub resol
 pub struct ResolverBinding {pub id:String,pub revision:String}
 #[derive(Clone,Debug,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct BindingLocation {pub project_scope:String,pub module_id:String,pub resolution_domain:String,pub interpretation:String,pub slot:BindingSlot}
+pub struct BindingLocation {
+    pub project_scope:String,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub module_id:Option<String>,
+    pub resolution_domain:String,pub interpretation:String,pub slot:BindingSlot,
+}
 #[derive(Clone,Debug,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(tag="role",rename_all="snake_case",deny_unknown_fields)]
-pub enum BindingSlot {Import {alias:String}}
+pub enum BindingSlot {Import {alias:String},TargetProfile {target:String}}
 impl BindingLocation {
-    pub fn import(module_use:ModuleUse,alias:&str)->Self {Self {project_scope:module_use.project_instance,module_id:module_use.module_id,
+    pub fn import(module_use:ModuleUse,alias:&str)->Self {Self {project_scope:module_use.project_instance,module_id:Some(module_use.module_id),
         resolution_domain:module_use.resolution_domain,interpretation:module_use.interpretation,slot:BindingSlot::Import {alias:alias.into()}}}
     pub fn for_import(context:&FixedContext,module_id:&str,alias:&str)->Self {Self::import(context.module_use(module_id),alias)}
-    pub fn encode(&self)->Result<String> {serde_json::to_string(self).map_err(|e|fail("InputEncoding","",e.to_string()))}
+    pub fn for_target_profile(context:&FixedContext,project_id:&str,target:&str)->Self {
+        Self {project_scope:project_id.into(),module_id:None,resolution_domain:context.resolution_domain.clone(),
+            interpretation:current_interpretation().into(),slot:BindingSlot::TargetProfile {target:target.into()}}
+    }
+    fn validate(&self)->Result<()> {
+        if !matches!((&self.slot,&self.module_id),(BindingSlot::Import {..},Some(_))|(BindingSlot::TargetProfile {..},None)) {
+            return Err(fail("InvalidBindingLocation","","Binding role has incompatible owner coordinates"));
+        }
+        Ok(())
+    }
+    pub fn encode(&self)->Result<String> {self.validate()?;serde_json::to_string(self).map_err(|e|fail("InputEncoding","",e.to_string()))}
     pub fn decode(key:&str)->Result<Self> {
         let node=crate::source::decode(key.as_bytes())?;
         let value:Self=serde_json::from_value(node.to_value()).map_err(|e|fail("InvalidBindingLocation","",e.to_string()))?;
@@ -86,6 +101,7 @@ pub struct CapturedInput {
     basis:String,
     root_capture:Option<DecodedSource>,root_locator:Option<String>,observations:Vec<crate::project_input::CaptureObservation>,
     project_instances:Vec<ProjectInstanceRecord>,
+    selected_target:Option<crate::target_profile::CapturedTarget>,
 }
 /// A local project occurrence is meaningful only in this retained candidate.
 /// Logical lock coordinates remain independent of this capture provenance.
@@ -112,7 +128,7 @@ impl CapturedInput {
         }
         budget.charge(imports.iter().map(|edge|edge.alias.len()+128).sum())?;
         let project_instances=project_records(&module_uses,basis,budget)?;
-        Ok(Arc::new(Self {sources:retained,imports:imports.to_vec(),root,module_uses,locators,needs:Vec::new(),qualified_imports:BTreeSet::new(),basis:basis.into(),root_capture:None,root_locator:None,observations:Vec::new(),project_instances}))
+        Ok(Arc::new(Self {sources:retained,imports:imports.to_vec(),root,module_uses,locators,needs:Vec::new(),qualified_imports:BTreeSet::new(),basis:basis.into(),root_capture:None,root_locator:None,observations:Vec::new(),project_instances,selected_target:None}))
     }
     pub fn basis(&self)->&str {&self.basis}
     pub fn qualified_module_use(&self,index:usize)->Option<QualifiedModuleUse> {
@@ -128,6 +144,8 @@ impl CapturedInput {
     pub fn root_locator(&self)->Option<&str> {self.root_locator.as_deref()}
     pub fn observations(&self)->&[crate::project_input::CaptureObservation] {&self.observations}
     pub fn project_instances(&self)->&[ProjectInstanceRecord] {&self.project_instances}
+    pub fn selected_target(&self)->Option<&crate::target_profile::CapturedTarget> {self.selected_target.as_ref()}
+    pub fn target_profile(&self)->Option<&crate::target_profile::CapturedTargetProfile> {self.selected_target.as_ref().and_then(|target|target.profile())}
 }
 pub struct PreparedInput {pub(crate) capture:Arc<CapturedInput>,pub(crate) budget:Budget}
 impl PreparedInput {
@@ -178,7 +196,7 @@ impl PreparedInput {
         let basis=crate::digest(&serde_json::to_vec(&(&revision_inputs,revision_edges,&module_uses[remap[root]])).map_err(|e|fail("InputEncoding","",e.to_string()))?);
         let project_instances=project_records(&module_uses,&basis,&mut budget)?;
         Ok(Self {capture:Arc::new(CapturedInput {sources,imports:edges,root:remap[root],module_uses,locators,needs,qualified_imports,basis,
-            root_capture:None,root_locator:None,observations:Vec::new(),project_instances}),budget})
+            root_capture:None,root_locator:None,observations:Vec::new(),project_instances,selected_target:None}),budget})
     }
     pub(crate) fn retain_preparation(&mut self,root:DecodedSource,locator:String,observations:BTreeMap<(crate::project_input::CaptureKind,String),crate::project_input::CaptureObservation>,request_basis:String)->Result<()> {
         let capture=Arc::get_mut(&mut self.capture).ok_or_else(||fail("ReaderInvariant","","Input capture was published before preparation sealed"))?;
@@ -197,6 +215,11 @@ impl PreparedInput {
             record.root_locator=Some(self.budget.copy(&locator)?);
         }
         capture.root_capture=Some(root);capture.root_locator=Some(locator);capture.observations=observations;Ok(())
+    }
+    pub(crate) fn retain_target(&mut self,mut target:Option<crate::target_profile::CapturedTarget>)->Result<()> {
+        let capture=Arc::get_mut(&mut self.capture).ok_or_else(||fail("ReaderInvariant","","Target capture was published before preparation sealed"))?;
+        if let Some(target)=&mut target {target.set_basis(self.budget.copy(&capture.basis)?);}
+        capture.selected_target=target;Ok(())
     }
 }
 

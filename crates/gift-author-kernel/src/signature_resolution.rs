@@ -43,6 +43,30 @@ pub struct PreparedAnalysis {
     needs:Vec<ConstraintNeed>,problems:Vec<SignatureProblem>,dependencies:BTreeMap<DeclarationId,BTreeSet<DeclarationId>>,
     annotation_cycles:Vec<Vec<DeclarationId>>,bodies:BodyAnalysis,budget:Budget,constraints:ConstraintState,
 }
+/// The original effect-closed session, not a caller-authored report. Keeping
+/// this value retains both alias interpretation and the unspent Reader budget.
+/// Only consuming semantic continuations can issue further qualifications.
+pub struct ClosedAnalysis {
+    resolution:SignatureResolution,
+    budget:Budget,
+    constraints:ConstraintState,
+}
+impl ClosedAnalysis {
+    pub fn resolution(&self)->&SignatureResolution {&self.resolution}
+    /// Leave the semantic pipeline for reporting. The alias state and any
+    /// right to issue a Callable from this session are deliberately discarded.
+    pub fn into_parts(self)->SignatureResolution {self.resolution}
+    pub(crate) fn into_report_parts(self)->(SignatureResolution,Budget) {(self.resolution,self.budget)}
+    pub fn freeze_callables(self)->Result<crate::callable_analysis::CallableAnalysis> {
+        crate::callable_analysis::freeze(self)
+    }
+    pub(crate) fn into_session(self)->(SignatureResolution,Budget,ConstraintState) {
+        (self.resolution,self.budget,self.constraints)
+    }
+    pub(crate) fn from_session(resolution:SignatureResolution,budget:Budget,constraints:ConstraintState)->Self {
+        Self {resolution,budget,constraints}
+    }
+}
 pub struct BodyView<'a> {
     pub names:&'a NameAnalysis,pub types:&'a TypeArena,pub headers:&'a [HeaderSeed],
     pub signatures:&'a [Signature],pub bodies:&'a BodyAnalysis,
@@ -50,16 +74,16 @@ pub struct BodyView<'a> {
 impl PreparedAnalysis {
     pub fn input(&self)->&crate::captured_input::CapturedInput {&self.input}
     pub fn body_view(&self)->BodyView<'_> {BodyView {names:&self.names,types:&self.types,headers:&self.headers,signatures:&self.signatures,bodies:&self.bodies}}
-    pub fn close_effects(self,limits:EffectLimits)->Result<SignatureResolution> {self.close_effects_retained(limits).map(|(result,_)|result)}
-    pub(crate) fn close_effects_retained(mut self,limits:EffectLimits)->Result<(SignatureResolution,Budget)> {
+    pub fn close_effects(self,limits:EffectLimits)->Result<SignatureResolution> {self.close_analysis(limits).map(ClosedAnalysis::into_parts)}
+    pub fn close_analysis(mut self,limits:EffectLimits)->Result<ClosedAnalysis> {
         self.budget.tighten(limits.work,limits.bytes);
         let mut solver=ConstraintMachine::resume(&mut self.types,&mut self.budget,self.constraints);
         let mut effects=effect_analysis::close(&self.names,&self.headers,&self.signatures,&self.bodies,&self.needs,&mut solver)?;
         let generated=std::mem::take(&mut solver.needs);
         self.needs=finalize_needs(&mut solver,self.needs,generated,&mut effects)?;
-        drop(solver);
-        Ok((SignatureResolution {input:self.input,names:self.names,types:self.types,headers:self.headers,signatures:self.signatures,
-            needs:self.needs,problems:self.problems,dependencies:self.dependencies,annotation_cycles:self.annotation_cycles,bodies:self.bodies,effects},self.budget))
+        let constraints=solver.into_state();
+        Ok(ClosedAnalysis {resolution:SignatureResolution {input:self.input,names:self.names,types:self.types,headers:self.headers,signatures:self.signatures,
+            needs:self.needs,problems:self.problems,dependencies:self.dependencies,annotation_cycles:self.annotation_cycles,bodies:self.bodies,effects},budget:self.budget,constraints})
     }
 }
 impl SignatureResolution {pub fn input(&self)->&crate::captured_input::CapturedInput {&self.input}}
@@ -91,7 +115,7 @@ fn prepare_headers(prepared:header_seeds::PreparedHeaders)->Result<PreparedAnaly
     Ok(PreparedAnalysis {input,names,types,headers,signatures,needs:all_needs,problems,dependencies,annotation_cycles,bodies:analysis,budget,constraints})
 }
 
-fn insert_need_identity(solver:&mut ConstraintMachine<'_>,identities:&mut BTreeSet<(SourceId,&'static str)>,source:SourceId,code:&'static str)->Result<bool> {
+pub(crate) fn insert_need_identity(solver:&mut ConstraintMachine<'_>,identities:&mut BTreeSet<(SourceId,&'static str)>,source:SourceId,code:&'static str)->Result<bool> {
     solver.work(1+4*(identities.len()+1).ilog2() as usize)?;
     if identities.contains(&(source,code)){return Ok(false);}
     solver.charge(96)?;identities.insert((source,code));Ok(true)
@@ -134,6 +158,31 @@ mod tests {
             let mut solver=ConstraintMachine::resume(&mut prepared.types,&mut prepared.budget,state);
             let error=finalize_needs(&mut solver,prepared.needs,generated,&mut effects).unwrap_err();
             assert_eq!(error.code,"ResourceLimit");
+        }
+    }
+
+    #[test]
+    fn callable_continuation_retains_aliases_and_the_original_remaining_budget() {
+        let input=br#"{"schema":"gift.author-module/design-converged","moduleId":"closed","definitions":{"Alias":{"kind":"core:type","body":{"type":{"tag":"scalar","name":"bool"}}},"F":{"kind":"core:function","body":{"parameters":[{"name":"x","type":{"tag":"nominal","ref":"local:Alias"}}],"returns":{"tag":"nominal","ref":"local:Alias"},"body":{"op":"var","name":"x"}}}}}"#;
+        let closed=prepare_analysis(input).unwrap().close_analysis(EffectLimits::default()).unwrap();
+        let basis=closed.resolution().input().basis().to_owned();
+        let observer=closed.budget.observer();let before=observer.remaining();
+        let callable=closed.freeze_callables().unwrap();
+        let entry=callable.callables().entries().next().unwrap_or_else(||panic!("{:?}",callable.needs()));let source=entry.source;let ty=entry.signature;
+        let (closed,_)=callable.into_session();
+        assert_eq!(closed.resolution().input().basis(),basis);
+        assert!(observer.remaining().0<before.0&&observer.remaining().1<before.1);
+        let (mut report,mut budget,state)=closed.into_session();
+        let SemanticType::Function(function)=report.types.get(ty) else{panic!()};let result=function.returns;
+        let mut solver=ConstraintMachine::resume(&mut report.types,&mut budget,state);
+        let normalized=solver.normalize(result,source).unwrap();
+        assert!(matches!(solver.arena().get(normalized),SemanticType::Scalar(s) if s.name=="bool"));
+        // No new standalone machine, refund, or effect-limit refill can make
+        // an exhausted continuation issue an index.
+        for (work,bytes) in [(0,usize::MAX),(usize::MAX,0)] {
+            let mut closed=prepare_analysis(input).unwrap().close_analysis(EffectLimits::default()).unwrap();
+            closed.budget.tighten(work,bytes);
+            match closed.freeze_callables(){Err(error)=>assert_eq!(error.code,"ResourceLimit"),Ok(_)=>panic!("Exhausted session issued callable")};
         }
     }
 }

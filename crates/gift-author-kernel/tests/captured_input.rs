@@ -201,9 +201,9 @@ fn the_resolver_location_codec_keeps_legal_names_and_domains_injective() {
         let decoded = BindingLocation::decode(&key).unwrap();
         assert_eq!(decoded, location);
         assert_eq!(decoded.project_scope, "project");
-        assert_eq!(decoded.module_id, module_id);
+        assert_eq!(decoded.module_id.as_deref(), Some(module_id));
         assert_eq!(decoded.resolution_domain, "domain");
-        let BindingSlot::Import {alias: actual_alias} = &decoded.slot;
+        let BindingSlot::Import {alias: actual_alias} = &decoded.slot else {panic!("Import role changed")};
         assert_eq!(actual_alias, alias);
         let actual_use = analysis.input().module_uses().iter().find(|use_| use_.module_id == module_id).unwrap().clone();
         assert_eq!(BindingLocation::import(actual_use, alias).encode().unwrap(), key);
