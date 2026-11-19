@@ -144,6 +144,41 @@ class RelationOptimizerTests(unittest.TestCase):
         rel = self.rel((self.value_l,), a, [({self.value_l: "A"}, True), ({self.value_l: "A"}, True)])
         self.assertEqual(project(rel, ()).rows[0].annotation, True)
 
+    def test_join_demand_keeps_both_binding_endpoints(self):
+        left = Scan("left", frozenset({self.key_l, self.value_l}))
+        right = Scan("right", frozenset({self.key_r, self.value_r}))
+        node = JoinPlan(left, right,
+                        frozenset({self.key_l, self.value_l}),
+                        frozenset({self.key_r, self.value_r}),
+                        (self.binding,))
+        demands = demand_closure(node, (self.value_l, self.value_r))
+        self.assertEqual(demands[id(left)], frozenset({self.key_l, self.value_l}))
+        self.assertEqual(demands[id(right)], frozenset({self.key_r, self.value_r}))
+
+    def test_annotation_profiles_obey_selected_semiring_laws(self):
+        profiles = [
+            (Algebra("bool"), [False, True]),
+            (Algebra("count"), [0, 1, 2]),
+            (Algebra("tropical"), [float("inf"), 0, 2]),
+            (Algebra("rational"), [Fraction(0), Fraction(1, 2), Fraction(2)]),
+            (Algebra("provenance"), [(), (((), Fraction(1)),), atom("a"), atom("b")]),
+            (Algebra("events", frozenset({"w1", "w2"})), [frozenset(), frozenset({"w1"}), frozenset({"w2"}), frozenset({"w1", "w2"})]),
+        ]
+        for algebra, values in profiles:
+            zero, one = algebra.zero(), algebra.one()
+            for a in values:
+                self.assertEqual(algebra.add(a, zero), a)
+                self.assertEqual(algebra.multiply(a, one), a)
+                self.assertEqual(algebra.multiply(a, zero), zero)
+                for b in values:
+                    self.assertEqual(algebra.add(a, b), algebra.add(b, a))
+                    self.assertEqual(algebra.multiply(a, b), algebra.multiply(b, a))
+                    for d in values:
+                        self.assertEqual(algebra.add(algebra.add(a, b), d), algebra.add(a, algebra.add(b, d)))
+                        self.assertEqual(algebra.multiply(algebra.multiply(a, b), d), algebra.multiply(a, algebra.multiply(b, d)))
+                        self.assertEqual(algebra.multiply(a, algebra.add(b, d)),
+                                         algebra.add(algebra.multiply(a, b), algebra.multiply(a, d)))
+
     def test_shared_plan_dag_unions_consumer_demands(self):
         a, b = self.key_l, self.value_l
         shared = Scan("shared", frozenset({a, b}))
