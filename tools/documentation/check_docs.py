@@ -9,6 +9,7 @@ from pathlib import Path
 import argparse, json, re, sys
 sys.dont_write_bytecode = True
 import collections, hashlib, html
+from urllib.parse import unquote
 from source_inventory import (load, decode, local_path, capture_source_bytes, source_bytes,
     source_manifest_from_capture, assert_source_capture_current, EXCLUDED_FROM_SOURCE_HASH,
     requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH, baseline)
@@ -55,6 +56,60 @@ def markdown_visible_lines(text: str):
         yield line_number, line
     if fence:
         raise ValueError('unclosed fenced code block in documentation')
+
+
+def markdown_link_targets(text: str):
+    """Yield link destinations outside fenced examples, comments and code spans.
+
+    A destination may carry a percent-encoded path or fragment; callers decode
+    it before resolving, because the authored bytes and the rendered target
+    differ without being stale.
+    """
+    for _, line in markdown_visible_lines(text):
+        visible = re.sub(r'(`+).*?\1', '', line)
+        for matched in re.finditer(r'!?\[[^\]]*\]\(([^)\s]*)\)', visible):
+            if matched[1]:
+                yield matched[1]
+
+
+def markdown_link_errors(root: Path, documents: dict[str, str], anchors: dict[str, dict[str, list[int]]]) -> list[str]:
+    """Resolve authored relative links against current files and headings."""
+    errors: list[str] = []
+    for name, text in documents.items():
+        p = root / name
+        for target in markdown_link_targets(text):
+            if target.startswith(('http://', 'https://', 'mailto:')):
+                continue
+            if target.startswith('#'):
+                fragment = unquote(target[1:])
+                if fragment and fragment not in anchors[name]:
+                    errors.append(f'link anchor missing: {name} -> {target}')
+                continue
+            decoded = unquote(target)
+            path_part, _, fragment = decoded.partition('#')
+            if not path_part:
+                continue
+            q = (p.parent / path_part).resolve()
+            if not q.is_relative_to(root):
+                errors.append(f'link escapes source root: {name} -> {target}')
+                continue
+            if not q.is_file():
+                errors.append(f'link target missing: {name} -> {target}')
+                continue
+            if fragment and q.suffix == '.md':
+                target_name = q.relative_to(root).as_posix()
+                if target_name in anchors:
+                    present = fragment in anchors[target_name]
+                else:
+                    # A linked document outside the captured source set still
+                    # has to resolve its own heading for the consumer.
+                    try:
+                        present = fragment in anchor_locations(q.read_text(encoding='utf-8'))
+                    except (OSError, ValueError):
+                        present = False
+                if not present:
+                    errors.append(f'link anchor missing: {name} -> {target}')
+    return errors
 
 
 def heading_anchor_locations(headings) -> dict[str, list[int]]:
@@ -398,10 +453,12 @@ def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
                 errors.append('example rule section missing: ' + str(p.relative_to(root)) + ':' + section)
     # Check only the current text. There is no historical path resolver.
     anchors = {}
+    markdown_texts = {}
     for p in (p for p in files if p.suffix == '.md'):
         name = p.relative_to(root).as_posix()
+        markdown_texts[name] = read(p).decode('utf-8')
         try:
-            anchors[name] = anchor_locations(read(p).decode('utf-8'))
+            anchors[name] = anchor_locations(markdown_texts[name])
             for fragment, lines in anchors[name].items():
                 if len(lines) != 1:
                     errors.append(f'ambiguous current anchor: {name}#{fragment}')
@@ -410,6 +467,10 @@ def verify(root: Path, *, sealed: bool = False, captured=None) -> dict:
     for x in requirements:
         if x.get('fragment') not in anchors.get(x['path'], {}):
             errors.append('requirement anchor missing: ' + x['id'])
+    # A relative link is a claim that its target exists at the authored path.
+    # Resolve the decoded path, and keep the check inside the source root so a
+    # traversal spelling cannot read as a present neighbour.
+    errors.extend(markdown_link_errors(root, markdown_texts, anchors))
     # Declared current architecture and U decisions are checked at the actual package gate.
     # This is not a proof of arbitrary prose or an implementation's imports.
     design = {}
