@@ -1,0 +1,463 @@
+{
+  "schema": "sec.research-family-inheritance/1",
+  "scope": "研究原件中32个专业族的当前承接位置；本表只记录所有权与差额，不复制族定义，不签发实现资格。",
+  "source": {
+    "profiles": "docs/信息/研究数据/profiles-31df7289e53e.psv",
+    "contracts": "docs/信息/研究数据/contracts-103e4996011c.psv",
+    "model": "docs/信息/研究数据/research_model.original-c64d0bc4452a.json.gz",
+    "contract_total": 568
+  },
+  "families": [
+    {
+      "family": "NAV",
+      "name": "分类与覆盖",
+      "contracts": 7,
+      "status": "承接",
+      "position": {
+        "path": "docs/信息/接入检索与派生.md",
+        "anchor": "information-organization"
+      },
+      "distinction": "一项内容可同时属于多个分类方案，同一方案内可多值；按轴计数不是总体划分，缺席不证明不存在。",
+      "evidence": [
+        "按某个轴计数得到的行列不是总体划分"
+      ]
+    },
+    {
+      "family": "ID",
+      "name": "身份",
+      "contracts": 13,
+      "status": "承接",
+      "position": {
+        "path": "docs/信息/对象关系与配置基线.md",
+        "anchor": "identity-transformation-boundary"
+      },
+      "distinction": "内容相同只共享可允许的不可变字节；同名、同摘要与重建副本不合并主体，拆合须给出去向。",
+      "evidence": [
+        "内容相同只共享可允许的不可变字节"
+      ]
+    },
+    {
+      "family": "EXP",
+      "name": "表达发生",
+      "contracts": 17,
+      "status": "承接",
+      "position": {
+        "path": "docs/作者/结构化源码.md",
+        "anchor": "source-occurrence-role-binding"
+      },
+      "distinction": "一次表达发生的身份不能由名字、路径或同型对象替代；交换两个发生即改变含义。",
+      "evidence": [
+        "交换两个发生而保留这些字段会得到两个不同含义"
+      ]
+    },
+    {
+      "family": "REL",
+      "name": "关系",
+      "contracts": 22,
+      "status": "承接",
+      "position": {
+        "path": "docs/作者/共同语义关系.md",
+        "anchor": "1-类型化关系"
+      },
+      "distinction": "关系类型给端点、方向、基数与成环规则；不同关系不压成一个dependsOn。",
+      "evidence": [
+        "不能把以下关系都写成"
+      ]
+    },
+    {
+      "family": "MATH",
+      "name": "数学结构",
+      "contracts": 25,
+      "status": "缺口",
+      "position": null,
+      "distinction": "同态保持指定结构，同构要求相应逆，商上运算需要同余；换基础或定律须重开受影响结论。",
+      "evidence": [],
+      "gap": {
+        "entry": "U068",
+        "trigger": "出现以代数结构为真实对象的工程需求时，在计算结构主题内建立位置并给出见证；不以目录占位。"
+      }
+    },
+    {
+      "family": "LOG",
+      "name": "逻辑画像",
+      "contracts": 23,
+      "status": "缺口",
+      "position": null,
+      "distinction": "逻辑画像固定签名、形成规则、模型类、真值与推导；未知解释不当false。",
+      "evidence": [],
+      "gap": {
+        "entry": "U068",
+        "trigger": "引入除经典一阶核心外的实际逻辑画像时建立；引用现有理论依据不足以承接。"
+      }
+    },
+    {
+      "family": "TYP",
+      "name": "类型",
+      "contracts": 17,
+      "status": "部分承接",
+      "position": {
+        "path": "docs/编译/目标/泛型分发与实例归属.md",
+        "anchor": "泛型分发与实例归属"
+      },
+      "distinction": "擦除、字典传递与单态化是实现策略，须保持行为、ABI与对象身份。",
+      "evidence": [
+        "单态化、字典传递、类型擦除由不同 strategy 实现"
+      ],
+      "difference": "不采用子型关系，以名义等价与显式转换替代；子型方向的兼容检查没有现行位置。"
+    },
+    {
+      "family": "CMP",
+      "name": "计算",
+      "contracts": 23,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/计算基础/通用计算与任务语义.md",
+        "anchor": "类型效果与错误语义"
+      },
+      "distinction": "值语义、程序效果与类型检查分别解释；纯注解不证明外部库无副作用。",
+      "evidence": [
+        "程序效果描述生成程序读写数据库或发事件"
+      ]
+    },
+    {
+      "family": "BEH",
+      "name": "行为",
+      "contracts": 23,
+      "status": "承接",
+      "position": {
+        "path": "docs/编译/组合前提与进展闭合.md",
+        "anchor": "活性死锁和时限是另外的义务"
+      },
+      "distinction": "安全不变式不证明活性；公平只约束具有可执行条件的动作。",
+      "evidence": [
+        "公平性只能约束具有相应可执行条件的动作"
+      ]
+    },
+    {
+      "family": "TIME",
+      "name": "时间",
+      "contracts": 13,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/扩展语义与适配合同.md",
+        "anchor": "temporal-range-values"
+      },
+      "distinction": "区间的时钟、单位、端点开闭与域须固定；表示计算不认证锚点来自真实发生。",
+      "evidence": [
+        "不能因此认证其锚点来自真实发生"
+      ]
+    },
+    {
+      "family": "REV",
+      "name": "修订",
+      "contracts": 13,
+      "status": "承接",
+      "position": {
+        "path": "docs/演进/兼容迁移与退役.md",
+        "anchor": "从旧合同到新合同的变更分类"
+      },
+      "distinction": "变更按表示、输入域、结果、前提与权限分别比较；旧请求按原固定语义解释。",
+      "evidence": [
+        "旧事件、旧结果和已准备的恢复仍按原固定语义解释"
+      ]
+    },
+    {
+      "family": "KNW",
+      "name": "知识",
+      "contracts": 19,
+      "status": "承接",
+      "position": {
+        "path": "docs/作者/工程源/身份断言与采纳.md",
+        "anchor": "知识状态事实与权威"
+      },
+      "distinction": "未知、冲突与陈旧各有状态，空值不替代；事实、声明与权威根分开。",
+      "evidence": [
+        "、空数组和异常不能替代这些状态"
+      ]
+    },
+    {
+      "family": "EVAL",
+      "name": "评价",
+      "contracts": 18,
+      "status": "承接",
+      "position": {
+        "path": "docs/运行/保证/解释与证据接纳.md",
+        "anchor": "evidence-interpretation-boundary"
+      },
+      "distinction": "材料、获准执行、逻辑支持与任务采用是四项独立资格，一项不推出另一项。",
+      "evidence": [
+        "检查器可以完全不联网"
+      ]
+    },
+    {
+      "family": "METRIC",
+      "name": "度量",
+      "contracts": 11,
+      "status": "承接",
+      "position": {
+        "path": "docs/运行/保证/解释与证据接纳.md",
+        "anchor": "metric-observation-identity"
+      },
+      "distinction": "采样、聚合窗口与重置纪元决定指标语义；分位数摘要不可平均成总体分位数。",
+      "evidence": [
+        "分位数摘要不可平均成总体分位数"
+      ]
+    },
+    {
+      "family": "PROB",
+      "name": "概率",
+      "contracts": 15,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/仿真/测量校准与实验.md",
+        "anchor": "measurement-probability-model-values"
+      },
+      "distinction": "同一边际可以来自不同联合，不能用边际相同代替联合相同。",
+      "evidence": [
+        "同一边际可以来自不同联合"
+      ]
+    },
+    {
+      "family": "STAT",
+      "name": "统计",
+      "contracts": 20,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/仿真/测量校准与实验.md",
+        "anchor": "causal-identification-and-intervention"
+      },
+      "distinction": "统计描述、预测、干预与反事实各自解释；同观察分布不推出同一干预分布。",
+      "evidence": [
+        "只替换X方程"
+      ]
+    },
+    {
+      "family": "MEAS",
+      "name": "测量",
+      "contracts": 14,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/计算基础/定量合同与误差传播.md",
+        "anchor": "quantitative-composition"
+      },
+      "distinction": "相关分量不按独立相加，未知协方差不置零。",
+      "evidence": [
+        "未知协方差不置零"
+      ]
+    },
+    {
+      "family": "NORM",
+      "name": "规范",
+      "contracts": 20,
+      "status": "部分承接",
+      "position": {
+        "path": "docs/产品/原则总纲与归属.md",
+        "anchor": "2-事实规范权威决议与证据分离"
+      },
+      "distinction": "权威不能把错误命题变成物理事实，规范效力不产生执行能力。",
+      "evidence": [
+        "权威不能把错误命题变成物理事实"
+      ],
+      "difference": "规范履行、补救与追溯生效没有现行位置；本行只承接效力与权威分离。"
+    },
+    {
+      "family": "DEC",
+      "name": "决策",
+      "contracts": 19,
+      "status": "承接",
+      "position": {
+        "path": "docs/编译/实现选择与设计搜索.md",
+        "anchor": "qualification-by-requested-exit"
+      },
+      "distinction": "资格按本次请求的出口确定，不提前要求未请求阶段的现实事实。",
+      "evidence": [
+        "只表示该出口现在需要的条件成立"
+      ]
+    },
+    {
+      "family": "DATA",
+      "name": "数据",
+      "contracts": 25,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/状态关系与流/关系查询与维护.md",
+        "anchor": "1-三种容易混淆的查询与三种顺序"
+      },
+      "distinction": "开发查询、程序查询与编译查询不共享行更新、权限、缓存键或完成状态。",
+      "evidence": [
+        "不共享行更新、权限、缓存键或完成状态"
+      ]
+    },
+    {
+      "family": "RES",
+      "name": "资源",
+      "contracts": 20,
+      "status": "承接",
+      "position": {
+        "path": "docs/运行/权限与资源管理.md",
+        "anchor": "budget-reservation-settlement"
+      },
+      "distinction": "分配额度不是可用容量，父额度不在每层复制；预留与结算分别有身份。",
+      "evidence": [
+        "父域只有10次额度"
+      ]
+    },
+    {
+      "family": "CONC",
+      "name": "并发",
+      "contracts": 18,
+      "status": "承接",
+      "position": {
+        "path": "docs/运行/持久化提交与恢复.md",
+        "anchor": "joint-invariant-commit-and-current-result"
+      },
+      "distinction": "多文件改名不能普遍当作事务，原子可见与外部结算分开。",
+      "evidence": [
+        "多文件rename不能普遍当作事务"
+      ]
+    },
+    {
+      "family": "SEC",
+      "name": "安全",
+      "contracts": 25,
+      "status": "部分承接",
+      "position": {
+        "path": "docs/运行/权限与资源管理.md",
+        "anchor": "权限能力策略与效果系统"
+      },
+      "distinction": "同类权限范围只可收窄；不受理、缺证据与拒绝分别保留原因。",
+      "evidence": [
+        "阻止本动作"
+      ],
+      "difference": "信任根、签发链与失陷后的恢复没有现行位置；已泄露信息不能靠删本地记录回收。"
+    },
+    {
+      "family": "COMP",
+      "name": "实现取得",
+      "contracts": 21,
+      "status": "承接",
+      "position": {
+        "path": "docs/编译/内核/变换接纳与分析保持.md",
+        "anchor": "5-分析保持是有依赖的证明不是一个全局布尔值"
+      },
+      "distinction": "分析保持是有依赖的证明，不是一个全局布尔值。",
+      "evidence": [
+        "沿用旧分析要同时满足含义仍成立、引用仍合法和资格适用于当前消费者"
+      ]
+    },
+    {
+      "family": "EDIT",
+      "name": "编辑",
+      "contracts": 11,
+      "status": "承接",
+      "position": {
+        "path": "docs/作者/组合/结构编辑与身份保持.md",
+        "anchor": "需求形状的局部编辑与原作者位置"
+      },
+      "distinction": "不是任意中文短语都能通过通用setter写进程序；编辑须绑定真实来源映射。",
+      "evidence": [
+        "不是任意中文短语都能通过通用setter写进程序"
+      ]
+    },
+    {
+      "family": "ENG",
+      "name": "工程",
+      "contracts": 23,
+      "status": "部分承接",
+      "position": {
+        "path": "docs/运行/宿主生态与技术约束.md",
+        "anchor": "host-运行时分发离线与远程执行"
+      },
+      "distinction": "Host 画像是观测与绑定输入，不是核心编译语义。",
+      "evidence": [
+        "不是核心编译语义"
+      ],
+      "difference": "插件安装代与活代码代、跨组织多权威协作未在本节承接。"
+    },
+    {
+      "family": "FILE",
+      "name": "文件",
+      "contracts": 11,
+      "status": "承接",
+      "position": {
+        "path": "docs/作者/工程源/资产与非源码.md",
+        "anchor": "媒体字体文档容器与压缩资产的解释边界"
+      },
+      "distinction": "扩展名、声明类型、探测结果、容器与内部codec分别保留。",
+      "evidence": [
+        "magic/sniff结果、container format和内部codec分别保留"
+      ]
+    },
+    {
+      "family": "UX",
+      "name": "交互",
+      "contracts": 17,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/产品交互与呈现.md",
+        "anchor": "product-input-and-validation"
+      },
+      "distinction": "暂时非法的草稿不能自动改零或空，草稿与已提交正文分开。",
+      "evidence": [
+        "暂时非法的草稿不能自动改零或空"
+      ]
+    },
+    {
+      "family": "MEDIA",
+      "name": "媒体",
+      "contracts": 11,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/产品交互与呈现.md",
+        "anchor": "product-media-timeline"
+      },
+      "distinction": "位宽相同不证明颜色相同，样本数相同不证明时长与声道相同。",
+      "evidence": [
+        "位宽相同不证明颜色相同"
+      ]
+    },
+    {
+      "family": "PHYS",
+      "name": "物理",
+      "contracts": 27,
+      "status": "部分承接",
+      "position": {
+        "path": "docs/领域/物理对象制造与寿命.md",
+        "anchor": "physical-genealogy-and-life"
+      },
+      "distinction": "as-designed、as-built 与 as-installed 分开保留，谱系与守恒边界绑定。",
+      "evidence": [
+        "谱系及选定边界的守恒检验"
+      ],
+      "difference": "参考系、采样误差与安全余量公式由仿真与测量主题分担，未在本族单点承接。"
+    },
+    {
+      "family": "ML",
+      "name": "学习",
+      "contracts": 18,
+      "status": "承接",
+      "position": {
+        "path": "docs/领域/学习与模型生命周期.md",
+        "anchor": "learning-adoption-and-recovery"
+      },
+      "distinction": "训练完成只产生候选，采用另行绑定模型包、兼容与回退。",
+      "evidence": [
+        "训练完成只产生候选"
+      ]
+    },
+    {
+      "family": "QUAL",
+      "name": "质量",
+      "contracts": 9,
+      "status": "承接",
+      "position": {
+        "path": "docs/运行/保证/覆盖成熟度与验收范围.md",
+        "anchor": "1-不存在覆盖所有未来证明"
+      },
+      "distinction": "覆盖只绑定精确系统、来源、时间与搜索策略，不能证明未知机制不存在。",
+      "evidence": [
+        "不能证明未知机制不存在"
+      ]
+    }
+  ]
+}
