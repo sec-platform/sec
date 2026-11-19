@@ -51,6 +51,18 @@ class RelationOptimizerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "left-side roles"):
             demand_closure(node, (self.key_r,))
 
+    def test_binding_and_projection_use_versioned_sort_equality(self):
+        ci = Sort("CaseFoldText", "v1", lambda x: isinstance(x, str),
+                  equals=lambda a, b: a.casefold() == b.casefold())
+        left_key = Role("ci-left", "k", "key", self.scope, ci)
+        right_key = Role("ci-right", "k", "key", self.scope, ci)
+        a = Algebra("count")
+        left = self.rel((left_key,), a, [({left_key: "A"}, 2), ({left_key: "a"}, 3)])
+        right = self.rel((right_key,), a, [({right_key: "a"}, 7)])
+        self.assertEqual(len(left.rows), 1)
+        self.assertEqual(left.rows[0].annotation, 5)
+        self.assertEqual(join(left, right, (Binding(left_key, right_key),)).rows[0].annotation, 35)
+
     def test_unbound_join_is_cartesian_within_exact_scope(self):
         a = Algebra("bool")
         left = self.rel((self.key_l,), a, [({self.key_l: "a"}, True)])
