@@ -73,6 +73,13 @@ RustTargetBinding {
 
 “支持 Rust”是这些精确绑定在本次根上的相交结论，不是一个全局布尔值。
 
+<a id="rust-installed-method-applicability"></a>
+### 已安装源码方法的适用范围
+
+精确绑定说明“要什么”，不说明“哪个方法已经能履行它”。一个源码方法对某画像的适用性，由该方法实际实现的能力与画像字段逐项相交：`representation`的`language`、`textIndexUnit`、`integerMode`、`exceptionModel`、`moduleMode`必须与该方法的实现一致；`accepts`只能声明该方法真实接受的根角色；`loweringRefs`必须唯一解析到本方法的实际导出；`members`必须与该方法实际产出的成员相符；`host.effects`、`runtimeRequirements`、`toolchainRequirements`必须落在该方法已实现的范围；`compatibility`固定其保全策略与是否需要迁移。任一项不符都产生细分缺项并保留画像原文，不改写画像来迁就方法，也不把方法的宽容当作画像已满足。
+
+仅源码交付的方法只发射其声明的完整成员，不取得编译、构建、运行或ABI证据。生成结果按三态结算：`complete`要求成员完整、无缺项且无错误；`rejected`要求至少有一个错误；其余为`needs`。成员未完整时不发射任何成员，也不保留指向不存在产物的来源映射；成员完整时成员集与声明逐项相等，不多发占位文件。请求的检查超出本方法范围时按[方法适用性与证据请求](能力履行与接口差额.md#method-applicability-and-evidence)保留为非阻断缺项，不改变上述三态判定。
+
 ## 3. 产品形态到 crate 的映射
 
 | 请求根 | 默认 Rust 形态 | 额外条件 |
@@ -123,6 +130,8 @@ flowchart TD
 | Borrow | `&T / &mut T` 或合格 view/guard | 只有真实 alias/lifetime 前提成立才生成引用 |
 | Callable | 泛型 `Fn*`、函数指针、具名状态对象或字典 | 开放多态、捕获、一次性调用、FFI |
 | Opaque foreign | pointer/handle + owner API | 不伪造大小、Drop 或可解引用引用 |
+
+名义与不透明类型必须有合格的原生表示；没有表示时返回缺项，不能退化为结构记录，也不能按字段形状猜一个同名类型。结构记录的相等按[同一会话的原约束判定](../内核/编译值服务.md#callable-freeze-session-and-closure)，打印形状或字段名相同不构成类型相同。
 
 整数运算如果 Requirement 要求 checked/wrapping/saturating/exact，就生成明确操作；不依赖 Cargo profile 是否开启 overflow-checks 来改变业务语义。相同原则适用于浮点重结合、原子顺序、内存布局和 panic。
 
@@ -249,6 +258,8 @@ Rust `const fn`/const generic 的实际可用范围由固定 toolchain 能力确
 - 原生 Rust hand-written 区域不因同名被生成器接管。
 
 布局策略、文件名和 helper 名只在真实消费者需要时成为稳定合同，不把打印顺序当语义身份。
+
+目标命名消费作者名或显式目标名这一完整名字，不把调用者拼出的token片段当名字：先要求NFC，再按目标的原始语法（Rust `r#`）解析，并要求解析结果逐字回到完整名字——空白、注释或前缀不能被静默吸收。关键字使用目标的原始转义；非ASCII名字另产生与所选工具链Unicode版本的一致性义务，codec自身的Unicode表不签发某个rustc版本接受它。名字映射是显式typed参数：重复或冲突是错误，未被任何已选根或字段使用的映射是缺项，不能当作可忽略的注释。
 
 ## 9. Cargo、依赖与构建闭包
 
