@@ -24,6 +24,8 @@ class Sort:
     identity: str
     revision: str
     accepts: Callable[[Any], bool] = field(compare=False, hash=False, repr=False)
+    equals: Callable[[Any, Any], bool] = field(default=lambda left, right: left == right,
+                                                   compare=False, hash=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +170,7 @@ class Relation:
             # An annotated relation maps each tuple to one annotation.
             # Coalesce equal tuples with algebra addition, never set semantics.
             for index, (existing, weight) in enumerate(formed):
-                if existing == values:
+                if _tuple_equal(roles, existing, values):
                     formed[index] = (existing, algebra.add(weight, annotation))
                     break
             else:
@@ -178,6 +180,10 @@ class Relation:
 
     def mapping(self, row: Row) -> dict[Role, Any]:
         return dict(zip(self.roles, row.values))
+
+
+def _tuple_equal(roles: tuple[Role, ...], left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
+    return len(left) == len(right) and all(role.sort.equals(a, b) for role, a, b in zip(roles, left, right))
 
 
 def _validate_annotation(a: Algebra, value: Any) -> None:
@@ -198,7 +204,7 @@ def _compatible(left: Relation, right: Relation) -> None:
 
 
 def _match(lm: Mapping[Role, Any], rm: Mapping[Role, Any], bindings: tuple[Binding, ...]) -> bool:
-    return all(lm[b.left] == rm[b.right] for b in bindings)
+    return all(b.left.sort.equals(lm[b.left], rm[b.right]) for b in bindings)
 
 
 def join(left: Relation, right: Relation, bindings: Iterable[Binding] = ()) -> Relation:
@@ -222,13 +228,18 @@ def project(source: Relation, keep: Iterable[Role]) -> Relation:
     keep = tuple(keep)
     if len(set(keep)) != len(keep) or any(r not in source.roles for r in keep):
         raise ValueError("projection roles must be unique members of the source")
-    groups: dict[tuple[Any, ...], Any] = {}
+    groups: list[tuple[tuple[Any, ...], Any]] = []
     for row in source.rows:
         values = source.mapping(row)
         key = tuple(values[r] for r in keep)
-        groups[key] = source.algebra.add(groups.get(key, source.algebra.zero()), row.annotation)
+        for index, (existing, weight) in enumerate(groups):
+            if _tuple_equal(keep, existing, key):
+                groups[index] = (existing, source.algebra.add(weight, row.annotation))
+                break
+        else:
+            groups.append((key, row.annotation))
     return Relation.form(source.scope, keep, source.algebra,
-                         [({r: v for r, v in zip(keep, key)}, ann) for key, ann in groups.items()])
+                         [({r: v for r, v in zip(keep, key)}, ann) for key, ann in groups])
 
 
 def semijoin(left: Relation, right: Relation, bindings: Iterable[Binding]) -> Relation:
