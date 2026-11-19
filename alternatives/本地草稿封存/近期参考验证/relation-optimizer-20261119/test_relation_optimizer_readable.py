@@ -37,6 +37,20 @@ class RelationOptimizerTests(unittest.TestCase):
         result = project(join(left, right, (self.binding,)), (self.value_l,))
         self.assertEqual(result.rows[0].annotation, 80)
 
+    def test_relation_formation_coalesces_duplicate_tuples_by_algebra_addition(self):
+        relation = self.rel((self.key_l,), Algebra("count"), [
+            ({self.key_l: "x"}, 2), ({self.key_l: "x"}, 3),
+        ])
+        self.assertEqual(len(relation.rows), 1)
+        self.assertEqual(relation.rows[0].annotation, 5)
+
+    def test_semijoin_demand_cannot_leak_right_output_roles(self):
+        left = Scan("left", frozenset({self.key_l}))
+        right = Scan("right", frozenset({self.key_r}))
+        node = SemiPlan(left, right, frozenset({self.key_l}), frozenset({self.key_r}), (self.binding,))
+        with self.assertRaisesRegex(ValueError, "left-side roles"):
+            demand_closure(node, (self.key_r,))
+
     def test_unbound_join_is_cartesian_within_exact_scope(self):
         a = Algebra("bool")
         left = self.rel((self.key_l,), a, [({self.key_l: "a"}, True)])
