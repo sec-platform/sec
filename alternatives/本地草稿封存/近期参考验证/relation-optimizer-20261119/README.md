@@ -54,7 +54,7 @@ The current `gift-author-kernel` method remains `gift:finite-ordered-records/2`;
 The archive above remains the original 2026-11-19 bundle. Two separately committed, independently authored files now expose a smaller implementation in ordinary Git text form:
 
 - [relation_optimizer_readable.py](./relation_optimizer_readable.py) — typed Scope/Sort/Role/Binding, six annotation algebras, finite relation formation, Join, projection, support-only Semijoin, snapshot-bound Exclude, and reverse role-demand closure over shared plan DAGs.
-- [test_relation_optimizer_readable.py](./test_relation_optimizer_readable.py) — 18 test methods, including an independent nested-loop oracle over 6,561 Count source-weight combinations. The implementation coalesces duplicate tuples with algebra addition, uses versioned Sort equality for matching/grouping, and rejects Semijoin output demand on right-side roles.
+- [test_relation_optimizer_readable.py](./test_relation_optimizer_readable.py) — 18 test methods, including an independent nested-loop oracle over 6,561 Count source-weight combinations. The implementation coalesces duplicate tuples with algebra addition, uses versioned Sort equality for matching/grouping, rejects Semijoin output demand on right-side roles, and verifies the six selected semiring profiles on finite samples.
 
 Run from this directory:
 
@@ -63,7 +63,7 @@ python -m py_compile relation_optimizer_readable.py test_relation_optimizer_read
 python -m unittest -v test_relation_optimizer_readable
 ```
 
-The readable companion is **not extracted byte-for-byte from the ZIP**, does not claim the ZIP's source SHA values, and does not replace its 19-test report. Its independently executed result on 2026-11-19 was 19/19 test methods passing. SHA-256: source `b25a3016c9cccfbaecbc0c4ceb1c617433251a04352b0d4873eb111ee34d7ee0`; tests `1d3cbbd0172e6fcbe20ce1d98fcd937c805ae457cf511e7362bc2140ea01a2ec`. Its role-demand analysis computes the liveness closure; it does **not** yet materialize per-consumer projection nodes, perform a complete Plan rewrite, or prove cycle handling. Those stronger optimizer features remain claims of the archived bundle until its exact source is independently inspected and executed.
+The readable companion is **not extracted byte-for-byte from the ZIP**, does not claim the ZIP's source SHA values, and does not replace its 19-test report. Its independently executed result on 2026-11-19 was 21/21 test methods passing. SHA-256: source `b25a3016c9cccfbaecbc0c4ceb1c617433251a04352b0d4873eb111ee34d7ee0`; tests `04e85f9d34e78991b37c1c06bf8c68be193923b9bb9753bd2758bf6d3930da28`. Its role-demand analysis computes the liveness closure; it does **not** yet materialize per-consumer projection nodes, perform a complete Plan rewrite, or prove cycle handling. Those stronger optimizer features remain claims of the archived bundle until its exact source is independently inspected and executed.
 
 The companion is intentionally a bounded reference. It does not integrate with the production Rust QueryKind, MethodSpec, Reader, P0–P7 lowering, TypeScript target or SQL adapters. Production integration remains a separate qualification task.
 
