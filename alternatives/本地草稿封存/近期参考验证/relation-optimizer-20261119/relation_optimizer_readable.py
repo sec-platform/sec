@@ -156,7 +156,7 @@ class Relation:
         roles = tuple(roles)
         if any(r.scope != scope for r in roles): raise ValueError("role Scope mismatch")
         if len({r.key for r in roles}) != len(roles): raise ValueError("duplicate role occurrence")
-        formed = []
+        formed: list[tuple[tuple[Any, ...], Any]] = []
         for mapping, annotation in rows:
             if set(mapping) != set(roles): raise ValueError("row role set mismatch")
             values = tuple(mapping[r] for r in roles)
@@ -164,8 +164,17 @@ class Relation:
             for role, value in zip(roles, values):
                 if not role.sort.accepts(value): raise ValueError(f"invalid value for role {role.name}")
             _validate_annotation(algebra, annotation)
-            if algebra.supported(annotation): formed.append(Row(values, annotation))
-        return cls(scope, roles, algebra, tuple(formed))
+            if not algebra.supported(annotation): continue
+            # An annotated relation maps each tuple to one annotation.
+            # Coalesce equal tuples with algebra addition, never set semantics.
+            for index, (existing, weight) in enumerate(formed):
+                if existing == values:
+                    formed[index] = (existing, algebra.add(weight, annotation))
+                    break
+            else:
+                formed.append((values, annotation))
+        return cls(scope, roles, algebra, tuple(Row(values, weight) for values, weight in formed
+                                                if algebra.supported(weight)))
 
     def mapping(self, row: Row) -> dict[Role, Any]:
         return dict(zip(self.roles, row.values))
@@ -309,12 +318,27 @@ def demand_closure(root: Any, outputs: Iterable[Role]) -> dict[int, frozenset[Ro
             queue.append((node.source, set(current)))
         elif isinstance(node, Filter):
             queue.append((node.source, set(current) | set(node.predicate_roles)))
-        elif isinstance(node, (JoinPlan, SemiPlan)):
+        elif isinstance(node, JoinPlan):
+            if not current <= (node.left_roles | node.right_roles):
+                raise ValueError("Join output demand is not owned by either input")
+            if any(binding.left not in node.left_roles or binding.right not in node.right_roles for binding in node.bindings):
+                raise ValueError("Join binding is outside its declared input roles")
             left_need = set(current & node.left_roles)
             right_need = set(current & node.right_roles)
             for binding in node.bindings:
                 left_need.add(binding.left)
                 right_need.add(binding.right)
+            queue.append((node.left, left_need))
+            queue.append((node.right, right_need))
+        elif isinstance(node, SemiPlan):
+            if not current <= node.left_roles:
+                raise ValueError("Semijoin can only output left-side roles")
+            if any(binding.left not in node.left_roles or binding.right not in node.right_roles for binding in node.bindings):
+                raise ValueError("Semijoin binding is outside its declared input roles")
+            left_need = set(current)
+            right_need = {binding.right for binding in node.bindings}
+            for binding in node.bindings:
+                left_need.add(binding.left)
             queue.append((node.left, left_need))
             queue.append((node.right, right_need))
         else:
