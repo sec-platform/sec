@@ -1353,6 +1353,10 @@
     {
       "document_id": "urn:uuid:c64c5b81-4501-49f6-bf9d-9e6b349a9966",
       "path": "schema/author/first-layer/SEMANTICS.md"
+    },
+    {
+      "document_id": "urn:uuid:2425f004-b779-5e75-a474-6d70a3910aa4",
+      "path": "docs/架构/全仓总纲与意图语言统一架构.md"
     }
   ]
 }
