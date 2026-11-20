@@ -62,7 +62,7 @@ VS Code官方提供语言feature API及LSP接合；Webview指引要求仅在必�
 
 ### 保留原五个语义视图、七类Inspector信息和All Decisions
 
-原`工作台交互与共同状态.md`已经定义Project、Needs、Decisions、Review、Operations五个真实对象视图。本轮不另命名、不把它们改成五份数据库：Project仍定位工程根、定义与资产，Needs区分相交缺项，Decisions解释有效选择，Review承接候选/差异/影响/独立证据，Operations承接真实操作及恢复。它们可由VS Code原生TreeView和按需文档提供，可移动、折叠或隐藏；不替代原文件树，不要求用户先打开全部视图才能编辑。
+原`工作台交互与共同状态.md`已经定义Project、Needs、Decisions、Review、Operations五个真实对象视图。现行接合不另命名、不把它们改成五份数据库：Project仍定位工程根、定义与资产，Needs区分相交缺项，Decisions解释有效选择，Review承接候选/差异/影响/独立证据，Operations承接真实操作及恢复。它们可由VS Code原生TreeView和按需文档提供，可移动、折叠或隐藏；不替代原文件树，不要求用户先打开全部视图才能编辑。
 
 Inspector的Summary、Contract、Controls、Implementation、Targets、Evidence、Provenance/History七类信息继续按对象渐进可达，缺席不填空卡。All Decisions仍消费原34个参考设定家族、可选导航facet及四轴，保留Meaning、Requirement、Realization Control、Runtime Input、Presentation Preference的区别。六个浏览聚类是Product Semantics、Reliability & Rights、Realization、Runtime & Operations、Assurance & Evolution、Automation & Presentation；它们不是中央业务枚举，也不限制新定义。搜索和按需展开优先，不把所有设置压成一个固定表单。
 
@@ -197,7 +197,7 @@ DAP及已有TS/Rust调试器用于真实运行。作者条款、生成位置和�
 
 同窗口两个项目有相同moduleId时，先按项目根/解释/导入规则区分，不全局合并。跨根依赖须明确授权和真实绑定。远端断线后旧结果不安装为当前，未知操作按旧operationRef读回；重新连接不自动重做安装/提交/发布。
 
-扩展不能把所有`.json`、所有`module.json`都接管。按明确project/sourceScopes及已识别schema启用Gift语义；其他JSON继续由其原插件处理。本轮不改变用户全局文件关联。内置JSON补全与Gift语义诊断分别标明来源、避免同义重复；必要的专用语言id只能在实际冲突需要时采用，不为自己的高亮复制整套编辑器。
+扩展不能把所有`.json`、所有`module.json`都接管。按明确project/sourceScopes及已识别schema启用Gift语义；其他JSON继续由其原插件处理。现行接合不改变用户全局文件关联。内置JSON补全与Gift语义诊断分别标明来源、避免同义重复；必要的专用语言id只能在实际冲突需要时采用，不为自己的高亮复制整套编辑器。
 
 ## 10. 信任、秘密、资源与故障恢复
 
@@ -233,7 +233,7 @@ VS Code API对只含文本编辑的WorkspaceEdit给出all-or-nothing行为；涉
 
 扩展可识别短codec不等于后端能解释。当前作者入口按[唯一完整codec](../作者/紧凑结构与同源编辑.md#final-first-layer-codec)协商准确Reader/Schema/EngineImage修订；不支持时保留源与诊断，不把新字段删掉后提交旧Reader。compact-design-draft只标识按准确内容保留的旧输入，不能作为另一当前Writer或原地改义的稳定版本；正式采用沿原迁移与单Writer规则。完整形和短形在同一design-converged模块内混用，不产生第二份可写工程。
 
-本轮仍没有独立IDE壳、第二Monaco、独立业务store或新的平台首页。语义图、状态表、专业编辑器继续作为当前TextDocument/SourceSnapshot的按需投影；无网络和不使用模型时，真实受支持的编辑/读取路径仍成立。源文件与专业payload中的安装命令、模型指令、URL和伪造角色均属于数据，不因语言服务补全就获得执行权。
+现行设计仍没有独立IDE壳、第二Monaco、独立业务store或新的平台首页。语义图、状态表、专业编辑器继续作为当前TextDocument/SourceSnapshot的按需投影；无网络和不使用模型时，真实受支持的编辑/读取路径仍成立。源文件与专业payload中的安装命令、模型指令、URL和伪造角色均属于数据，不因语言服务补全就获得执行权。
 
 
 <a id="vscode-business-intent-editing"></a>
@@ -253,7 +253,7 @@ VS Code API对只含文本编辑的WorkspaceEdit给出all-or-nothing行为；涉
 <a id="vscode-observation-evolution-view"></a>
 ## 有限观察与兼容差额的原生呈现
 
-本轮仍用VS Code的普通文本、Problems、Hover、CodeAction、原生diff和既有五视图。没有新的统计仪表盘、事实编辑平台或第二文档模型。源码显示的是所选AtLeast/Exactly及完整签名；当前运行观察只在其真实结果槽中显示，不能混入源文件后由用户手改“通过”。
+现行接合仍复用VS Code的普通文本、Problems、Hover、CodeAction、原生diff和既有五视图。没有新的统计仪表盘、事实编辑平台或第二文档模型。源码显示的是所选AtLeast/Exactly及完整签名；当前运行观察只在其真实结果槽中显示，不能混入源文件后由用户手改“通过”。
 
 悬停可分开说明“对给定区间必然满足”“该区间来自哪个合格快照/假设”“当前运行是否仍适用”“有无真正请求作用”。不把查到AllSatisfy显示成整体业务已完成。结果流应绑定原源/运行/范围和各自修订；晚到的旧显示可查看历史，但不覆盖新结果，也不无条件清除另一个生产者的诊断。
 

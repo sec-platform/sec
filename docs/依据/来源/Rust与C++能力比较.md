@@ -1918,16 +1918,16 @@
 **TypeScript Handbook：类型检查与类型注解擦除** — [原始材料](https://www.typescriptlang.org/docs/handbook/2/basic-types.html)。原记录日期：2026-09-22。
 
 <a id="baseline-r1"></a>
-**SEC《语言能力映射与最小控制》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/作者/需求关系与能力边界.md)。原记录日期：2026-09-22。
+**SEC（现 Gift）《语言能力映射与最小控制》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/作者/需求关系与能力边界.md)。原记录日期：2026-09-22。
 
 <a id="baseline-r2"></a>
-**SEC《总体架构》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/架构/总体设计.md)。原记录日期：2026-09-22。
+**SEC（现 Gift）《总体架构》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/架构/总体设计.md)。原记录日期：2026-09-22。
 
 <a id="baseline-r3"></a>
-**SEC《产品要求与工作约束》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/产品/产品要求与工作约束.md)。原记录日期：2026-09-22。
+**SEC（现 Gift）《产品要求与工作约束》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/产品/产品要求与工作约束.md)。原记录日期：2026-09-22。
 
 <a id="baseline-r4"></a>
-**SEC《原则总纲与归属》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/产品/原则总纲与归属.md)。原记录日期：2026-09-22。
+**SEC（现 Gift）《原则总纲与归属》；经 GitHub connector 读取** — [原始材料](https://github.com/sec-platform/sec/blob/main/docs/产品/原则总纲与归属.md)。原记录日期：2026-09-22。
 
 <a id="research-r01"></a>
 **Rust 1.98.1 发布公告** — [原始材料](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/)。原记录日期：2026-09-22。
