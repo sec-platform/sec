@@ -7,7 +7,8 @@ Gift is a **development preview**. This page describes available source entry po
 The repository contains:
 
 - the current integrated design corpus on `main`, with product, authoring, compilation, runtime, assurance, evolution, information, and domain specifications;
-- a TypeScript implementation organized around explicit contracts, workspace state, semantic interpretation, compilation, assurance, application coordination, execution, adapters, entry points, and composition;
+- a TypeScript host implementation (`src/`) organized around explicit contracts, workspace state, semantic interpretation, compilation, assurance, application coordination, execution, adapters, entry points, and composition;
+- a pure deterministic Rust author compiler kernel (`crates/gift-author-kernel/`, 23 modules / 11K+ LOC) implementing the `design-converged` structural reader, semantic/body/effect/callable-freeze analysis, the bounded `/2` TypeScript method, and a source-only Rust library Method (first-class `Requirement`/`Norm`/sparse-control elaboration and `Cargo`/`rustc` toolchain adapters remain open next milestones tracked in [`docs/架构/全仓总纲与意图语言统一架构.md`](docs/架构/全仓总纲与意图语言统一架构.md) and [`docs/状态/README.md`](docs/状态/README.md));
 - tests, repository audits, documentation checks, development-control machinery, and GitHub workflows;
 - authoring examples and reference/demo entry points.
 

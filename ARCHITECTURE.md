@@ -45,6 +45,10 @@ The architecture uses ten implementation responsibilities:
 The [canonical assembly graph](docs/架构/协作与状态边界.md#fig-whole-system-assembly) connects these responsibilities. The [physical module contract](docs/架构/装配/模块与运行实例.md) owns static dependencies and instance lifetimes; a collaboration arrow does not redefine either.
 
 
+## Declarative intent layer vs. pure Rust execution kernel
+
+Gift's author surface is a **declarative intent language** (objects, outcomes, invariants, inherited-contract deltas, four-part norms, and sparse controls—not imperative loops or target boilerplate; see [Master Synthesis](docs/架构/全仓总纲与意图语言统一架构.md) and [First-layer language](docs/作者/第一层语言.md)). The pure compilation execution region is converging toward a single Rust production owner (`crates/gift-author-kernel/`, zero direct filesystem/env/Git/clock/network I/O) governed by [implementation-language and K0–K3 cutover](docs/架构/实现语言与机制演进.md), while 32 professional research families (568 contracts) map into active specs via [32-family ownership](docs/信息/专业语义承接与族所有权.md) without ever being imported by `src/`.
+
 ## Two input paths, one downstream model
 
 For existing software, Gift captures exact physical observations, language and dependency facts, and candidate responsibilities. It adopts supported meaning, rejects disproven interpretations, and preserves material unknowns.

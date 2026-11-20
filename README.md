@@ -38,6 +38,7 @@ The canonical design corpus currently uses Chinese titles and paths:
 
 | Question | Canonical entry |
 |---|---|
+| **Single-entrypoint master consolidation** | **[Gift Master Architecture & Intent Language Synthesis](docs/架构/全仓总纲与意图语言统一架构.md)** |
 | What is the product and what constraints apply? | [Product scope and constraints](docs/产品/README.md) |
 | How is the complete system divided and connected? | [System architecture](docs/架构/总体设计.md) |
 | Where is a subsystem, interface, or concrete design? | [Documentation index](docs/README.md) · [Task routes](docs/任务路线.md) |
@@ -49,7 +50,7 @@ The summaries in this root directory are reader-facing projections. Canonical de
 
 ## Project status
 
-The repository contains a TypeScript implementation, tests, design specifications, examples, and verification infrastructure. Capabilities are at different stages of implementation and validation.
+The repository's primary focus is the **Gift Declarative Intent Language** (structured semantic source + lossless declarative co-source projection; see [Master Synthesis](docs/架构/全仓总纲与意图语言统一架构.md) and [First-layer language](docs/作者/第一层语言.md)), implemented across the pure deterministic Rust author compiler kernel (`crates/gift-author-kernel/`) and TypeScript host (`src/`), alongside 32-family research-inheritance checks (`check_research_inheritance.py`), tests, specifications, and examples. Capabilities are at different stages of implementation and validation.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the maturity boundary and a reproducible starting path.
 
